@@ -44,6 +44,32 @@
 
 T8 release gate 是本地工程验收，不自动等于客户或生产验收。
 
+### GitHub Release 与 Docker Hub
+
+正式镜像发布由 `.github/workflows/docker-release.yml` 负责，目标固定为：
+
+```text
+docker.io/massif01/chatraw-server
+```
+
+仓库管理员必须先在 GitHub Repository Actions Secrets 中配置：
+
+```text
+DOCKERHUB_TOKEN=<Docker Hub personal access token with Read & Write permission>
+```
+
+Token 不得写入源码、Release 文本、构建参数或普通 GitHub Variable。
+
+发布 GitHub Release 时，Tag 必须采用 `vMAJOR.MINOR.PATCH`。发布事件会从该
+Tag 对应的 commit 构建同一份 Dockerfile，并推送：
+
+- `MAJOR.MINOR.PATCH`；
+- `latest`，仅用于非预发布版本；
+- 同一 manifest 下的 `linux/amd64` 和 `linux/arm64` 镜像。
+
+工作流在推送后读取远程 manifest，并要求两个平台同时存在。GitHub Release 和
+Docker Hub manifest 均成功后，才能把该版本标记为“镜像已发布”。
+
 ### 部署
 
 优先部署到新目录、新 Compose project 或新卷，不在原数据上直接覆盖：
@@ -94,6 +120,12 @@ T8 release gate 是本地工程验收，不自动等于客户或生产验收。
 ## English
 
 A release freezes commits, versions, OpenAPI, JSON Schemas, module and plugin artifacts, database Schema, and verified backup manifests. Run the full T8 release gate, complete a real two-role browser flow, drain writes, and restore Server and module backups into an isolated destination before rollout.
+
+Published GitHub Releases trigger `.github/workflows/docker-release.yml`. The
+workflow requires a repository Actions secret named `DOCKERHUB_TOKEN`, publishes
+`docker.io/massif01/chatraw-server`, and verifies that the resulting manifest
+contains both `linux/amd64` and `linux/arm64`. Stable releases publish the exact
+semantic version and `latest`; prereleases do not update `latest`.
 
 Prefer a new directory, Compose project, or volume. Verify Server readiness, module health/readiness, admin management, member use, normal chat, Agent, audit output, and browser secret-negative checks before switching traffic.
 

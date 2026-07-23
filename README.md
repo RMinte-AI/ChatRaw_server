@@ -55,6 +55,14 @@ ChatRaw Server 是共享平台，不是应用编排或租户隔离平台。聊�
 
 要求：Docker Engine 和 Docker Compose v2。
 
+正式发布镜像同时支持 x86-64 与 ARM64：
+
+```bash
+docker pull massif01/chatraw-server:0.0.1
+```
+
+需要使用仓库内 Compose 配置和本地源码构建时：
+
 ```bash
 ./scripts/create-module-network.sh
 docker compose up -d --build
@@ -212,6 +220,14 @@ Classic imported resources have no creator. Members can use them, while only adm
 ## Quick start
 
 ### Docker Compose
+
+The published image supports both x86-64 and ARM64:
+
+```bash
+docker pull massif01/chatraw-server:0.0.1
+```
+
+To build from this repository and use its Compose configuration:
 
 ```bash
 ./scripts/create-module-network.sh

@@ -5,6 +5,8 @@ CI test: verify AI review on business-only PR (no .github changes).
 """
 
 import os
+import base64
+import binascii
 import json
 import uuid
 import asyncio
@@ -21,6 +23,9 @@ import threading
 import tempfile
 import zipfile
 import ipaddress
+import socket
+import stat
+import hashlib
 from yarl import URL as YarlURL
 from datetime import datetime, timezone
 from pathlib import Path, PurePosixPath
@@ -93,7 +98,7 @@ def setup_logging():
 logger = setup_logging()
 
 from fastapi import FastAPI, HTTPException, UploadFile, File, Request, Form
-from fastapi.responses import StreamingResponse, JSONResponse, FileResponse
+from fastapi.responses import StreamingResponse, JSONResponse, FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.base import BaseHTTPMiddleware
@@ -103,6 +108,59 @@ import sqlite3
 import math
 from collections import defaultdict
 import time as time_module
+
+try:
+    from .db_migrations import (
+        apply_migrations,
+        assert_supported_schema,
+    )
+    from .db_runtime import (
+        DEFAULT_BUSY_TIMEOUT_MS,
+        database_connection,
+        open_database,
+    )
+    from .auth import (
+        AuthError,
+        AuthService,
+        Principal,
+        SESSION_COOKIE,
+        ensure_setup_secret,
+    )
+    from .module_protocol import MAX_CONFIG_BYTES
+    from .module_registry import (
+        ModuleAddressPolicy,
+        ModuleHttpClient,
+        ModuleRegistry,
+        ModuleRegistryError,
+    )
+    from .module_task_protocol import MAX_TASK_REQUEST_BYTES
+    from .module_tasks import ModuleTaskError, ModuleTaskService
+except ImportError:
+    from db_migrations import (
+        apply_migrations,
+        assert_supported_schema,
+    )
+    from db_runtime import (
+        DEFAULT_BUSY_TIMEOUT_MS,
+        database_connection,
+        open_database,
+    )
+    from auth import (
+        AuthError,
+        AuthService,
+        Principal,
+        SESSION_COOKIE,
+        ensure_setup_secret,
+    )
+    from module_protocol import MAX_CONFIG_BYTES
+    from module_registry import (
+        ModuleAddressPolicy,
+        ModuleHttpClient,
+        ModuleRegistry,
+        ModuleRegistryError,
+    )
+    from module_task_protocol import MAX_TASK_REQUEST_BYTES
+    from module_tasks import ModuleTaskError, ModuleTaskService
 
 BACKEND_DIR = os.path.dirname(os.path.abspath(__file__))
 FONT_DIR = Path(BACKEND_DIR, "static", "fonts").resolve()
@@ -225,29 +283,67 @@ class Message(BaseModel):
     content: str
     created_at: str
 
+
+def encode_chat_cursor(updated_at: str, chat_id: str) -> str:
+    payload = json.dumps(
+        [updated_at, chat_id],
+        separators=(",", ":"),
+    ).encode("utf-8")
+    return base64.urlsafe_b64encode(payload).decode("ascii").rstrip("=")
+
+
+def decode_chat_cursor(cursor: str) -> Tuple[str, str]:
+    try:
+        padded = cursor + ("=" * (-len(cursor) % 4))
+        payload = json.loads(
+            base64.urlsafe_b64decode(padded.encode("ascii")).decode("utf-8")
+        )
+    except (ValueError, UnicodeDecodeError, binascii.Error) as error:
+        raise ValueError("invalid chat cursor") from error
+    if (
+        not isinstance(payload, list)
+        or len(payload) != 2
+        or not all(isinstance(value, str) for value in payload)
+    ):
+        raise ValueError("invalid chat cursor")
+    return payload[0], payload[1]
+
 # ============ Database ============
 
 class Database:
-    def __init__(self, db_path: str):
+    def __init__(
+        self,
+        db_path: str,
+        busy_timeout_ms: int = DEFAULT_BUSY_TIMEOUT_MS,
+    ):
         self.db_path = db_path
-        self._conn = None
+        self.busy_timeout_ms = busy_timeout_ms
         self.init_db()
     
     def get_conn(self):
-        """Get reusable connection (singleton pattern for SQLite)"""
-        if self._conn is None:
-            self._conn = sqlite3.connect(self.db_path, check_same_thread=False)
-            self._conn.row_factory = sqlite3.Row
-            # Enable WAL mode for better concurrent read performance
-            self._conn.execute("PRAGMA journal_mode=WAL")
-            self._conn.execute("PRAGMA synchronous=NORMAL")
-        return self._conn
+        """Return a caller-owned, independently configured connection."""
+        return open_database(
+            self.db_path,
+            busy_timeout_ms=self.busy_timeout_ms,
+        )
+
+    def connection(self, *, write: bool = False, immediate: bool = False):
+        return database_connection(
+            self.db_path,
+            busy_timeout_ms=self.busy_timeout_ms,
+            write=write,
+            immediate=immediate,
+        )
     
     def init_db(self):
-        conn = self.get_conn()
-        cursor = conn.cursor()
-        
-        cursor.executescript("""
+        db_path = Path(self.db_path)
+        if db_path.exists() and db_path.stat().st_size:
+            with self.connection() as connection:
+                assert_supported_schema(connection)
+
+        with self.connection(write=True) as connection:
+            connection.execute("PRAGMA journal_mode = WAL")
+            connection.executescript("""
             CREATE TABLE IF NOT EXISTS settings (
                 key TEXT PRIMARY KEY,
                 value TEXT NOT NULL
@@ -325,41 +421,15 @@ class Database:
             CREATE INDEX IF NOT EXISTS idx_chats_updated ON chats(updated_at DESC);
             CREATE INDEX IF NOT EXISTS idx_model_type ON model_configs(type);
         """)
-        
-        conn.commit()
-        
-        # Migrate old JSON embeddings to binary format
-        self._migrate_embeddings(conn)
-        
-        # Initialize defaults
-        self._init_defaults(conn)
-    
-    def _migrate_embeddings(self, conn):
-        """Migrate old JSON embeddings to binary BLOB format"""
-        cursor = conn.cursor()
-        # Check if there are any text-based embeddings to migrate
-        cursor.execute("SELECT id, embedding FROM document_chunks WHERE embedding IS NOT NULL LIMIT 1")
-        row = cursor.fetchone()
-        if row and row["embedding"]:
-            # Check if it's JSON (starts with '[')
-            try:
-                data = row["embedding"]
-                if isinstance(data, str) and data.startswith('['):
-                    logger.info("Migrating embeddings from JSON to binary format")
-                    cursor.execute("SELECT id, embedding FROM document_chunks WHERE embedding IS NOT NULL")
-                    rows = cursor.fetchall()
-                    for r in rows:
-                        if isinstance(r["embedding"], str):
-                            try:
-                                emb_list = json.loads(r["embedding"])
-                                emb_bytes = embedding_to_bytes(emb_list)
-                                cursor.execute("UPDATE document_chunks SET embedding = ? WHERE id = ?", (emb_bytes, r["id"]))
-                            except:
-                                pass
-                    conn.commit()
-                    logger.info(f"Migrated {len(rows)} embeddings to binary format")
-            except:
-                pass
+
+        migration_connection = self.get_conn()
+        try:
+            apply_migrations(migration_connection)
+        finally:
+            migration_connection.close()
+
+        with self.connection(write=True) as connection:
+            self._init_defaults(connection)
     
     def _init_defaults(self, conn):
         cursor = conn.cursor()
@@ -391,25 +461,26 @@ class Database:
     
     # Settings
     def get_settings(self) -> Settings:
-        cursor = self.get_conn().cursor()
-        cursor.execute("SELECT value FROM settings WHERE key = ?", ("global",))
-        row = cursor.fetchone()
+        with self.connection() as connection:
+            row = connection.execute(
+                "SELECT value FROM settings WHERE key = ?",
+                ("global",),
+            ).fetchone()
         if row:
             return Settings.model_validate_json(row["value"])
         return Settings()
     
     def save_settings(self, settings: Settings):
-        conn = self.get_conn()
-        cursor = conn.cursor()
-        cursor.execute("INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)",
-                      ("global", settings.model_dump_json()))
-        conn.commit()
+        with self.connection(write=True) as connection:
+            connection.execute(
+                "INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)",
+                ("global", settings.model_dump_json()),
+            )
     
     # Model configs
     def get_model_configs(self) -> List[ModelConfig]:
-        cursor = self.get_conn().cursor()
-        cursor.execute("SELECT * FROM model_configs")
-        rows = cursor.fetchall()
+        with self.connection() as connection:
+            rows = connection.execute("SELECT * FROM model_configs").fetchall()
         
         configs = []
         for row in rows:
@@ -428,9 +499,11 @@ class Database:
         return configs
     
     def get_model_by_type(self, model_type: str) -> Optional[ModelConfig]:
-        cursor = self.get_conn().cursor()
-        cursor.execute("SELECT * FROM model_configs WHERE type = ? LIMIT 1", (model_type,))
-        row = cursor.fetchone()
+        with self.connection() as connection:
+            row = connection.execute(
+                "SELECT * FROM model_configs WHERE type = ? LIMIT 1",
+                (model_type,),
+            ).fetchone()
         
         if row:
             cap = json.loads(row["capability"]) if row["capability"] else {}
@@ -446,34 +519,68 @@ class Database:
                 capability=ModelCapability(**cap)
             )
         return None
+
+    def get_model_by_id(self, model_id: str) -> Optional[ModelConfig]:
+        with self.connection() as connection:
+            row = connection.execute(
+                "SELECT * FROM model_configs WHERE id = ?",
+                (model_id,),
+            ).fetchone()
+        if row is None:
+            return None
+        capability = json.loads(row["capability"]) if row["capability"] else {}
+        return ModelConfig(
+            id=row["id"],
+            name=row["name"] or "",
+            api_key=row["api_key"] or "",
+            api_url=row["api_url"] or "",
+            model_id=row["model_id"] or "",
+            context_length=row["context_length"] or 8192,
+            max_output=row["max_output"] or 4096,
+            type=row["type"] or "chat",
+            capability=ModelCapability(**capability),
+        )
     
     def save_model_config(self, config: ModelConfig) -> ModelConfig:
         if not config.id:
             config.id = str(uuid.uuid4())
         
-        conn = self.get_conn()
-        cursor = conn.cursor()
-        cursor.execute("""
-            INSERT OR REPLACE INTO model_configs 
-            (id, name, api_key, api_url, model_id, context_length, max_output, type, capability, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """, (config.id, config.name or config.model_id, config.api_key, config.api_url, config.model_id,
-              config.context_length, config.max_output, config.type,
-              json.dumps(config.capability.model_dump()), datetime.now().isoformat()))
-        conn.commit()
+        with self.connection(write=True) as connection:
+            connection.execute("""
+                INSERT OR REPLACE INTO model_configs
+                (id, name, api_key, api_url, model_id, context_length, max_output, type, capability, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                config.id,
+                config.name or config.model_id,
+                config.api_key,
+                config.api_url,
+                config.model_id,
+                config.context_length,
+                config.max_output,
+                config.type,
+                json.dumps(config.capability.model_dump()),
+                datetime.now().isoformat(),
+            ))
         return config
     
     def delete_model_config(self, model_id: str):
-        conn = self.get_conn()
-        cursor = conn.cursor()
-        cursor.execute("DELETE FROM model_configs WHERE id = ?", (model_id,))
-        conn.commit()
+        with self.connection(write=True) as connection:
+            connection.execute(
+                "DELETE FROM model_configs WHERE id = ?",
+                (model_id,),
+            )
     
     # Chats
     def get_chats(self) -> List[Chat]:
-        cursor = self.get_conn().cursor()
-        cursor.execute("SELECT * FROM chats ORDER BY updated_at DESC LIMIT 10")
-        rows = cursor.fetchall()
+        with self.connection() as connection:
+            rows = connection.execute(
+                """
+                SELECT *
+                FROM chats
+                ORDER BY COALESCE(updated_at, '') DESC, id DESC
+                """
+            ).fetchall()
         
         return [Chat(
             id=row["id"],
@@ -481,59 +588,156 @@ class Database:
             created_at=row["created_at"],
             updated_at=row["updated_at"]
         ) for row in rows]
+
+    def get_chats_page(
+        self,
+        limit: int,
+        cursor: Optional[Tuple[str, str]] = None,
+    ) -> Tuple[List[Chat], Optional[Tuple[str, str]]]:
+        parameters: list[Any] = []
+        where = ""
+        if cursor is not None:
+            cursor_updated_at, cursor_id = cursor
+            where = """
+                WHERE COALESCE(updated_at, '') < ?
+                   OR (
+                       COALESCE(updated_at, '') = ?
+                       AND id < ?
+                   )
+            """
+            parameters.extend(
+                [cursor_updated_at, cursor_updated_at, cursor_id]
+            )
+        parameters.append(limit + 1)
+
+        with self.connection() as connection:
+            rows = connection.execute(
+                f"""
+                SELECT *
+                FROM chats
+                {where}
+                ORDER BY COALESCE(updated_at, '') DESC, id DESC
+                LIMIT ?
+                """,
+                parameters,
+            ).fetchall()
+
+        has_more = len(rows) > limit
+        page_rows = rows[:limit]
+        chats = [
+            Chat(
+                id=row["id"],
+                title=row["title"],
+                created_at=row["created_at"],
+                updated_at=row["updated_at"],
+            )
+            for row in page_rows
+        ]
+        next_cursor = None
+        if has_more and page_rows:
+            last_row = page_rows[-1]
+            next_cursor = (
+                last_row["updated_at"] or "",
+                last_row["id"],
+            )
+        return chats, next_cursor
     
-    def create_chat(self, title: str = "New Chat") -> Chat:
-        conn = self.get_conn()
-        cursor = conn.cursor()
-        # Cleanup old chats and their messages
-        cursor.execute("SELECT id FROM chats ORDER BY updated_at DESC LIMIT -1 OFFSET 9")
-        stale_chat_ids = [row["id"] for row in cursor.fetchall()]
-        if stale_chat_ids:
-            stale_chats_subquery = "SELECT id FROM chats ORDER BY updated_at DESC LIMIT -1 OFFSET 9"
-            cursor.execute(f"DELETE FROM chat_compactions WHERE chat_id IN ({stale_chats_subquery})")
-            cursor.execute(f"DELETE FROM chat_skill_activations WHERE chat_id IN ({stale_chats_subquery})")
-            cursor.execute(f"DELETE FROM messages WHERE chat_id IN ({stale_chats_subquery})")
-            cursor.execute(f"DELETE FROM chats WHERE id IN ({stale_chats_subquery})")
-            for stale_chat_id in stale_chat_ids:
-                _context_compaction_locks.pop(stale_chat_id, None)
-        
+    def create_chat(
+        self,
+        title: str = "New Chat",
+        owner_user_id: Optional[str] = None,
+    ) -> Chat:
         chat_id = str(uuid.uuid4())
         now = datetime.now().isoformat()
-        cursor.execute("INSERT INTO chats (id, title, created_at, updated_at) VALUES (?, ?, ?, ?)",
-                      (chat_id, title, now, now))
-        conn.commit()
+        with self.connection(write=True) as connection:
+            connection.execute(
+                """
+                INSERT INTO chats
+                    (id, title, created_at, updated_at, owner_user_id)
+                VALUES (?, ?, ?, ?, ?)
+                """,
+                (chat_id, title, now, now, owner_user_id),
+            )
         
         return Chat(id=chat_id, title=title, created_at=now, updated_at=now)
     
     def update_chat_title(self, chat_id: str, title: str):
-        conn = self.get_conn()
-        cursor = conn.cursor()
-        cursor.execute("UPDATE chats SET title = ?, updated_at = ? WHERE id = ?",
-                      (title, datetime.now().isoformat(), chat_id))
-        conn.commit()
+        with self.connection(write=True) as connection:
+            connection.execute(
+                "UPDATE chats SET title = ?, updated_at = ? WHERE id = ?",
+                (title, datetime.now().isoformat(), chat_id),
+            )
+
+    def get_chat_owner(self, chat_id: str) -> Optional[str]:
+        with self.connection() as connection:
+            row = connection.execute(
+                "SELECT owner_user_id FROM chats WHERE id = ?",
+                (chat_id,),
+            ).fetchone()
+        if row is None:
+            raise HTTPException(status_code=404, detail="Chat not found")
+        return row["owner_user_id"]
+
+    def chat_can_auto_title(self, chat_id: str) -> bool:
+        with self.connection() as connection:
+            row = connection.execute(
+                """
+                SELECT chats.owner_user_id, messages.author_user_id
+                FROM chats
+                LEFT JOIN messages
+                  ON messages.chat_id = chats.id
+                 AND messages.sequence = 1
+                WHERE chats.id = ?
+                """,
+                (chat_id,),
+            ).fetchone()
+        return bool(
+            row
+            and row["owner_user_id"] == row["author_user_id"]
+        )
     
     def delete_chat(self, chat_id: str):
-        conn = self.get_conn()
-        cursor = conn.cursor()
-        cursor.execute("DELETE FROM chat_compactions WHERE chat_id = ?", (chat_id,))
-        cursor.execute("DELETE FROM chat_skill_activations WHERE chat_id = ?", (chat_id,))
-        cursor.execute("DELETE FROM messages WHERE chat_id = ?", (chat_id,))
-        cursor.execute("DELETE FROM chats WHERE id = ?", (chat_id,))
-        conn.commit()
+        with self.connection(write=True) as connection:
+            connection.execute(
+                "DELETE FROM chat_compactions WHERE chat_id = ?",
+                (chat_id,),
+            )
+            connection.execute(
+                "DELETE FROM chat_skill_activations WHERE chat_id = ?",
+                (chat_id,),
+            )
+            connection.execute(
+                "DELETE FROM messages WHERE chat_id = ?",
+                (chat_id,),
+            )
+            connection.execute(
+                "DELETE FROM chats WHERE id = ?",
+                (chat_id,),
+            )
         _context_compaction_locks.pop(chat_id, None)
     
     # Messages
     def chat_exists(self, chat_id: str) -> bool:
         if not chat_id:
             return False
-        cursor = self.get_conn().cursor()
-        cursor.execute("SELECT 1 FROM chats WHERE id = ? LIMIT 1", (chat_id,))
-        return cursor.fetchone() is not None
+        with self.connection() as connection:
+            row = connection.execute(
+                "SELECT 1 FROM chats WHERE id = ? LIMIT 1",
+                (chat_id,),
+            ).fetchone()
+        return row is not None
 
     def get_messages(self, chat_id: str) -> List[Message]:
-        cursor = self.get_conn().cursor()
-        cursor.execute("SELECT * FROM messages WHERE chat_id = ? ORDER BY created_at ASC", (chat_id,))
-        rows = cursor.fetchall()
+        with self.connection() as connection:
+            rows = connection.execute(
+                """
+                SELECT *
+                FROM messages
+                WHERE chat_id = ?
+                ORDER BY sequence ASC, COALESCE(created_at, '') ASC, rowid ASC
+                """,
+                (chat_id,),
+            ).fetchall()
         
         return [Message(
             id=row["id"],
@@ -543,16 +747,47 @@ class Database:
             created_at=row["created_at"]
         ) for row in rows]
     
-    def add_message(self, chat_id: str, role: str, content: str) -> Message:
+    def add_message(
+        self,
+        chat_id: str,
+        role: str,
+        content: str,
+        author_user_id: Optional[str] = None,
+    ) -> Message:
         msg_id = str(uuid.uuid4())
         now = datetime.now().isoformat()
         
-        conn = self.get_conn()
-        cursor = conn.cursor()
-        cursor.execute("INSERT INTO messages (id, chat_id, role, content, created_at) VALUES (?, ?, ?, ?, ?)",
-                      (msg_id, chat_id, role, content, now))
-        cursor.execute("UPDATE chats SET updated_at = ? WHERE id = ?", (now, chat_id))
-        conn.commit()
+        with self.connection(write=True, immediate=True) as connection:
+            row = connection.execute(
+                """
+                SELECT COALESCE(MAX(sequence), 0) + 1 AS next_sequence
+                FROM messages
+                WHERE chat_id = ?
+                """,
+                (chat_id,),
+            ).fetchone()
+            sequence = int(row["next_sequence"])
+            connection.execute(
+                """
+                INSERT INTO messages
+                    (id, chat_id, role, content, created_at,
+                     author_user_id, sequence)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    msg_id,
+                    chat_id,
+                    role,
+                    content,
+                    now,
+                    author_user_id,
+                    sequence,
+                ),
+            )
+            connection.execute(
+                "UPDATE chats SET updated_at = ? WHERE id = ?",
+                (now, chat_id),
+            )
         
         return Message(id=msg_id, chat_id=chat_id, role=role, content=content, created_at=now)
 
@@ -572,23 +807,23 @@ class Database:
                 now,
             ))
 
-        conn = self.get_conn()
-        cursor = conn.cursor()
-        cursor.executemany(
-            """
-            INSERT INTO chat_skill_activations
-                (id, chat_id, message_id, skill_name, source_json, created_at)
-            VALUES (?, ?, ?, ?, ?, ?)
-            """,
-            rows,
-        )
-        conn.commit()
+        with self.connection(write=True) as connection:
+            connection.executemany(
+                """
+                INSERT INTO chat_skill_activations
+                    (id, chat_id, message_id, skill_name, source_json, created_at)
+                VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                rows,
+            )
 
     # Context compaction
     def get_chat_compaction(self, chat_id: str) -> Optional[dict]:
-        cursor = self.get_conn().cursor()
-        cursor.execute("SELECT * FROM chat_compactions WHERE chat_id = ?", (chat_id,))
-        row = cursor.fetchone()
+        with self.connection() as connection:
+            row = connection.execute(
+                "SELECT * FROM chat_compactions WHERE chat_id = ?",
+                (chat_id,),
+            ).fetchone()
         return dict(row) if row else None
 
     def save_chat_compaction(
@@ -601,32 +836,30 @@ class Database:
         compressed_message_count: int,
     ) -> dict:
         updated_at = datetime.now().isoformat()
-        conn = self.get_conn()
-        cursor = conn.cursor()
-        cursor.execute("""
-            INSERT INTO chat_compactions
-                (chat_id, summary, boundary_message_id, boundary_created_at,
-                 original_token_estimate, summary_token_estimate, compressed_message_count, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            ON CONFLICT(chat_id) DO UPDATE SET
-                summary = excluded.summary,
-                boundary_message_id = excluded.boundary_message_id,
-                boundary_created_at = excluded.boundary_created_at,
-                original_token_estimate = excluded.original_token_estimate,
-                summary_token_estimate = excluded.summary_token_estimate,
-                compressed_message_count = excluded.compressed_message_count,
-                updated_at = excluded.updated_at
-        """, (
-            chat_id,
-            summary,
-            boundary_message.id,
-            boundary_message.created_at,
-            original_token_estimate,
-            summary_token_estimate,
-            compressed_message_count,
-            updated_at,
-        ))
-        conn.commit()
+        with self.connection(write=True) as connection:
+            connection.execute("""
+                INSERT INTO chat_compactions
+                    (chat_id, summary, boundary_message_id, boundary_created_at,
+                     original_token_estimate, summary_token_estimate, compressed_message_count, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(chat_id) DO UPDATE SET
+                    summary = excluded.summary,
+                    boundary_message_id = excluded.boundary_message_id,
+                    boundary_created_at = excluded.boundary_created_at,
+                    original_token_estimate = excluded.original_token_estimate,
+                    summary_token_estimate = excluded.summary_token_estimate,
+                    compressed_message_count = excluded.compressed_message_count,
+                    updated_at = excluded.updated_at
+            """, (
+                chat_id,
+                summary,
+                boundary_message.id,
+                boundary_message.created_at,
+                original_token_estimate,
+                summary_token_estimate,
+                compressed_message_count,
+                updated_at,
+            ))
         return {
             "chat_id": chat_id,
             "summary": summary,
@@ -640,45 +873,93 @@ class Database:
     
     # Documents
     def get_documents(self):
-        cursor = self.get_conn().cursor()
-        cursor.execute("SELECT id, filename, created_at FROM documents ORDER BY created_at DESC")
-        rows = cursor.fetchall()
+        with self.connection() as connection:
+            rows = connection.execute(
+                """
+                SELECT id, filename, created_at, uploader_user_id
+                FROM documents
+                ORDER BY created_at DESC
+                """
+            ).fetchall()
         return [{"id": r["id"], "filename": r["filename"], "created_at": r["created_at"]} for r in rows]
+
+    def get_document_owner(self, doc_id: str) -> Optional[str]:
+        with self.connection() as connection:
+            row = connection.execute(
+                "SELECT uploader_user_id FROM documents WHERE id = ?",
+                (doc_id,),
+            ).fetchone()
+        if row is None:
+            raise HTTPException(status_code=404, detail="Document not found")
+        return row["uploader_user_id"]
     
-    def save_document(self, filename: str, content: str) -> str:
+    def save_document(
+        self,
+        filename: str,
+        content: str,
+        uploader_user_id: Optional[str] = None,
+    ) -> str:
         doc_id = str(uuid.uuid4())
-        conn = self.get_conn()
-        cursor = conn.cursor()
-        cursor.execute("INSERT INTO documents (id, filename, content, created_at) VALUES (?, ?, ?, ?)",
-                      (doc_id, filename, content, datetime.now().isoformat()))
-        conn.commit()
+        with self.connection(write=True) as connection:
+            connection.execute(
+                """
+                INSERT INTO documents
+                    (id, filename, content, created_at, uploader_user_id)
+                VALUES (?, ?, ?, ?, ?)
+                """,
+                (
+                    doc_id,
+                    filename,
+                    content,
+                    datetime.now().isoformat(),
+                    uploader_user_id,
+                ),
+            )
         return doc_id
     
     def delete_document(self, doc_id: str):
-        conn = self.get_conn()
-        cursor = conn.cursor()
-        cursor.execute("DELETE FROM document_chunks WHERE document_id = ?", (doc_id,))
-        cursor.execute("DELETE FROM documents WHERE id = ?", (doc_id,))
-        conn.commit()
+        with self.connection(write=True) as connection:
+            connection.execute(
+                "DELETE FROM document_chunks WHERE document_id = ?",
+                (doc_id,),
+            )
+            connection.execute(
+                "DELETE FROM documents WHERE id = ?",
+                (doc_id,),
+            )
     
     def save_chunk(self, doc_id: str, content: str, embedding: List[float] = None):
         """Save chunk with binary embedding"""
         chunk_id = str(uuid.uuid4())
-        conn = self.get_conn()
-        cursor = conn.cursor()
         emb_data = embedding_to_bytes(embedding) if embedding else None
-        cursor.execute("INSERT INTO document_chunks (id, document_id, content, embedding, created_at) VALUES (?, ?, ?, ?, ?)",
-                      (chunk_id, doc_id, content, emb_data, datetime.now().isoformat()))
-        conn.commit()
+        with self.connection(write=True) as connection:
+            connection.execute(
+                """
+                INSERT INTO document_chunks
+                    (id, document_id, content, embedding, created_at)
+                VALUES (?, ?, ?, ?, ?)
+                """,
+                (
+                    chunk_id,
+                    doc_id,
+                    content,
+                    emb_data,
+                    datetime.now().isoformat(),
+                ),
+            )
     
     def get_chunks_with_embedding(self, limit: int = 500, offset: int = 0):
         """Get chunks with pagination for memory efficiency"""
-        cursor = self.get_conn().cursor()
-        cursor.execute(
-            "SELECT id, document_id, content, embedding FROM document_chunks WHERE embedding IS NOT NULL LIMIT ? OFFSET ?",
-            (limit, offset)
-        )
-        rows = cursor.fetchall()
+        with self.connection() as connection:
+            rows = connection.execute(
+                """
+                SELECT id, document_id, content, embedding
+                FROM document_chunks
+                WHERE embedding IS NOT NULL
+                LIMIT ? OFFSET ?
+                """,
+                (limit, offset),
+            ).fetchall()
         
         chunks = []
         for r in rows:
@@ -696,9 +977,15 @@ class Database:
     
     def get_total_chunks_count(self) -> int:
         """Get total count of chunks with embeddings"""
-        cursor = self.get_conn().cursor()
-        cursor.execute("SELECT COUNT(*) FROM document_chunks WHERE embedding IS NOT NULL")
-        return cursor.fetchone()[0]
+        with self.connection() as connection:
+            row = connection.execute(
+                """
+                SELECT COUNT(*)
+                FROM document_chunks
+                WHERE embedding IS NOT NULL
+                """
+            ).fetchone()
+        return row[0]
 
 CONTEXT_COMPRESSOR_PLUGIN_ID = "context-compressor"
 CONTEXT_COMPRESSOR_KEEP_MESSAGES = 6
@@ -1578,6 +1865,50 @@ class RAGService:
 
 DATA_DIR = os.environ.get("DATA_DIR", "./data")
 os.makedirs(DATA_DIR, exist_ok=True)
+TEST_MODE = os.environ.get("CHATRAW_TEST_MODE", "0") == "1"
+DEV_MODE = os.environ.get("CHATRAW_DEV_MODE", "0") == "1" or TEST_MODE
+CONTAINERIZED = os.environ.get("CHATRAW_CONTAINERIZED", "0") == "1"
+MODULE_NETWORK_NAME = os.environ.get(
+    "CHATRAW_MODULE_NETWORK",
+    "chatraw-modules",
+)
+LOOPBACK_DEV_MODE = (
+    os.environ.get("CHATRAW_LOOPBACK_DEV", "0") == "1" or TEST_MODE
+)
+TRUST_PROXY_HEADERS = os.environ.get("CHATRAW_TRUST_PROXY_HEADERS", "0") == "1"
+TRUSTED_PROXY_IPS = {
+    item.strip()
+    for item in os.environ.get("CHATRAW_TRUSTED_PROXY_IPS", "").split(",")
+    if item.strip()
+}
+SETUP_SECRET_FILE = Path(
+    os.environ.get(
+        "CHATRAW_SETUP_SECRET_FILE",
+        os.path.join(DATA_DIR, "secrets", "setup-token"),
+    )
+).resolve()
+MODULE_CREDENTIAL_DIR = Path(
+    os.environ.get(
+        "CHATRAW_MODULE_CREDENTIAL_DIR",
+        os.path.join(DATA_DIR, "secrets", "modules"),
+    )
+).resolve()
+MODULE_ALLOWED_ORIGINS = {
+    item.strip()
+    for item in os.environ.get(
+        "CHATRAW_MODULE_ALLOWED_ORIGINS", ""
+    ).split(",")
+    if item.strip()
+}
+MODULE_BRIDGE_CIDRS = [
+    item.strip()
+    for item in os.environ.get(
+        "CHATRAW_MODULE_BRIDGE_CIDRS", ""
+    ).split(",")
+    if item.strip()
+]
+if TEST_MODE:
+    ensure_setup_secret(SETUP_SECRET_FILE)
 
 # CORS configuration from environment
 CORS_ORIGINS = os.environ.get("CORS_ORIGINS", "*")  # Comma-separated origins or "*" for all
@@ -1620,9 +1951,14 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
     def _get_client_ip(self, request: Request) -> str:
         """Get client IP, considering proxy headers"""
         forwarded = request.headers.get("x-forwarded-for")
-        if forwarded:
+        direct_ip = request.client.host if request.client else "unknown"
+        if (
+            forwarded
+            and TRUST_PROXY_HEADERS
+            and direct_ip in TRUSTED_PROXY_IPS
+        ):
             return forwarded.split(",")[0].strip()
-        return request.client.host if request.client else "unknown"
+        return direct_ip
     
     def _clean_old_requests(self, ip: str, now: float):
         """Remove requests outside the current window"""
@@ -1670,6 +2006,11 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         return response
 
 db = Database(os.path.join(DATA_DIR, "chatraw.db"))
+auth_service = AuthService(
+    db.db_path,
+    SETUP_SECRET_FILE,
+    busy_timeout_ms=db.busy_timeout_ms,
+)
 llm_service = LLMService(db)
 rag_service = RAGService(db, llm_service)
 
@@ -1682,7 +2023,13 @@ async def lifespan(app: FastAPI):
     logger.info("Shutting down ChatRaw service")
     await close_http_session()
 
-app = FastAPI(title="ChatRaw", lifespan=lifespan)
+app = FastAPI(
+    title="ChatRaw",
+    lifespan=lifespan,
+    docs_url="/docs" if DEV_MODE else None,
+    redoc_url="/redoc" if DEV_MODE else None,
+    openapi_url="/openapi.json" if DEV_MODE else None,
+)
 
 # Add GZip compression middleware for static assets
 app.add_middleware(GZipMiddleware, minimum_size=500)
@@ -1717,7 +2064,212 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
 
 app.add_middleware(SecurityHeadersMiddleware)
 
+
+PUBLIC_EXACT_PATHS = {
+    "/health",
+    "/ready",
+    "/login",
+    "/setup",
+    "/auth.js",
+    "/auth.css",
+    "/favicon.ico",
+    "/api/setup/status",
+    "/api/setup/admin",
+    "/api/auth/login",
+}
+STATE_CHANGING_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
+
+
+def _request_external_origin(request: Request) -> str:
+    scheme = request.url.scheme
+    host = request.headers.get("host", "")
+    client_host = request.client.host if request.client else ""
+    if TRUST_PROXY_HEADERS and client_host in TRUSTED_PROXY_IPS:
+        forwarded_proto = request.headers.get("x-forwarded-proto", "")
+        forwarded_host = request.headers.get("x-forwarded-host", "")
+        if forwarded_proto in {"http", "https"} and forwarded_host:
+            scheme = forwarded_proto
+            host = forwarded_host
+    return f"{scheme}://{host}".rstrip("/")
+
+
+def _is_loopback_request(request: Request) -> bool:
+    if TEST_MODE:
+        return True
+    hostname = (request.url.hostname or "").strip("[]").lower()
+    if hostname == "localhost":
+        return True
+    try:
+        return ipaddress.ip_address(hostname).is_loopback
+    except ValueError:
+        return False
+
+
+def _is_module_bridge_request(request: Request) -> bool:
+    if not CONTAINERIZED or request.client is None:
+        return False
+    try:
+        client_ip = ipaddress.ip_address(request.client.host)
+    except ValueError:
+        return False
+    return any(
+        client_ip in network
+        for network in module_address_policy.bridge_networks
+    )
+
+
+def _requires_admin(path: str, method: str) -> bool:
+    if path.startswith("/api/admin/"):
+        return True
+    if path == "/api/settings" and method != "GET":
+        return True
+    if path.startswith("/api/models") and method != "GET":
+        return True
+    if path.startswith("/api/skills/"):
+        management_suffixes = ("/toggle", "/trust")
+        if (
+            path in {"/api/skills/install", "/api/skills/upload"}
+            or method == "DELETE"
+            or path.endswith(management_suffixes)
+        ):
+            return True
+    if path == "/api/plugins/market" or (
+        path.startswith("/api/plugins/market/")
+    ):
+        return True
+    if path in {
+        "/api/plugins/install",
+        "/api/plugins/upload",
+        "/api/plugins/api-keys",
+        "/api/plugins/api-key",
+        "/api/hermes/remote-base-urls/normalize",
+    }:
+        return True
+    if path.startswith("/api/plugins/") and method in STATE_CHANGING_METHODS:
+        return True
+    return False
+
+
+class AuthenticationMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: Request, call_next):
+        path = request.url.path
+        method = request.method.upper()
+        is_module_capability = path.startswith(
+            "/api/module-capabilities/v1/"
+        )
+        is_public = (
+            path in PUBLIC_EXACT_PATHS
+            or path.startswith("/fonts/")
+            or is_module_capability
+        )
+
+        if not DEV_MODE and path in {"/docs", "/redoc", "/openapi.json"}:
+            return JSONResponse({"detail": "Not Found"}, status_code=404)
+
+        external_scheme = _request_external_origin(request).split(":", 1)[0]
+        if not DEV_MODE and external_scheme != "https":
+            loopback_allowed = (
+                LOOPBACK_DEV_MODE and _is_loopback_request(request)
+            )
+            module_bridge_allowed = (
+                is_module_capability
+                and _is_module_bridge_request(request)
+            )
+            if not loopback_allowed and not module_bridge_allowed:
+                if path not in {"/health", "/ready"}:
+                    return JSONResponse(
+                        {"detail": "HTTPS is required"},
+                        status_code=400,
+                    )
+
+        token = request.cookies.get(SESSION_COOKIE)
+        principal = auth_service.authenticate(token)
+        request.state.user = principal
+
+        if not is_public and principal is None:
+            if "text/html" in request.headers.get("accept", ""):
+                return FileResponse(
+                    os.path.join(BACKEND_DIR, "static", "login.html"),
+                    status_code=401,
+                    headers={"Cache-Control": "no-store"},
+                )
+            return JSONResponse(
+                {"detail": "Authentication required"},
+                status_code=401,
+            )
+
+        if method in STATE_CHANGING_METHODS and not is_module_capability:
+            origin = request.headers.get("origin")
+            expected_origin = _request_external_origin(request)
+            fetch_site = request.headers.get("sec-fetch-site", "")
+            if origin != expected_origin or fetch_site == "cross-site":
+                if principal is not None:
+                    auth_service.audit(
+                        principal.id,
+                        "security.origin.denied",
+                        "route",
+                        path,
+                        "denied",
+                        {"method": method},
+                    )
+                return JSONResponse(
+                    {"detail": "Request origin is not allowed"},
+                    status_code=403,
+                )
+
+        if principal is not None and _requires_admin(path, method):
+            if not principal.is_admin:
+                auth_service.audit(
+                    principal.id,
+                    "rbac.denied",
+                    "route",
+                    path,
+                    "denied",
+                    {"method": method, "required_role": "admin"},
+                )
+                return JSONResponse(
+                    {"detail": "Administrator permission required"},
+                    status_code=403,
+                )
+
+        return await call_next(request)
+
+
+app.add_middleware(AuthenticationMiddleware)
+
+
+def current_principal(request: Request) -> Principal:
+    state = getattr(request, "state", None)
+    if TEST_MODE and (state is None or not hasattr(state, "user")):
+        return Principal("__direct_test__", "direct-test", "admin")
+    principal = getattr(state, "user", None)
+    if principal is None:
+        raise HTTPException(status_code=401, detail="Authentication required")
+    return principal
+
+
+def require_admin(request: Request) -> Principal:
+    principal = current_principal(request)
+    if not principal.is_admin:
+        raise HTTPException(
+            status_code=403,
+            detail="Administrator permission required",
+        )
+    return principal
+
+
+def _auth_error_response(error: AuthError) -> JSONResponse:
+    return JSONResponse(
+        {"detail": error.message},
+        status_code=error.status_code,
+    )
+
 # ============ API Routes ============
+
+@app.get("/favicon.ico", include_in_schema=False)
+async def favicon():
+    """Avoid an authentication error for browsers requesting an optional icon."""
+    return Response(status_code=204)
 
 @app.get("/health")
 async def health_check():
@@ -1728,19 +2280,231 @@ async def health_check():
 async def readiness_check():
     """Readiness check - verifies database connectivity"""
     try:
-        # Test database connection
-        cursor = db.get_conn().cursor()
-        cursor.execute("SELECT 1")
-        cursor.fetchone()
-        
-        # Check if required tables exist
-        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='chats'")
-        if not cursor.fetchone():
-            return JSONResponse({"status": "not_ready", "reason": "database not initialized"}, status_code=503)
+        with db.connection() as connection:
+            connection.execute("SELECT 1").fetchone()
+            assert_supported_schema(connection)
+            row = connection.execute(
+                """
+                SELECT name
+                FROM sqlite_master
+                WHERE type = 'table' AND name = 'chats'
+                """
+            ).fetchone()
+            if not row:
+                return JSONResponse(
+                    {
+                        "status": "not_ready",
+                        "reason": "database not initialized",
+                    },
+                    status_code=503,
+                )
         
         return {"status": "ready", "database": "connected"}
     except Exception as e:
-        return JSONResponse({"status": "not_ready", "reason": str(e)}, status_code=503)
+        logger.error("Readiness check failed: %s", e.__class__.__name__)
+        return JSONResponse(
+            {"status": "not_ready", "reason": "service unavailable"},
+            status_code=503,
+        )
+
+
+@app.get("/login")
+async def login_page():
+    return FileResponse(
+        os.path.join(BACKEND_DIR, "static", "login.html"),
+        headers={"Cache-Control": "no-store"},
+    )
+
+
+@app.get("/setup")
+async def setup_page():
+    return FileResponse(
+        os.path.join(BACKEND_DIR, "static", "setup.html"),
+        headers={"Cache-Control": "no-store"},
+    )
+
+
+@app.get("/auth.js")
+async def auth_script():
+    return FileResponse(
+        os.path.join(BACKEND_DIR, "static", "auth.js"),
+        media_type="application/javascript",
+        headers={"Cache-Control": "no-store"},
+    )
+
+
+@app.get("/auth.css")
+async def auth_styles():
+    return FileResponse(
+        os.path.join(BACKEND_DIR, "static", "auth.css"),
+        media_type="text/css",
+        headers={"Cache-Control": "no-store"},
+    )
+
+
+@app.get("/api/setup/status")
+async def setup_status():
+    return auth_service.setup_status()
+
+
+@app.post("/api/setup/admin")
+async def setup_admin(request: Request):
+    try:
+        body = await request.json()
+        result = auth_service.create_first_admin(
+            body.get("setup_token", ""),
+            body.get("username"),
+            body.get("password"),
+        )
+        return {"success": True, "user": result}
+    except (json.JSONDecodeError, AttributeError):
+        return JSONResponse({"detail": "Invalid request"}, status_code=400)
+    except AuthError as error:
+        return _auth_error_response(error)
+
+
+@app.post("/api/auth/login")
+async def auth_login(request: Request):
+    try:
+        body = await request.json()
+        principal, token = auth_service.login(
+            body.get("username"),
+            body.get("password"),
+        )
+    except (json.JSONDecodeError, AttributeError):
+        return JSONResponse({"detail": "Invalid request"}, status_code=400)
+    except AuthError as error:
+        return _auth_error_response(error)
+    response = JSONResponse(
+        {
+            "success": True,
+            "user": {
+                "id": principal.id,
+                "username": principal.username,
+                "role": principal.role,
+            },
+        }
+    )
+    response.set_cookie(
+        SESSION_COOKIE,
+        token,
+        max_age=30 * 24 * 60 * 60,
+        httponly=True,
+        secure=not LOOPBACK_DEV_MODE,
+        samesite="lax",
+        path="/",
+    )
+    return response
+
+
+@app.post("/api/auth/logout")
+async def auth_logout(request: Request):
+    principal = current_principal(request)
+    auth_service.logout(request.cookies.get(SESSION_COOKIE), principal)
+    response = JSONResponse({"success": True})
+    response.delete_cookie(SESSION_COOKIE, path="/", samesite="lax")
+    return response
+
+
+@app.get("/api/me")
+async def get_me(request: Request):
+    principal = current_principal(request)
+    return {
+        "id": principal.id,
+        "username": principal.username,
+        "role": principal.role,
+    }
+
+
+@app.post("/api/me/password")
+async def change_my_password(request: Request):
+    principal = current_principal(request)
+    try:
+        body = await request.json()
+        auth_service.change_password(
+            principal,
+            body.get("current_password"),
+            body.get("new_password"),
+        )
+    except (json.JSONDecodeError, AttributeError):
+        return JSONResponse({"detail": "Invalid request"}, status_code=400)
+    except AuthError as error:
+        return _auth_error_response(error)
+    response = JSONResponse({"success": True, "reauthentication_required": True})
+    response.delete_cookie(SESSION_COOKIE, path="/", samesite="lax")
+    return response
+
+
+@app.get("/api/admin/users")
+async def admin_get_users(request: Request):
+    require_admin(request)
+    return {"users": auth_service.list_users()}
+
+
+@app.post("/api/admin/users")
+async def admin_create_user(request: Request):
+    principal = require_admin(request)
+    try:
+        body = await request.json()
+        user = auth_service.create_user(
+            principal,
+            body.get("username"),
+            body.get("password"),
+            body.get("role"),
+        )
+        return {"success": True, "user": user}
+    except (json.JSONDecodeError, AttributeError):
+        return JSONResponse({"detail": "Invalid request"}, status_code=400)
+    except AuthError as error:
+        return _auth_error_response(error)
+
+
+@app.post("/api/admin/users/{user_id}/enable")
+async def admin_enable_user(user_id: str, request: Request):
+    principal = require_admin(request)
+    try:
+        auth_service.set_user_enabled(principal, user_id, True)
+        return {"success": True}
+    except AuthError as error:
+        return _auth_error_response(error)
+
+
+@app.post("/api/admin/users/{user_id}/disable")
+async def admin_disable_user(user_id: str, request: Request):
+    principal = require_admin(request)
+    try:
+        auth_service.set_user_enabled(principal, user_id, False)
+        task_service = globals().get("module_task_service")
+        if task_service is not None:
+            task_service.revoke_user_capabilities(user_id)
+        return {"success": True}
+    except AuthError as error:
+        return _auth_error_response(error)
+
+
+@app.post("/api/admin/users/{user_id}/reset-password")
+async def admin_reset_user_password(user_id: str, request: Request):
+    principal = require_admin(request)
+    try:
+        body = await request.json()
+        auth_service.reset_password(
+            principal,
+            user_id,
+            body.get("new_password"),
+        )
+        return {"success": True}
+    except (json.JSONDecodeError, AttributeError):
+        return JSONResponse({"detail": "Invalid request"}, status_code=400)
+    except AuthError as error:
+        return _auth_error_response(error)
+
+
+@app.get("/api/admin/audit")
+async def admin_get_audit(request: Request, limit: int = 200):
+    require_admin(request)
+    if limit < 1 or limit > 500:
+        raise HTTPException(status_code=400, detail="limit must be 1-500")
+    return {"items": auth_service.list_audit(limit)}
 
 @app.get("/fonts/{path:path}")
 async def fonts(path: str):
@@ -2231,14 +2995,44 @@ def save_assistant_message(db_instance: Database, chat_id: str, original_user_me
     message = db_instance.add_message(chat_id, "assistant", save_content)
 
     messages_count = len(db_instance.get_messages(chat_id))
-    if messages_count <= 2:
+    if messages_count <= 2 and db_instance.chat_can_auto_title(chat_id):
         title = original_user_message[:30] + "..." if len(original_user_message) > 30 else original_user_message
         db_instance.update_chat_title(chat_id, title)
 
     return message
 
 
-async def prepare_chat_submission(body: dict) -> dict:
+_active_chat_generations: set[str] = set()
+
+
+def _chat_generation_active(chat_id: str) -> bool:
+    return chat_id in _active_chat_generations
+
+
+def _claim_chat_generation(chat_id: str) -> None:
+    task_service = globals().get("module_task_service")
+    if (
+        chat_id in _active_chat_generations
+        or (
+            task_service is not None
+            and task_service.has_active_chat_task(chat_id)
+        )
+    ):
+        raise HTTPException(
+            status_code=409,
+            detail="This chat already has an active generation",
+        )
+    _active_chat_generations.add(chat_id)
+
+
+def _release_chat_generation(chat_id: str) -> None:
+    _active_chat_generations.discard(chat_id)
+
+
+async def prepare_chat_submission(
+    body: dict,
+    principal: Optional[Principal] = None,
+) -> dict:
     chat_id = body.get("chat_id", "") or ""
     message = body.get("message", "") or ""
     use_rag = body.get("use_rag", False) or False
@@ -2257,7 +3051,10 @@ async def prepare_chat_submission(body: dict) -> dict:
     active_skill_context, skill_activations = build_active_skill_context(active_skill_names)
 
     if not chat_id or not db.chat_exists(chat_id):
-        chat_obj = db.create_chat("New Chat")
+        chat_obj = db.create_chat(
+            "New Chat",
+            owner_user_id=principal.id if principal else None,
+        )
         chat_id = chat_obj.id
 
     settings = db.get_settings()
@@ -2279,7 +3076,17 @@ async def prepare_chat_submission(body: dict) -> dict:
         if not auto_result.get("success"):
             raise HTTPException(status_code=400, detail=auto_result.get("error", "Context compaction failed"))
 
-    user_message = db.add_message(chat_id, "user", message_to_save)
+    _claim_chat_generation(chat_id)
+    try:
+        user_message = db.add_message(
+            chat_id,
+            "user",
+            message_to_save,
+            author_user_id=principal.id if principal else None,
+        )
+    except BaseException:
+        _release_chat_generation(chat_id)
+        raise
     db.add_skill_activations(chat_id, user_message.id, skill_activations)
 
     return {
@@ -2292,6 +3099,7 @@ async def prepare_chat_submission(body: dict) -> dict:
         "web_url": web_url,
         "settings": settings,
         "effective_system_prompt": effective_system_prompt,
+        "generation_claimed": True,
     }
 
 
@@ -3069,17 +3877,58 @@ async def save_settings(settings: Settings):
     return {"success": True}
 
 @app.get("/api/models")
-async def get_models():
+async def get_models(request: Request):
+    current_principal(request)
     configs = db.get_model_configs()
-    return [c.model_dump() for c in configs]
+    return [public_model_config(config) for config in configs]
+
+
+def public_model_config(config: ModelConfig) -> dict:
+    payload = config.model_dump(exclude={"api_key"})
+    payload["api_key_configured"] = bool(config.api_key)
+    return payload
+
 
 @app.post("/api/models")
-async def save_model(config: ModelConfig):
+async def save_model(request: Request):
+    require_admin(request)
+    try:
+        body = await request.json()
+        if not isinstance(body, dict):
+            raise ValueError
+    except (json.JSONDecodeError, ValueError):
+        raise HTTPException(status_code=400, detail="Invalid model config")
+    action = body.pop("api_key_action", "preserve")
+    supplied_key = body.pop("api_key", "")
+    if action not in {"preserve", "replace", "clear"}:
+        raise HTTPException(status_code=400, detail="Invalid api_key_action")
+    config = ModelConfig(**body)
+    existing = db.get_model_by_id(config.id) if config.id else None
+    if action == "replace":
+        if not isinstance(supplied_key, str) or not supplied_key:
+            raise HTTPException(status_code=400, detail="api_key is required")
+        config.api_key = supplied_key
+    elif action == "clear":
+        config.api_key = ""
+    else:
+        config.api_key = existing.api_key if existing else ""
     saved = db.save_model_config(config)
-    return saved.model_dump()
+    auth_service.audit(
+        current_principal(request).id,
+        "model.configure",
+        "model",
+        saved.id,
+        "success",
+        {"api_key_action": action},
+    )
+    return public_model_config(saved)
 
 @app.post("/api/models/verify")
 async def verify_model(config: ModelConfig):
+    if not config.api_key and config.id:
+        stored = db.get_model_by_id(config.id)
+        if stored is not None:
+            config.api_key = stored.api_key
     if not config.api_url or not config.model_id:
         return {"success": False, "error": "API URL and Model ID required"}
     
@@ -3101,16 +3950,14 @@ async def verify_model(config: ModelConfig):
                 if resp.status == 200:
                     return {"success": True}
                 else:
-                    text = await resp.text()
-                    return {"success": False, "error": f"API error ({resp.status}): {text[:200]}"}
+                    return {"success": False, "error": f"API error ({resp.status})"}
         elif config.type == "embedding":
             payload = {"model": config.model_id, "input": "test"}
             async with session.post(f"{url}/embeddings", json=payload, headers=headers) as resp:
                 if resp.status == 200:
                     return {"success": True}
                 else:
-                    text = await resp.text()
-                    return {"success": False, "error": f"API error ({resp.status}): {text[:200]}"}
+                    return {"success": False, "error": f"API error ({resp.status})"}
         else:  # rerank
             payload = {
                 "model": config.model_id,
@@ -3133,9 +3980,10 @@ async def verify_model(config: ModelConfig):
                     except:
                         return {"success": False, "error": "Invalid rerank response"}
                 else:
-                    return {"success": False, "error": f"API error ({resp.status}): {text[:200]}"}
+                    return {"success": False, "error": f"API error ({resp.status})"}
     except Exception as e:
-        return {"success": False, "error": str(e)}
+        logger.warning("Model verification failed: %s", e.__class__.__name__)
+        return {"success": False, "error": "Model verification failed"}
 
 @app.delete("/api/models/{model_id}")
 async def delete_model(model_id: str):
@@ -3143,22 +3991,145 @@ async def delete_model(model_id: str):
     return {"success": True}
 
 @app.get("/api/chats")
-async def get_chats():
+async def get_chats(request: Request = None):
+    if request is not None:
+        current_principal(request)
     chats = db.get_chats()
     return [c.model_dump() for c in chats]
 
+
+@app.get("/api/v1/chats")
+async def get_chats_page(
+    request: Request = None,
+    limit: int = 50,
+    cursor: Optional[str] = None,
+):
+    if request is not None:
+        current_principal(request)
+    if limit < 1 or limit > 100:
+        raise HTTPException(
+            status_code=400,
+            detail="limit must be between 1 and 100",
+        )
+    decoded_cursor = None
+    if cursor:
+        try:
+            decoded_cursor = decode_chat_cursor(cursor)
+        except ValueError as error:
+            raise HTTPException(status_code=400, detail=str(error)) from error
+
+    chats, next_cursor_values = db.get_chats_page(limit, decoded_cursor)
+    next_cursor = None
+    if next_cursor_values is not None:
+        next_cursor = encode_chat_cursor(*next_cursor_values)
+    return {
+        "items": [chat.model_dump() for chat in chats],
+        "next_cursor": next_cursor,
+    }
+
+
 @app.post("/api/chats")
-async def create_chat():
-    chat = db.create_chat("New Chat")
+async def create_chat(request: Request):
+    principal = current_principal(request)
+    chat = db.create_chat("New Chat", owner_user_id=principal.id)
     return chat.model_dump()
 
+
+def _require_resource_manager(
+    principal: Principal,
+    owner_user_id: Optional[str],
+    resource_name: str,
+) -> None:
+    if principal.is_admin:
+        return
+    if owner_user_id is None:
+        raise HTTPException(
+            status_code=403,
+            detail=f"Only an administrator can manage legacy {resource_name}",
+        )
+    if owner_user_id != principal.id:
+        raise HTTPException(
+            status_code=403,
+            detail=f"Only the creator can manage this {resource_name}",
+        )
+
+
+@app.patch("/api/chats/{chat_id}")
+async def rename_chat(chat_id: str, request: Request):
+    principal = current_principal(request)
+    owner_user_id = db.get_chat_owner(chat_id)
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    title = body.get("title") if isinstance(body, dict) else None
+    if not isinstance(title, str) or not title.strip() or len(title.strip()) > 200:
+        raise HTTPException(status_code=400, detail="Invalid chat title")
+    try:
+        _require_resource_manager(principal, owner_user_id, "chat")
+    except HTTPException:
+        auth_service.audit(
+            principal.id,
+            "chat.rename",
+            "chat",
+            chat_id,
+            "denied",
+            {},
+        )
+        raise
+    db.update_chat_title(chat_id, title.strip())
+    auth_service.audit(
+        principal.id,
+        "chat.rename",
+        "chat",
+        chat_id,
+        "success",
+        {"shared_resource": True},
+    )
+    return {"success": True, "title": title.strip()}
+
+
 @app.delete("/api/chats/{chat_id}")
-async def delete_chat(chat_id: str):
+async def delete_chat(chat_id: str, request: Request):
+    principal = current_principal(request)
+    owner_user_id = db.get_chat_owner(chat_id)
+    try:
+        _require_resource_manager(principal, owner_user_id, "chat")
+    except HTTPException:
+        auth_service.audit(
+            principal.id,
+            "chat.delete",
+            "chat",
+            chat_id,
+            "denied",
+            {},
+        )
+        raise
+    task_service = globals().get("module_task_service")
+    if task_service is not None and task_service.has_active_chat_task(chat_id):
+        raise HTTPException(
+            status_code=409,
+            detail="Chat is referenced by an active module task",
+        )
     db.delete_chat(chat_id)
-    return {"success": True}
+    auth_service.audit(
+        principal.id,
+        "chat.delete",
+        "chat",
+        chat_id,
+        "success",
+        {"shared_resource": True},
+    )
+    return {
+        "success": True,
+        "warning": "This shared chat is no longer available to other users.",
+    }
 
 @app.get("/api/chats/{chat_id}/messages")
 async def get_messages(chat_id: str):
+    task_service = globals().get("module_task_service")
+    if task_service is not None:
+        await task_service.reconcile_chat(chat_id)
     messages = db.get_messages(chat_id)
     return [m.model_dump() for m in messages]
 
@@ -3182,13 +4153,14 @@ async def compact_chat_context(chat_id: str):
 
 @app.post("/api/chat")
 async def chat(request: Request):
+    principal = current_principal(request)
     try:
         body = await request.json()
     except:
         body = {}
 
     try:
-        submission = await prepare_chat_submission(body)
+        submission = await prepare_chat_submission(body, principal)
     except HTTPException as e:
         return JSONResponse({"error": e.detail}, status_code=e.status_code)
 
@@ -3205,21 +4177,24 @@ async def chat(request: Request):
     if settings.chat_settings.stream:
         # Streaming response
         async def generate():
-            # Send chat_id first
-            yield json.dumps({"chat_id": chat_id}) + "\n"
-            
-            # Stream content
-            async for chunk in llm_service.chat_stream(
-                chat_id,
-                message,
-                use_rag,
-                use_thinking,
-                image_base64,
-                web_content,
-                web_url,
-                effective_system_prompt,
-            ):
-                yield chunk + "\n"
+            try:
+                # Send chat_id first
+                yield json.dumps({"chat_id": chat_id}) + "\n"
+
+                # Stream content
+                async for chunk in llm_service.chat_stream(
+                    chat_id,
+                    message,
+                    use_rag,
+                    use_thinking,
+                    image_base64,
+                    web_content,
+                    web_url,
+                    effective_system_prompt,
+                ):
+                    yield chunk + "\n"
+            finally:
+                _release_chat_generation(chat_id)
         
         return StreamingResponse(
             generate(), 
@@ -3232,20 +4207,24 @@ async def chat(request: Request):
         )
     else:
         # Non-streaming response
-        result = await llm_service.chat_non_stream(
-            chat_id,
-            message,
-            use_rag,
-            use_thinking,
-            image_base64,
-            web_content,
-            web_url,
-            effective_system_prompt,
-        )
-        return {"chat_id": chat_id, "content": result["content"], "thinking": result.get("thinking", ""), "references": result["references"]}
+        try:
+            result = await llm_service.chat_non_stream(
+                chat_id,
+                message,
+                use_rag,
+                use_thinking,
+                image_base64,
+                web_content,
+                web_url,
+                effective_system_prompt,
+            )
+            return {"chat_id": chat_id, "content": result["content"], "thinking": result.get("thinking", ""), "references": result["references"]}
+        finally:
+            _release_chat_generation(chat_id)
 
 @app.get("/api/documents")
-async def get_documents():
+async def get_documents(request: Request):
+    current_principal(request)
     return db.get_documents()
 
 def _parse_pdf_sync(content: bytes) -> str:
@@ -3305,7 +4284,8 @@ async def parse_document_content(filename: str, content: bytes) -> str:
         return await asyncio.to_thread(_parse_text_sync, content)
 
 @app.post("/api/documents")
-async def upload_document(file: UploadFile = File(...)):
+async def upload_document(request: Request, file: UploadFile = File(...)):
+    principal = current_principal(request)
     # Check file size limit
     content = await file.read()
     if len(content) > MAX_UPLOAD_SIZE:
@@ -3326,7 +4306,11 @@ async def upload_document(file: UploadFile = File(...)):
     # Return streaming progress
     async def generate_progress():
         settings = db.get_settings()
-        doc_id = db.save_document(file.filename, text)
+        doc_id = db.save_document(
+            file.filename,
+            text,
+            uploader_user_id=principal.id,
+        )
         chunks = rag_service.chunk_document(text, settings.rag_settings.chunk_size, settings.rag_settings.chunk_overlap)
         
         total = len(chunks)
@@ -3352,9 +4336,43 @@ async def upload_document(file: UploadFile = File(...)):
     return StreamingResponse(generate_progress(), media_type="application/x-ndjson")
 
 @app.delete("/api/documents/{doc_id}")
-async def delete_document(doc_id: str):
+async def delete_document(doc_id: str, request: Request):
+    principal = current_principal(request)
+    owner_user_id = db.get_document_owner(doc_id)
+    try:
+        _require_resource_manager(principal, owner_user_id, "document")
+    except HTTPException:
+        auth_service.audit(
+            principal.id,
+            "document.delete",
+            "document",
+            doc_id,
+            "denied",
+            {},
+        )
+        raise
+    task_service = globals().get("module_task_service")
+    if (
+        task_service is not None
+        and task_service.has_active_resource_task(doc_id)
+    ):
+        raise HTTPException(
+            status_code=409,
+            detail="Document is referenced by an active module task",
+        )
     db.delete_document(doc_id)
-    return {"success": True}
+    auth_service.audit(
+        principal.id,
+        "document.delete",
+        "document",
+        doc_id,
+        "success",
+        {"shared_resource": True},
+    )
+    return {
+        "success": True,
+        "warning": "This shared document is no longer available to other users.",
+    }
 
 @app.post("/api/upload/image")
 async def upload_image(file: UploadFile = File(...)):
@@ -3577,9 +4595,14 @@ async def parse_url(request: ParseUrlRequest):
 # ============ Skill Management ============
 
 @app.get("/api/skills")
-async def get_skills(include_disabled: bool = False):
+async def get_skills(
+    include_disabled: bool = False,
+    request: Request = None,
+):
     """Return lightweight registered skill metadata for composer/manager UI."""
     try:
+        if request is not None and not current_principal(request).is_admin:
+            include_disabled = False
         config = load_skill_config()
         skills = []
         for skill_name, entry in sorted(config.get("skills", {}).items()):
@@ -3661,13 +4684,19 @@ async def upload_skill(
 
 
 @app.get("/api/skills/{skill_name}")
-async def get_skill_detail(skill_name: str):
+async def get_skill_detail(skill_name: str, request: Request = None):
     """Return registered skill metadata and resource summary without SKILL.md body."""
     if not validate_skill_name(skill_name):
         return _skill_error("Invalid skill name", 400)
 
     entry = get_registered_skill(skill_name)
     if entry is None:
+        return _skill_error("Skill not found", 404)
+    if (
+        request is not None
+        and not current_principal(request).is_admin
+        and not entry.get("enabled", False)
+    ):
         return _skill_error("Skill not found", 404)
 
     try:
@@ -3682,13 +4711,19 @@ async def get_skill_detail(skill_name: str):
 
 
 @app.get("/api/skills/{skill_name}/content")
-async def get_skill_content(skill_name: str):
+async def get_skill_content(skill_name: str, request: Request = None):
     """Return raw SKILL.md text and parsed content for explicit preview only."""
     if not validate_skill_name(skill_name):
         return _skill_error("Invalid skill name", 400)
 
     entry = get_registered_skill(skill_name)
     if entry is None:
+        return _skill_error("Skill not found", 404)
+    if (
+        request is not None
+        and not current_principal(request).is_admin
+        and not entry.get("enabled", False)
+    ):
         return _skill_error("Skill not found", 404)
 
     try:
@@ -3713,12 +4748,19 @@ async def get_skill_content(skill_name: str):
 
 
 @app.get("/api/skills/{skill_name}/resources")
-async def get_skill_resources(skill_name: str):
+async def get_skill_resources(skill_name: str, request: Request = None):
     """Return safe resource paths under scripts/, references/, and assets/."""
     if not validate_skill_name(skill_name):
         return _skill_error("Invalid skill name", 400)
 
-    if get_registered_skill(skill_name) is None:
+    entry = get_registered_skill(skill_name)
+    if entry is None:
+        return _skill_error("Skill not found", 404)
+    if (
+        request is not None
+        and not current_principal(request).is_admin
+        and not entry.get("enabled", False)
+    ):
         return _skill_error("Skill not found", 404)
 
     try:
@@ -3944,6 +4986,19 @@ def validate_plugin_id(plugin_id: str) -> bool:
     if '..' in plugin_id or '/' in plugin_id or '\\' in plugin_id:
         return False
     return True
+
+
+def require_plugin_runtime_access(
+    plugin_id: str,
+    principal: Principal,
+) -> dict:
+    config = load_plugin_config()
+    plugin_config = config.get("plugins", {}).get(plugin_id, {})
+    if not isinstance(plugin_config, dict):
+        plugin_config = {}
+    if not principal.is_admin and not plugin_config.get("enabled", False):
+        raise HTTPException(status_code=404, detail="Plugin not found")
+    return plugin_config
 
 def load_plugin_config() -> dict:
     """Load plugin configuration from file (thread-safe)"""
@@ -4299,17 +5354,19 @@ async def _read_limited_response_text(resp, limit: int = 500) -> str:
 
 
 def _hermes_upstream_error(status: int, text: str) -> HermesBridgeError:
+    del text
     if 300 <= status < 400:
         return HermesBridgeError(f"Hermes redirect blocked ({status})", status_code=400)
     status_code = status if status == 401 else 502
-    return HermesBridgeError(f"Hermes API error ({status}): {text}", status_code=status_code)
+    return HermesBridgeError(f"Hermes API error ({status})", status_code=status_code)
 
 
 def _hermes_approval_upstream_error(status: int, text: str) -> HermesBridgeError:
+    del text
     if 300 <= status < 400:
         return HermesBridgeError(f"Hermes redirect blocked ({status})", status_code=400)
     status_code = status if status in (401, 404, 409) else 502
-    return HermesBridgeError(f"Hermes API error ({status}): {text}", status_code=status_code)
+    return HermesBridgeError(f"Hermes API error ({status})", status_code=status_code)
 
 
 def _hermes_now_iso() -> str:
@@ -4343,7 +5400,12 @@ def purge_expired_hermes_runs(now: Optional[float] = None) -> List[str]:
         return _purge_expired_hermes_runs_locked(now)
 
 
-def register_active_hermes_run(run_id: str, chat_id: str, config: dict) -> dict:
+def register_active_hermes_run(
+    run_id: str,
+    chat_id: str,
+    config: dict,
+    actor_user_id: Optional[str] = None,
+) -> dict:
     if not run_id:
         raise HermesBridgeError("Hermes run id is required", status_code=502)
     now = time_module.time()
@@ -4354,6 +5416,7 @@ def register_active_hermes_run(run_id: str, chat_id: str, config: dict) -> dict:
         record = {
             "run_id": run_id,
             "chat_id": chat_id,
+            "actor_user_id": actor_user_id,
             "config": _copy_hermes_config_snapshot(config),
             "status": "running",
             "pending_approval": None,
@@ -4985,7 +6048,13 @@ async def _consume_hermes_run(submission: dict, config: dict, request: Request, 
 
     try:
         run_id, references = await _create_hermes_run(session, submission, config)
-        register_active_hermes_run(run_id, submission["chat_id"], config)
+        principal = current_principal(request)
+        register_active_hermes_run(
+            run_id,
+            submission["chat_id"],
+            config,
+            principal.id,
+        )
         registered = True
         if stream:
             yield json.dumps({
@@ -5360,6 +6429,7 @@ async def hermes_health(request: Request):
 @app.post("/api/hermes/runs/{run_id:path}/approval")
 async def hermes_run_approval(run_id: str, request: Request):
     try:
+        principal = current_principal(request)
         validate_hermes_request_origin(request)
         validate_hermes_plugin_enabled_only()
         try:
@@ -5371,6 +6441,23 @@ async def hermes_run_approval(run_id: str, request: Request):
         record = get_active_hermes_run(run_id)
         if not record:
             raise HermesBridgeError("Unknown or stale Hermes run", status_code=404)
+        if (
+            record.get("actor_user_id") is not None
+            and record.get("actor_user_id") != principal.id
+            and not principal.is_admin
+        ):
+            auth_service.audit(
+                principal.id,
+                "hermes.approval",
+                "hermes_run",
+                run_id,
+                "denied",
+                {},
+            )
+            raise HermesBridgeError(
+                "Only the run initiator or an administrator may approve",
+                status_code=403,
+            )
         if record.get("chat_id") != approval["chat_id"]:
             raise HermesBridgeError("Hermes approval chat_id does not match active run", status_code=403)
         status = str(record.get("status") or "").lower()
@@ -5427,6 +6514,7 @@ async def hermes_run_approval(run_id: str, request: Request):
 @app.post("/api/hermes/chat")
 async def hermes_chat(request: Request):
     try:
+        principal = current_principal(request)
         validate_hermes_request_origin(request)
         try:
             body = await request.json()
@@ -5434,7 +6522,7 @@ async def hermes_chat(request: Request):
             body = {}
         validate_hermes_chat_body(body)
         config = get_hermes_config(require_enabled=True)
-        submission = await prepare_chat_submission(body)
+        submission = await prepare_chat_submission(body, principal)
     except HTTPException as e:
         return _hermes_error_response(e)
     except HermesBridgeError as e:
@@ -5443,19 +6531,21 @@ async def hermes_chat(request: Request):
     settings = submission["settings"]
     if settings.chat_settings.stream:
         async def generate():
-            yield json.dumps({"chat_id": submission["chat_id"]}) + "\n"
             stream_chunks = None
-            if config["api_mode"] == HERMES_API_MODE_RUNS:
-                stream_chunks = _stream_hermes_run_chunks(submission, config, request)
-            else:
-                stream_chunks = _stream_hermes_chat_chunks(submission, config)
             try:
+                yield json.dumps({"chat_id": submission["chat_id"]}) + "\n"
+                if config["api_mode"] == HERMES_API_MODE_RUNS:
+                    stream_chunks = _stream_hermes_run_chunks(submission, config, request)
+                else:
+                    stream_chunks = _stream_hermes_chat_chunks(submission, config)
                 async for chunk in stream_chunks:
                     yield chunk + "\n"
             finally:
-                closer = getattr(stream_chunks, "aclose", None)
-                if callable(closer):
-                    await closer()
+                if stream_chunks is not None:
+                    closer = getattr(stream_chunks, "aclose", None)
+                    if callable(closer):
+                        await closer()
+                _release_chat_generation(submission["chat_id"])
 
         return StreamingResponse(
             generate(),
@@ -5480,9 +6570,109 @@ async def hermes_chat(request: Request):
         }
     except HermesBridgeError as e:
         return _hermes_error_response(e)
+    finally:
+        _release_chat_generation(submission["chat_id"])
 
 
-def get_installed_plugins() -> List[dict]:
+def _runtime_plugin_manifest(
+    manifest: dict,
+    plugin_config: dict,
+    *,
+    admin_view: bool,
+) -> dict:
+    payload = dict(manifest)
+    payload["enabled"] = bool(plugin_config.get("enabled", False))
+    settings_values = plugin_config.get("settings_values", {})
+    if not isinstance(settings_values, dict):
+        settings_values = {}
+    if admin_view:
+        payload["settings_values"] = settings_values
+        return payload
+
+    settings = payload.get("settings")
+    declared_runtime = payload.get("runtimeSettings", [])
+    runtime_ids = {
+        item for item in declared_runtime if isinstance(item, str)
+    } if isinstance(declared_runtime, list) else set()
+    if isinstance(settings, list):
+        runtime_ids.update({
+            item.get("id")
+            for item in settings
+            if isinstance(item, dict)
+            and item.get("exposure") == "runtime"
+            and isinstance(item.get("id"), str)
+        })
+    if isinstance(settings, list):
+        payload["settings"] = [
+            item
+            for item in settings
+            if isinstance(item, dict) and item.get("id") in runtime_ids
+        ]
+    payload["settings_values"] = {
+        key: value
+        for key, value in settings_values.items()
+        if key in runtime_ids
+    }
+    payload.pop("proxy", None)
+    payload.pop("customSettings", None)
+    return payload
+
+
+def _plugin_tree_digest(plugin_dir: Path) -> str:
+    digest = hashlib.sha256()
+    if not plugin_dir.is_dir():
+        return ""
+    paths = sorted(plugin_dir.rglob("*"))
+    files = []
+    total_size = 0
+    for path in paths:
+        metadata = path.lstat()
+        if path.is_symlink():
+            return ""
+        if path.is_dir():
+            continue
+        if not stat.S_ISREG(metadata.st_mode):
+            return ""
+        files.append((path, metadata.st_size))
+        total_size += metadata.st_size
+        if (
+            len(files) > MAX_PLUGIN_FILES
+            or total_size > MAX_PLUGIN_EXTRACTED_SIZE
+        ):
+            return ""
+    for path, _size in files:
+        relative = path.relative_to(plugin_dir).as_posix()
+        digest.update(relative.encode("utf-8"))
+        digest.update(b"\0")
+        with path.open("rb") as plugin_file:
+            while chunk := plugin_file.read(64 * 1024):
+                digest.update(chunk)
+        digest.update(b"\0")
+    return digest.hexdigest()
+
+
+def _plugin_trust_status(plugin_id: str, installed_dir: Path) -> dict:
+    bundled_dir = Path(BUNDLED_PLUGINS_DIR, plugin_id)
+    installed_digest = _plugin_tree_digest(installed_dir)
+    bundled_digest = _plugin_tree_digest(bundled_dir)
+    verified = bool(
+        installed_digest
+        and bundled_digest
+        and installed_digest == bundled_digest
+    )
+    return {
+        "source": "official_catalog" if verified else "local_trusted",
+        "label": (
+            "Official catalog · hash verified"
+            if verified
+            else "Local trusted import · no catalog hash match"
+        ),
+        "hash_status": "verified" if verified else "unverified",
+        "sha256": installed_digest,
+    }
+
+
+def get_installed_plugins(*, admin_view: bool = True) -> List[dict]:
     """Get list of installed plugins with their config"""
     plugins = []
     config = load_plugin_config()
@@ -5503,18 +6693,27 @@ def get_installed_plugins() -> List[dict]:
                 plugin_config = config.get("plugins", {}).get(plugin_id, {})
                 # Default to False (disabled) for plugins without explicit config
                 # This prevents auto-enabling of plugins after updates/restarts
-                manifest["enabled"] = plugin_config.get("enabled", False)
-                manifest["settings_values"] = plugin_config.get("settings_values", {})
-                plugins.append(manifest)
+                plugin = _runtime_plugin_manifest(
+                    manifest,
+                    plugin_config,
+                    admin_view=admin_view,
+                )
+                plugin["trust"] = _plugin_trust_status(
+                    plugin_id,
+                    Path(plugin_dir),
+                )
+                if admin_view or plugin["enabled"]:
+                    plugins.append(plugin)
             except Exception as e:
                 logger.error(f"Failed to load plugin {plugin_id}: {e}")
     
     return plugins
 
 @app.get("/api/plugins")
-async def get_plugins():
+async def get_plugins(request: Request):
     """Get list of installed plugins"""
-    return get_installed_plugins()
+    principal = current_principal(request)
+    return get_installed_plugins(admin_view=principal.is_admin)
 
 @app.get("/api/plugins/market")
 async def get_plugin_market():
@@ -5543,6 +6742,116 @@ def get_icon_media_type(icon_file: str) -> str:
         "webp": "image/webp",
         "ico": "image/x-icon",
     }.get(ext, "image/png")
+
+
+MAX_PLUGIN_FILES = int(os.environ.get("MAX_PLUGIN_FILES", "500"))
+MAX_PLUGIN_EXTRACTED_SIZE = int(
+    os.environ.get("MAX_PLUGIN_EXTRACTED_SIZE", str(50 * 1024 * 1024))
+)
+
+
+class PluginArchiveError(RuntimeError):
+    pass
+
+
+def _safe_plugin_archive_path(name: str) -> PurePosixPath:
+    if not name or "\\" in name or "\x00" in name:
+        raise PluginArchiveError("Invalid plugin archive path")
+    path = PurePosixPath(name)
+    if path.is_absolute() or ".." in path.parts:
+        raise PluginArchiveError("Invalid plugin archive path")
+    return path
+
+
+def stage_plugin_archive(content: bytes, stage_root: Path) -> tuple[dict, Path]:
+    archive_path = stage_root / "plugin.zip"
+    archive_path.write_bytes(content)
+    extract_root = stage_root / "extracted"
+    extract_root.mkdir()
+    try:
+        archive = zipfile.ZipFile(archive_path, "r")
+    except zipfile.BadZipFile as error:
+        raise PluginArchiveError("Invalid zip file") from error
+    with archive:
+        members = archive.infolist()
+        if len(members) > MAX_PLUGIN_FILES:
+            raise PluginArchiveError("Plugin archive contains too many files")
+        total_size = 0
+        seen_paths = set()
+        for member in members:
+            path = _safe_plugin_archive_path(member.filename)
+            if path in seen_paths:
+                raise PluginArchiveError("Duplicate plugin archive path")
+            seen_paths.add(path)
+            file_type = (member.external_attr >> 16) & 0o170000
+            if file_type == stat.S_IFLNK:
+                raise PluginArchiveError("Plugin archive symlinks are not allowed")
+            total_size += member.file_size
+            if total_size > MAX_PLUGIN_EXTRACTED_SIZE:
+                raise PluginArchiveError("Plugin archive is too large when extracted")
+            target = (extract_root / Path(*path.parts)).resolve()
+            try:
+                target.relative_to(extract_root.resolve())
+            except ValueError as error:
+                raise PluginArchiveError("Invalid plugin archive path") from error
+            if member.is_dir():
+                target.mkdir(parents=True, exist_ok=True)
+                continue
+            target.parent.mkdir(parents=True, exist_ok=True)
+            with archive.open(member, "r") as source, target.open("xb") as output:
+                shutil.copyfileobj(source, output)
+        corrupt = archive.testzip()
+        if corrupt is not None:
+            raise PluginArchiveError("Plugin archive integrity check failed")
+
+    manifests = [
+        path
+        for path in extract_root.rglob("manifest.json")
+        if path.is_file() and "__MACOSX" not in path.parts
+    ]
+    if len(manifests) != 1:
+        raise PluginArchiveError(
+            "Plugin archive must contain exactly one manifest.json"
+        )
+    try:
+        manifest = json.loads(manifests[0].read_text(encoding="utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as error:
+        raise PluginArchiveError("Invalid manifest.json format") from error
+    plugin_id = manifest.get("id")
+    if not validate_plugin_id(plugin_id):
+        raise PluginArchiveError("Invalid plugin ID")
+    plugin_source = manifests[0].parent.resolve()
+    main_file = manifest.get("main", "main.js")
+    if (
+        not isinstance(main_file, str)
+        or PurePosixPath(main_file).name != main_file
+        or not (plugin_source / main_file).is_file()
+    ):
+        raise PluginArchiveError("Plugin main file is invalid or missing")
+    return manifest, plugin_source
+
+
+def atomic_install_plugin(plugin_id: str, plugin_source: Path) -> None:
+    installed_root = Path(PLUGINS_INSTALLED_DIR).resolve()
+    destination = installed_root / plugin_id
+    stage = Path(
+        tempfile.mkdtemp(prefix=".plugin-install-", dir=installed_root)
+    ).resolve()
+    candidate = stage / "candidate"
+    backup = stage / "previous"
+    try:
+        shutil.copytree(plugin_source, candidate)
+        if destination.exists():
+            os.replace(destination, backup)
+        try:
+            os.replace(candidate, destination)
+        except BaseException:
+            if backup.exists() and not destination.exists():
+                os.replace(backup, destination)
+            raise
+    finally:
+        shutil.rmtree(stage, ignore_errors=True)
+
 
 @app.get("/api/plugins/market/{plugin_folder}/icon")
 async def get_market_plugin_icon(plugin_folder: str):
@@ -5579,6 +6888,7 @@ async def install_plugin(request: PluginInstallRequest):
     
     source_url = request.source_url.rstrip("/")
     plugin_dir = None  # Track for cleanup on failure
+    plugin_stage_root = None
     
     try:
         session = await get_http_session()
@@ -5599,51 +6909,37 @@ async def install_plugin(request: PluginInstallRequest):
                 if len(zip_content) > MAX_PLUGIN_SIZE:
                     return JSONResponse({"success": False, "error": f"Plugin too large (max {MAX_PLUGIN_SIZE // (1024*1024)}MB)"}, status_code=400)
             
-            # Extract zip
             with tempfile.TemporaryDirectory() as temp_dir:
-                zip_path = os.path.join(temp_dir, "plugin.zip")
-                with open(zip_path, "wb") as f:
-                    f.write(zip_content)
-                
                 try:
-                    with zipfile.ZipFile(zip_path, "r") as zf:
-                        # Check for zip bomb (total uncompressed size)
-                        total_size = sum(info.file_size for info in zf.infolist())
-                        if total_size > MAX_PLUGIN_SIZE * 10:  # 10x compression ratio limit
-                            return JSONResponse({"success": False, "error": "Plugin archive too large when extracted"}, status_code=400)
-                        zf.extractall(temp_dir)
-                except zipfile.BadZipFile:
-                    return JSONResponse({"success": False, "error": "Invalid zip file"}, status_code=400)
-                
-                # Find manifest.json
-                manifest_path = None
-                plugin_source_dir = None
-                for root, dirs, files in os.walk(temp_dir):
-                    if "manifest.json" in files:
-                        manifest_path = os.path.join(root, "manifest.json")
-                        plugin_source_dir = root
-                        break
-                
-                if not manifest_path:
-                    return JSONResponse({"success": False, "error": "No manifest.json found in zip"}, status_code=400)
-                
-                with open(manifest_path, "r", encoding="utf-8") as f:
-                    manifest = json.load(f)
-                
-                plugin_id = manifest.get("id")
-                if not plugin_id:
-                    return JSONResponse({"success": False, "error": "Plugin manifest missing 'id'"}, status_code=400)
-                
-                # Validate plugin ID
-                if not validate_plugin_id(plugin_id):
-                    return JSONResponse({"success": False, "error": "Invalid plugin ID (only alphanumeric, dash, underscore allowed)"}, status_code=400)
-                
-                # Copy to installed directory
-                plugin_dest_dir = os.path.join(PLUGINS_INSTALLED_DIR, plugin_id)
-                if os.path.exists(plugin_dest_dir):
-                    shutil.rmtree(plugin_dest_dir)
-                shutil.copytree(plugin_source_dir, plugin_dest_dir)
+                    manifest, plugin_source = stage_plugin_archive(
+                        zip_content,
+                        Path(temp_dir),
+                    )
+                    plugin_id = manifest["id"]
+                    atomic_install_plugin(plugin_id, plugin_source)
+                except PluginArchiveError as error:
+                    return JSONResponse(
+                        {"success": False, "error": str(error)},
+                        status_code=400,
+                    )
         else:
+            parsed_source = urlparse(source_url)
+            if (
+                parsed_source.scheme != "https"
+                or parsed_source.hostname != "raw.githubusercontent.com"
+                or not parsed_source.path.startswith("/massif-01/ChatRaw/")
+                or parsed_source.username
+                or parsed_source.password
+                or parsed_source.query
+                or parsed_source.fragment
+            ):
+                return JSONResponse(
+                    {
+                        "success": False,
+                        "error": "Remote directory installs are limited to the official market; upload a reviewed ZIP for other plugins",
+                    },
+                    status_code=403,
+                )
             # It's a GitHub raw directory URL, download individual files
             # First get manifest.json
             manifest_url = f"{source_url}/manifest.json"
@@ -5652,8 +6948,10 @@ async def install_plugin(request: PluginInstallRequest):
                     return JSONResponse({"success": False, "error": f"Failed to fetch manifest: HTTP {resp.status}"}, status_code=400)
                 try:
                     # GitHub raw returns text/plain, so we need to parse manually
-                    manifest_text = await resp.text()
-                    manifest = json.loads(manifest_text)
+                    manifest_bytes = await resp.content.read(256 * 1024 + 1)
+                    if len(manifest_bytes) > 256 * 1024:
+                        raise ValueError("manifest is too large")
+                    manifest = json.loads(manifest_bytes.decode("utf-8"))
                 except Exception as e:
                     return JSONResponse({"success": False, "error": f"Invalid manifest.json format: {str(e)}"}, status_code=400)
             
@@ -5664,37 +6962,56 @@ async def install_plugin(request: PluginInstallRequest):
             # Validate plugin ID
             if not validate_plugin_id(plugin_id):
                 return JSONResponse({"success": False, "error": "Invalid plugin ID (only alphanumeric, dash, underscore allowed)"}, status_code=400)
+            main_js = manifest.get("main", "main.js")
+            icon_file = manifest.get("icon", "icon.png")
+            if (
+                not isinstance(main_js, str)
+                or os.path.basename(main_js) != main_js
+                or not isinstance(icon_file, str)
+                or os.path.basename(icon_file) != icon_file
+            ):
+                return JSONResponse(
+                    {"success": False, "error": "Invalid plugin file path"},
+                    status_code=400,
+                )
             
-            # Create plugin directory
-            plugin_dir = os.path.join(PLUGINS_INSTALLED_DIR, plugin_id)
-            os.makedirs(plugin_dir, exist_ok=True)
+            plugin_stage_root = tempfile.mkdtemp(
+                prefix=".plugin-remote-",
+                dir=PLUGINS_DIR,
+            )
+            plugin_dir = os.path.join(plugin_stage_root, "candidate")
+            os.makedirs(plugin_dir)
             
             # Save manifest
             with open(os.path.join(plugin_dir, "manifest.json"), "w", encoding="utf-8") as f:
                 json.dump(manifest, f, ensure_ascii=False, indent=2)
             
             # Download main.js (required)
-            main_js = manifest.get("main", "main.js")
             main_url = f"{source_url}/{main_js}"
             async with session.get(main_url, timeout=aiohttp.ClientTimeout(total=10)) as resp:
                 if resp.status != 200:
-                    # Cleanup on failure
-                    if plugin_dir and os.path.exists(plugin_dir):
-                        shutil.rmtree(plugin_dir)
+                    shutil.rmtree(plugin_stage_root, ignore_errors=True)
+                    plugin_stage_root = None
+                    plugin_dir = None
                     return JSONResponse({"success": False, "error": f"Failed to download main.js: HTTP {resp.status}"}, status_code=400)
-                main_content = await resp.text()
-                with open(os.path.join(plugin_dir, main_js), "w", encoding="utf-8") as f:
+                main_content = await resp.content.read(MAX_PLUGIN_SIZE + 1)
+                if len(main_content) > MAX_PLUGIN_SIZE:
+                    shutil.rmtree(plugin_stage_root, ignore_errors=True)
+                    plugin_stage_root = None
+                    plugin_dir = None
+                    return JSONResponse({"success": False, "error": "Plugin main file is too large"}, status_code=400)
+                with open(os.path.join(plugin_dir, main_js), "wb") as f:
                     f.write(main_content)
             
             # Download icon (optional)
-            icon_file = manifest.get("icon", "icon.png")
             icon_url = f"{source_url}/{icon_file}"
             try:
                 async with session.get(icon_url, timeout=aiohttp.ClientTimeout(total=10)) as resp:
                     if resp.status == 200:
                         icon_content = await resp.read()
-                        with open(os.path.join(plugin_dir, icon_file), "wb") as f:
-                            f.write(icon_content)
+                        if len(icon_content) <= MAX_PLUGIN_SIZE:
+                            with open(os.path.join(plugin_dir, icon_file), "wb") as f:
+                                f.write(icon_content)
             except Exception:
                 pass  # Icon is optional
             
@@ -5704,7 +7021,11 @@ async def install_plugin(request: PluginInstallRequest):
             for dep_name, dep_url in deps.items():
                 if isinstance(dep_url, str) and dep_url.startswith(lib_prefix):
                     lib_path = dep_url[len(lib_prefix):].strip("/")
-                    if not lib_path or ".." in lib_path:
+                    try:
+                        safe_lib_path = _safe_plugin_archive_path(lib_path)
+                    except PluginArchiveError:
+                        continue
+                    if not lib_path or safe_lib_path.is_absolute():
                         continue
                     lib_url = f"{source_url}/lib/{lib_path}"
                     try:
@@ -5712,12 +7033,22 @@ async def install_plugin(request: PluginInstallRequest):
                             if resp.status == 200:
                                 lib_target = os.path.join(plugin_dir, "lib", lib_path)
                                 os.makedirs(os.path.dirname(lib_target), exist_ok=True)
-                                content = await resp.read()
+                                content = await resp.content.read(
+                                    MAX_PLUGIN_SIZE + 1
+                                )
+                                if len(content) > MAX_PLUGIN_SIZE:
+                                    raise PluginArchiveError(
+                                        "Plugin dependency is too large"
+                                    )
                                 with open(lib_target, "wb") as f:
                                     f.write(content)
                                 logger.info(f"Downloaded lib for {plugin_id}: {lib_path}")
                     except Exception as e:
                         logger.warning(f"Failed to download lib {lib_path} for {plugin_id}: {e}")
+            atomic_install_plugin(plugin_id, Path(plugin_dir))
+            shutil.rmtree(plugin_stage_root, ignore_errors=True)
+            plugin_stage_root = None
+            plugin_dir = None
         
         # Add to config
         config = load_plugin_config()
@@ -5731,10 +7062,9 @@ async def install_plugin(request: PluginInstallRequest):
         
     except Exception as e:
         # Cleanup on unexpected error
-        if plugin_dir and os.path.exists(plugin_dir):
+        if plugin_stage_root and os.path.exists(plugin_stage_root):
             try:
-                import shutil
-                shutil.rmtree(plugin_dir)
+                shutil.rmtree(plugin_stage_root)
             except:
                 pass
         logger.error(f"Plugin install error: {e}")
@@ -5743,10 +7073,6 @@ async def install_plugin(request: PluginInstallRequest):
 @app.post("/api/plugins/upload")
 async def upload_plugin(file: UploadFile = File(...)):
     """Upload and install a plugin from zip file"""
-    import zipfile
-    import shutil
-    import tempfile
-    
     if not file.filename or not file.filename.lower().endswith(".zip"):
         return JSONResponse({"success": False, "error": "Only .zip files are supported"}, status_code=400)
     
@@ -5758,51 +7084,18 @@ async def upload_plugin(file: UploadFile = File(...)):
             return JSONResponse({"success": False, "error": f"Plugin too large (max {MAX_PLUGIN_SIZE // (1024*1024)}MB)"}, status_code=400)
         
         with tempfile.TemporaryDirectory() as temp_dir:
-            zip_path = os.path.join(temp_dir, "plugin.zip")
-            with open(zip_path, "wb") as f:
-                f.write(content)
-            
             try:
-                with zipfile.ZipFile(zip_path, "r") as zf:
-                    # Check for zip bomb
-                    total_size = sum(info.file_size for info in zf.infolist())
-                    if total_size > MAX_PLUGIN_SIZE * 10:
-                        return JSONResponse({"success": False, "error": "Plugin archive too large when extracted"}, status_code=400)
-                    zf.extractall(temp_dir)
-            except zipfile.BadZipFile:
-                return JSONResponse({"success": False, "error": "Invalid zip file"}, status_code=400)
-            
-            # Find manifest.json
-            manifest_path = None
-            plugin_source_dir = None
-            for root, dirs, files in os.walk(temp_dir):
-                if "manifest.json" in files:
-                    manifest_path = os.path.join(root, "manifest.json")
-                    plugin_source_dir = root
-                    break
-            
-            if not manifest_path:
-                return JSONResponse({"success": False, "error": "No manifest.json found in zip"}, status_code=400)
-            
-            try:
-                with open(manifest_path, "r", encoding="utf-8") as f:
-                    manifest = json.load(f)
-            except json.JSONDecodeError:
-                return JSONResponse({"success": False, "error": "Invalid manifest.json format"}, status_code=400)
-            
-            plugin_id = manifest.get("id")
-            if not plugin_id:
-                return JSONResponse({"success": False, "error": "Plugin manifest missing 'id'"}, status_code=400)
-            
-            # Validate plugin ID
-            if not validate_plugin_id(plugin_id):
-                return JSONResponse({"success": False, "error": "Invalid plugin ID (only alphanumeric, dash, underscore allowed)"}, status_code=400)
-            
-            # Copy to installed directory
-            plugin_dest_dir = os.path.join(PLUGINS_INSTALLED_DIR, plugin_id)
-            if os.path.exists(plugin_dest_dir):
-                shutil.rmtree(plugin_dest_dir)
-            shutil.copytree(plugin_source_dir, plugin_dest_dir)
+                manifest, plugin_source = stage_plugin_archive(
+                    content,
+                    Path(temp_dir),
+                )
+                plugin_id = manifest["id"]
+                atomic_install_plugin(plugin_id, plugin_source)
+            except PluginArchiveError as error:
+                return JSONResponse(
+                    {"success": False, "error": str(error)},
+                    status_code=400,
+                )
         
         # Add to config
         config = load_plugin_config()
@@ -5894,11 +7187,12 @@ async def update_plugin_settings(plugin_id: str, request: PluginSettingsUpdate):
     return {"success": True}
 
 @app.get("/api/plugins/{plugin_id}/main.js")
-async def get_plugin_js(plugin_id: str):
+async def get_plugin_js(plugin_id: str, request: Request):
     """Get plugin JavaScript file"""
     # Validate plugin ID
     if not validate_plugin_id(plugin_id):
         return JSONResponse({"error": "Invalid plugin ID"}, status_code=400)
+    require_plugin_runtime_access(plugin_id, current_principal(request))
     
     plugin_dir = os.path.join(PLUGINS_INSTALLED_DIR, plugin_id)
     manifest_path = os.path.join(plugin_dir, "manifest.json")
@@ -5925,11 +7219,12 @@ async def get_plugin_js(plugin_id: str):
         return JSONResponse({"error": str(e)}, status_code=500)
 
 @app.get("/api/plugins/{plugin_id}/lib/{filename:path}")
-async def get_plugin_lib(plugin_id: str, filename: str):
+async def get_plugin_lib(plugin_id: str, filename: str, request: Request):
     """Get plugin library file from lib directory (supports subdirectories like fonts/)"""
     # Validate plugin ID
     if not validate_plugin_id(plugin_id):
         return JSONResponse({"error": "Invalid plugin ID"}, status_code=400)
+    require_plugin_runtime_access(plugin_id, current_principal(request))
     
     # Normalize and validate filename to prevent path traversal
     # Allow subdirectories like "fonts/file.woff2" but block ".." and absolute paths
@@ -5970,11 +7265,12 @@ async def get_plugin_lib(plugin_id: str, filename: str):
     return FileResponse(lib_path, media_type=media_type)
 
 @app.get("/api/plugins/{plugin_id}/icon")
-async def get_plugin_icon(plugin_id: str):
+async def get_plugin_icon(plugin_id: str, request: Request):
     """Get plugin icon"""
     # Validate plugin ID
     if not validate_plugin_id(plugin_id):
         return JSONResponse({"error": "Invalid plugin ID"}, status_code=400)
+    require_plugin_runtime_access(plugin_id, current_principal(request))
     
     plugin_dir = os.path.join(PLUGINS_INSTALLED_DIR, plugin_id)
     manifest_path = os.path.join(plugin_dir, "manifest.json")
@@ -5999,11 +7295,12 @@ async def get_plugin_icon(plugin_id: str):
         return JSONResponse({"error": str(e)}, status_code=500)
 
 @app.get("/api/plugins/{plugin_id}/manifest")
-async def get_plugin_manifest(plugin_id: str):
+async def get_plugin_manifest(plugin_id: str, request: Request):
     """Get plugin manifest"""
     # Validate plugin ID
     if not validate_plugin_id(plugin_id):
         return JSONResponse({"error": "Invalid plugin ID"}, status_code=400)
+    principal = current_principal(request)
     
     plugin_dir = os.path.join(PLUGINS_INSTALLED_DIR, plugin_id)
     manifest_path = os.path.join(plugin_dir, "manifest.json")
@@ -6018,82 +7315,207 @@ async def get_plugin_manifest(plugin_id: str):
         # Merge with config
         config = load_plugin_config()
         plugin_config = config.get("plugins", {}).get(plugin_id, {})
-        manifest["enabled"] = plugin_config.get("enabled", True)
-        manifest["settings_values"] = plugin_config.get("settings_values", {})
-        
-        return manifest
+        if not principal.is_admin and not plugin_config.get("enabled", False):
+            raise HTTPException(status_code=404, detail="Plugin not found")
+        return _runtime_plugin_manifest(
+            manifest,
+            plugin_config,
+            admin_view=principal.is_admin,
+        )
     except Exception as e:
         return JSONResponse({"error": str(e)}, status_code=500)
 
+PROXY_SERVICE_POLICIES = {
+    "tavily": {
+        "scheme": "https",
+        "host": "api.tavily.com",
+        "port": 443,
+        "methods": {"POST"},
+        "paths": {"/search"},
+    },
+    "bocha": {
+        "scheme": "https",
+        "host": "api.bocha.cn",
+        "port": 443,
+        "methods": {"POST"},
+        "paths": {"/v1/web-search", "/v1/ai-search"},
+    },
+    "firecrawl": {
+        "scheme": "https",
+        "host": "api.firecrawl.dev",
+        "port": 443,
+        "methods": {"POST"},
+        "paths": {"/v2/scrape"},
+    },
+    "jina": {
+        "scheme": "https",
+        "host": "r.jina.ai",
+        "port": 443,
+        "methods": {"GET"},
+        "path_prefix": "/",
+    },
+}
+MAX_PROXY_REQUEST_SIZE = int(
+    os.environ.get("MAX_PROXY_REQUEST_SIZE", str(1024 * 1024))
+)
+MAX_PROXY_RESPONSE_SIZE = int(
+    os.environ.get("MAX_PROXY_RESPONSE_SIZE", str(2 * 1024 * 1024))
+)
+PROXY_HEADER_ALLOWLIST = {"accept", "content-type", "x-respond-with"}
+
+
+def _service_is_enabled(service_id: str) -> bool:
+    config = load_plugin_config()
+    for plugin in get_installed_plugins(admin_view=True):
+        plugin_config = config.get("plugins", {}).get(plugin.get("id"), {})
+        if not plugin_config.get("enabled", False):
+            continue
+        services = plugin.get("proxy")
+        if not isinstance(services, list):
+            continue
+        if any(
+            isinstance(item, dict) and item.get("id") == service_id
+            for item in services
+        ):
+            return True
+    return False
+
+
+def _validate_proxy_target(service_id: str, raw_url: str, method: str):
+    policy = PROXY_SERVICE_POLICIES.get(service_id)
+    if policy is None or not _service_is_enabled(service_id):
+        raise HTTPException(status_code=403, detail="Proxy service is not approved")
+    parsed = urlparse(raw_url)
+    normalized_method = method.upper()
+    port = parsed.port or (443 if parsed.scheme == "https" else 80)
+    if (
+        parsed.scheme != policy["scheme"]
+        or (parsed.hostname or "").lower() != policy["host"]
+        or port != policy["port"]
+        or parsed.username
+        or parsed.password
+        or parsed.fragment
+        or normalized_method not in policy["methods"]
+    ):
+        raise HTTPException(status_code=403, detail="Proxy target is not approved")
+    path = parsed.path or "/"
+    if "paths" in policy and path not in policy["paths"]:
+        raise HTTPException(status_code=403, detail="Proxy path is not approved")
+    if "path_prefix" in policy and not path.startswith(policy["path_prefix"]):
+        raise HTTPException(status_code=403, detail="Proxy path is not approved")
+    return normalized_method
+
+
+def _redact_secret_values(value: Any, secrets_to_redact: List[str]) -> Any:
+    if isinstance(value, dict):
+        return {
+            key: _redact_secret_values(item, secrets_to_redact)
+            for key, item in value.items()
+        }
+    if isinstance(value, list):
+        return [
+            _redact_secret_values(item, secrets_to_redact)
+            for item in value
+        ]
+    if isinstance(value, str):
+        result = value
+        for secret in secrets_to_redact:
+            if secret:
+                result = result.replace(secret, "[REDACTED]")
+        return result
+    return value
+
+
+async def _read_proxy_response(resp) -> Any:
+    raw = await resp.content.read(MAX_PROXY_RESPONSE_SIZE + 1)
+    if len(raw) > MAX_PROXY_RESPONSE_SIZE:
+        raise HTTPException(status_code=502, detail="Proxy response is too large")
+    text = raw.decode("utf-8", errors="replace")
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError:
+        return {"raw": text}
+
+
 @app.post("/api/proxy/request")
 async def proxy_request(request: ProxyRequest):
-    """Generic HTTP proxy for plugins - protects API keys"""
-    from urllib.parse import urlparse
-    
-    # Validate URL
+    """Restricted proxy for administrator-approved plugin services."""
     try:
-        parsed = urlparse(request.url)
-        if not parsed.scheme in ('http', 'https'):
-            return JSONResponse({"success": False, "error": "Only HTTP(S) URLs are allowed"}, status_code=400)
-        if not parsed.netloc:
-            return JSONResponse({"success": False, "error": "Invalid URL"}, status_code=400)
-        # Block internal/private networks (basic SSRF protection)
-        hostname = parsed.hostname.lower() if parsed.hostname else ''
-        if hostname in ('localhost', '127.0.0.1', '0.0.0.0', '::1') or hostname.startswith('192.168.') or hostname.startswith('10.') or hostname.startswith('172.'):
-            return JSONResponse({"success": False, "error": "Access to internal networks is not allowed"}, status_code=400)
-    except Exception:
-        return JSONResponse({"success": False, "error": "Invalid URL format"}, status_code=400)
-    
-    # Validate HTTP method
-    allowed_methods = {'GET', 'POST', 'PUT', 'DELETE', 'PATCH'}
-    if request.method.upper() not in allowed_methods:
-        return JSONResponse({"success": False, "error": f"Method {request.method} not allowed"}, status_code=400)
-    
+        method = _validate_proxy_target(
+            request.service_id,
+            request.url,
+            request.method,
+        )
+    except (HTTPException, ValueError) as error:
+        if isinstance(error, HTTPException):
+            raise
+        raise HTTPException(status_code=400, detail="Invalid proxy URL") from error
+
+    encoded_body = json.dumps(
+        request.body,
+        ensure_ascii=False,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    if len(encoded_body) > MAX_PROXY_REQUEST_SIZE:
+        raise HTTPException(status_code=413, detail="Proxy request is too large")
+
     config = load_plugin_config()
-    api_key = config.get("api_keys", {}).get(request.service_id)
-    
-    headers = {**request.headers}
+    api_keys = config.get("api_keys", {})
+    api_key = api_keys.get(request.service_id)
+    headers = {
+        key: str(value)
+        for key, value in request.headers.items()
+        if key.lower() in PROXY_HEADER_ALLOWLIST
+    }
     if api_key:
-        # Add API key based on common patterns
-        if "Authorization" not in headers:
-            headers["Authorization"] = f"Bearer {api_key}"
-    
-    if "Content-Type" not in headers:
-        headers["Content-Type"] = "application/json"
-    
-    # Remove potentially dangerous headers
-    headers.pop("Host", None)
-    headers.pop("Cookie", None)
-    
+        headers["Authorization"] = f"Bearer {api_key}"
+    if method != "GET":
+        headers.setdefault("Content-Type", "application/json")
+
     try:
         session = await get_http_session()
         async with session.request(
-            method=request.method.upper(),
+            method=method,
             url=request.url,
             headers=headers,
-            json=request.body if request.body else None,
+            json=request.body if method != "GET" else None,
             timeout=aiohttp.ClientTimeout(total=30),
-            allow_redirects=False  # Prevent redirect-based attacks
+            allow_redirects=False,
         ) as resp:
-            try:
-                data = await resp.json()
-            except:
-                text = await resp.text()
-                # Limit response size
-                data = {"raw": text[:50000] if len(text) > 50000 else text}
-            
-            if resp.status != 200:
-                return JSONResponse({"success": False, "error": data, "status": resp.status}, status_code=resp.status)
-            
+            data = await _read_proxy_response(resp)
+            data = _redact_secret_values(
+                data,
+                [value for value in api_keys.values() if isinstance(value, str)],
+            )
+            if resp.status < 200 or resp.status >= 300:
+                return JSONResponse(
+                    {
+                        "success": False,
+                        "error": "Upstream service rejected the request",
+                        "status": resp.status,
+                    },
+                    status_code=502,
+                )
             return {"success": True, "data": data}
+    except HTTPException:
+        raise
     except asyncio.TimeoutError:
-        return JSONResponse({"success": False, "error": "Request timeout"}, status_code=504)
-    except aiohttp.ClientError as e:
-        logger.error(f"Proxy request client error: {e}")
-        return JSONResponse({"success": False, "error": f"Network error: {str(e)}"}, status_code=502)
-    except Exception as e:
-        logger.error(f"Proxy request error: {e}")
-        return JSONResponse({"success": False, "error": str(e)}, status_code=500)
+        return JSONResponse(
+            {"success": False, "error": "Request timeout"},
+            status_code=504,
+        )
+    except aiohttp.ClientError as error:
+        logger.warning("Proxy network error: %s", error.__class__.__name__)
+        return JSONResponse(
+            {"success": False, "error": "Proxy network error"},
+            status_code=502,
+        )
+    except Exception as error:
+        logger.error("Proxy request failed: %s", error.__class__.__name__)
+        return JSONResponse(
+            {"success": False, "error": "Proxy request failed"},
+            status_code=500,
+        )
 
 # Maximum file size for proxy upload (20MB)
 MAX_PROXY_UPLOAD_SIZE = int(os.environ.get("MAX_PROXY_UPLOAD_SIZE", str(20 * 1024 * 1024)))
@@ -6117,22 +7539,19 @@ async def proxy_upload(
         extra_fields: JSON string of additional form fields
         file_field_name: Name of the file field in the multipart form (default: "file")
     """
-    from urllib.parse import urlparse
-    import aiohttp
-    
-    # Validate URL
     try:
-        parsed = urlparse(url)
-        if parsed.scheme not in ('http', 'https'):
-            return JSONResponse({"success": False, "error": "Only HTTP(S) URLs are allowed"}, status_code=400)
-        if not parsed.netloc:
-            return JSONResponse({"success": False, "error": "Invalid URL"}, status_code=400)
-        # Block internal/private networks (SSRF protection)
-        hostname = parsed.hostname.lower() if parsed.hostname else ''
-        if hostname in ('localhost', '127.0.0.1', '0.0.0.0', '::1') or hostname.startswith('192.168.') or hostname.startswith('10.') or hostname.startswith('172.'):
-            return JSONResponse({"success": False, "error": "Access to internal networks is not allowed"}, status_code=400)
-    except Exception:
-        return JSONResponse({"success": False, "error": "Invalid URL format"}, status_code=400)
+        _validate_proxy_target(service_id, url, "POST")
+    except (HTTPException, ValueError):
+        return JSONResponse(
+            {"success": False, "error": "Upload service is not approved"},
+            status_code=403,
+        )
+    policy = PROXY_SERVICE_POLICIES.get(service_id, {})
+    if not policy.get("allow_upload", False):
+        return JSONResponse(
+            {"success": False, "error": "Upload service is not approved"},
+            status_code=403,
+        )
     
     # Read and validate file size
     try:
@@ -6215,21 +7634,19 @@ async def proxy_upload(
         return JSONResponse({"success": False, "error": str(e)}, status_code=500)
 
 @app.get("/api/plugins/api-keys")
-async def get_api_keys():
-    """Get masked API keys for display (shows first 4 and last 4 chars)"""
+async def get_api_keys(request: Request):
+    """Return configuration state without returning any secret material."""
+    require_admin(request)
     try:
         config = load_plugin_config()
         api_keys = config.get("api_keys", {})
         
-        # Return masked keys for display
-        masked = {}
-        for service_id, key in api_keys.items():
-            if key and len(key) > 10:
-                masked[service_id] = key[:4] + '*' * (len(key) - 8) + key[-4:]
-            elif key:
-                masked[service_id] = '*' * len(key)
-        
-        return {"api_keys": masked}
+        return {
+            "api_keys": {
+                service_id: {"configured": bool(key)}
+                for service_id, key in api_keys.items()
+            }
+        }
     except Exception as e:
         return JSONResponse({"error": str(e)}, status_code=500)
 
@@ -6241,6 +7658,7 @@ async def save_api_key(request: Request):
     try:
         body = await request.json()
         service_id = body.get("service_id")
+        action = body.get("action", "preserve")
         api_key = body.get("api_key", "")
         
         if not service_id:
@@ -6253,24 +7671,790 @@ async def save_api_key(request: Request):
         # Limit service_id and api_key length
         if len(service_id) > 100:
             return JSONResponse({"success": False, "error": "service_id too long"}, status_code=400)
-        if len(api_key) > 500:
+        if not isinstance(api_key, str) or len(api_key) > 500:
             return JSONResponse({"success": False, "error": "api_key too long"}, status_code=400)
+        if action not in {"preserve", "replace", "clear"}:
+            return JSONResponse({"success": False, "error": "Invalid action"}, status_code=400)
+        if action == "replace" and not api_key:
+            return JSONResponse({"success": False, "error": "api_key required"}, status_code=400)
         
         config = load_plugin_config()
         if "api_keys" not in config:
             config["api_keys"] = {}
         
-        if api_key:
+        if action == "replace":
             config["api_keys"][service_id] = api_key
-        elif service_id in config["api_keys"]:
+        elif action == "clear" and service_id in config["api_keys"]:
             del config["api_keys"][service_id]
         
         save_plugin_config(config)
+        auth_service.audit(
+            current_principal(request).id,
+            "plugin.secret.configure",
+            "plugin_service",
+            service_id,
+            "success",
+            {"action": action},
+        )
         return {"success": True}
     except json.JSONDecodeError:
         return JSONResponse({"success": False, "error": "Invalid JSON"}, status_code=400)
     except Exception as e:
-        return JSONResponse({"success": False, "error": str(e)}, status_code=500)
+        logger.error("Plugin secret update failed: %s", e.__class__.__name__)
+        return JSONResponse(
+            {"success": False, "error": "Secret update failed"},
+            status_code=500,
+        )
+
+
+# ============ Module Protocol v1 registration center ============
+
+def _module_plugin_lookup(plugin_id: str) -> Optional[dict]:
+    for plugin in get_installed_plugins(admin_view=True):
+        if plugin.get("id") == plugin_id:
+            return {
+                "id": plugin_id,
+                "version": plugin.get("version"),
+                "enabled": bool(plugin.get("enabled")),
+                "trust": plugin.get("trust"),
+            }
+    return None
+
+
+module_address_policy = ModuleAddressPolicy(
+    allowed_origins=MODULE_ALLOWED_ORIGINS,
+    bridge_cidrs=MODULE_BRIDGE_CIDRS,
+    containerized=CONTAINERIZED,
+)
+module_registry = ModuleRegistry(
+    db.db_path,
+    MODULE_CREDENTIAL_DIR,
+    busy_timeout_ms=db.busy_timeout_ms,
+    client=ModuleHttpClient(module_address_policy),
+    plugin_lookup=_module_plugin_lookup,
+    audit=auth_service.audit,
+)
+
+
+async def _module_host_model_invoke(prompt: str) -> str:
+    config = db.get_model_by_type("chat")
+    if config is None or not config.api_url or not config.model_id:
+        raise ModuleTaskError(
+            "model_unavailable",
+            "Chat model is not configured",
+            status_code=503,
+        )
+    return await llm_service._call_chat_completion_raw(
+        config,
+        [{"role": "user", "content": prompt}],
+        max_tokens=min(config.max_output, 4096),
+        temperature=0.2,
+    )
+
+
+module_task_service = ModuleTaskService(
+    db.db_path,
+    busy_timeout_ms=db.busy_timeout_ms,
+    registry=module_registry,
+    audit=auth_service.audit,
+    chat_generation_active=_chat_generation_active,
+    model_invoke=_module_host_model_invoke,
+)
+
+
+async def _module_admin_body(
+    request: Request,
+    *,
+    max_bytes: int = MAX_CONFIG_BYTES,
+) -> dict:
+    content_length = request.headers.get("content-length")
+    if content_length:
+        try:
+            if int(content_length) > max_bytes:
+                raise HTTPException(
+                    status_code=413,
+                    detail="Request body exceeds the size limit",
+                )
+        except ValueError:
+            raise HTTPException(
+                status_code=400,
+                detail="Invalid Content-Length",
+            ) from None
+    raw_body = await request.body()
+    if len(raw_body) > max_bytes:
+        raise HTTPException(
+            status_code=413,
+            detail="Request body exceeds the size limit",
+        )
+    try:
+        payload = json.loads(raw_body.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        raise HTTPException(
+            status_code=400,
+            detail="Request body must be valid JSON",
+        ) from None
+    if not isinstance(payload, dict):
+        raise HTTPException(
+            status_code=400,
+            detail="Request body must be an object",
+        )
+    return payload
+
+
+def _module_error_response(error: ModuleRegistryError) -> JSONResponse:
+    return JSONResponse(
+        {
+            "detail": error.public_message,
+            "code": error.code,
+        },
+        status_code=error.status_code,
+    )
+
+
+def _audit_module_failure(
+    request: Request,
+    action: str,
+    error: ModuleRegistryError,
+    registration_id: Optional[str] = None,
+) -> None:
+    auth_service.audit(
+        current_principal(request).id,
+        action,
+        "module",
+        registration_id,
+        "failure",
+        {"error_code": error.code},
+    )
+
+
+def _module_task_error_response(error: ModuleTaskError) -> JSONResponse:
+    return JSONResponse(
+        {
+            "detail": error.public_message,
+            "code": error.code,
+        },
+        status_code=error.status_code,
+    )
+
+
+@app.get("/api/module-features/{module_id}")
+async def get_module_feature_status(module_id: str, request: Request):
+    current_principal(request)
+    try:
+        return module_registry.feature_status(module_id)
+    except ModuleRegistryError as error:
+        if error.code == "module_not_found":
+            return {
+                "sdk_version": "1.0.0",
+                "module_id": module_id,
+                "name": module_id,
+                "module_version": None,
+                "protocol_version": None,
+                "visible": False,
+                "available": False,
+                "state": "hidden",
+                "reason": None,
+                "companion_plugin": None,
+                "actions": [],
+            }
+        return _module_error_response(error)
+
+
+def _module_capability_bearer(request: Request) -> str:
+    authorization = request.headers.get("authorization", "")
+    if (
+        not authorization.startswith("Bearer ")
+        or len(authorization) > 5000
+    ):
+        raise ModuleTaskError(
+            "capability_token_invalid",
+            "Capability token is invalid",
+            status_code=401,
+        )
+    return authorization[7:]
+
+
+@app.post("/api/module-tasks")
+async def create_module_task(request: Request):
+    principal = current_principal(request)
+    try:
+        payload = await _module_admin_body(
+            request,
+            max_bytes=MAX_TASK_REQUEST_BYTES,
+        )
+        task, created = await module_task_service.create(
+            payload=payload,
+            idempotency_key=request.headers.get("idempotency-key", ""),
+            principal_user_id=principal.id,
+            principal_role=principal.role,
+        )
+        return JSONResponse(task, status_code=202 if created else 200)
+    except ModuleTaskError as error:
+        auth_service.audit(
+            principal.id,
+            "module.task.create",
+            "module_task",
+            None,
+            "failure",
+            {"error_code": error.code},
+        )
+        return _module_task_error_response(error)
+
+
+@app.get("/api/module-tasks")
+async def list_module_tasks(
+    request: Request,
+    limit: int = 50,
+    state: Optional[str] = None,
+    chat_id: Optional[str] = None,
+):
+    principal = current_principal(request)
+    try:
+        tasks = await module_task_service.list(
+            principal_user_id=principal.id,
+            principal_role=principal.role,
+            limit=limit,
+            state=state,
+            chat_id=chat_id,
+        )
+        return {"tasks": tasks}
+    except ModuleTaskError as error:
+        return _module_task_error_response(error)
+
+
+@app.get("/api/module-tasks/{task_id}")
+async def get_module_task(task_id: str, request: Request):
+    principal = current_principal(request)
+    try:
+        return await module_task_service.get(
+            task_id,
+            principal_user_id=principal.id,
+            principal_role=principal.role,
+        )
+    except ModuleTaskError as error:
+        return _module_task_error_response(error)
+
+
+@app.get("/api/module-tasks/{task_id}/events")
+async def get_module_task_events(task_id: str, request: Request):
+    current_principal(request)
+    raw_cursor = request.headers.get("last-event-id", "0")
+    try:
+        last_event_id = int(raw_cursor)
+        module_task_service._task_row(task_id)
+        module_task_service._target_and_action_for_row(
+            module_task_service._task_row(task_id)
+        )
+    except ValueError:
+        return _module_task_error_response(
+            ModuleTaskError(
+                "invalid_event_cursor",
+                "Last-Event-ID is invalid",
+            )
+        )
+    except ModuleTaskError as error:
+        return _module_task_error_response(error)
+
+    async def generate():
+        try:
+            async for event in module_task_service.stream_events(
+                task_id,
+                last_event_id=last_event_id,
+            ):
+                if event is None:
+                    yield ": heartbeat\n\n"
+                    continue
+                yield (
+                    f"id: {event['id']}\n"
+                    f"event: {event['event']}\n"
+                    f"data: {json.dumps(event['data'], ensure_ascii=False, separators=(',', ':'))}\n\n"
+                )
+        except ModuleTaskError:
+            return
+
+    return StreamingResponse(
+        generate(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache, no-store",
+            "X-Accel-Buffering": "no",
+            "Content-Encoding": "identity",
+        },
+    )
+
+
+@app.post("/api/module-tasks/{task_id}/cancel")
+async def cancel_module_task(task_id: str, request: Request):
+    principal = current_principal(request)
+    try:
+        payload = await _module_admin_body(request, max_bytes=1024)
+        if payload:
+            raise ModuleTaskError(
+                "invalid_cancel_request",
+                "Cancellation request must be empty",
+            )
+        task = await module_task_service.cancel(
+            task_id,
+            principal_user_id=principal.id,
+            principal_role=principal.role,
+        )
+        return JSONResponse(task, status_code=202)
+    except ModuleTaskError as error:
+        auth_service.audit(
+            principal.id,
+            "module.task.cancel",
+            "module_task",
+            task_id,
+            "failure",
+            {"error_code": error.code},
+        )
+        return _module_task_error_response(error)
+
+
+@app.post(
+    "/api/module-tasks/{task_id}/approvals/{approval_id}"
+)
+async def approve_module_task(
+    task_id: str,
+    approval_id: str,
+    request: Request,
+):
+    principal = current_principal(request)
+    try:
+        payload = await _module_admin_body(request, max_bytes=4096)
+        if set(payload) != {"decision"}:
+            raise ModuleTaskError(
+                "invalid_approval",
+                "Approval request is invalid",
+            )
+        return await module_task_service.resolve_approval(
+            task_id,
+            approval_id,
+            decision=payload["decision"],
+            principal_user_id=principal.id,
+            principal_role=principal.role,
+        )
+    except ModuleTaskError as error:
+        auth_service.audit(
+            principal.id,
+            "module.task.approval",
+            "module_task",
+            task_id,
+            "failure",
+            {
+                "approval_id": approval_id,
+                "error_code": error.code,
+            },
+        )
+        return _module_task_error_response(error)
+
+
+@app.get(
+    "/api/module-tasks/{task_id}/artifacts/{artifact_ref}"
+)
+async def get_module_task_artifact(
+    task_id: str,
+    artifact_ref: str,
+    request: Request,
+):
+    current_principal(request)
+    try:
+        artifact = await module_task_service.artifact(task_id, artifact_ref)
+        filename = artifact["filename"]
+        ascii_filename = "".join(
+            character
+            if 0x20 <= ord(character) < 0x7F
+            and character not in {'"', "\\"}
+            else "_"
+            for character in filename
+        )
+        encoded_filename = quote(filename, safe="")
+        return Response(
+            content=artifact["body"],
+            media_type=artifact["media_type"],
+            headers={
+                "Cache-Control": "private, no-store",
+                "Content-Disposition": (
+                    f'attachment; filename="{ascii_filename}"; '
+                    f"filename*=UTF-8''{encoded_filename}"
+                ),
+                "Content-Security-Policy": "sandbox",
+                "X-Content-Type-Options": "nosniff",
+            },
+        )
+    except ModuleTaskError as error:
+        return _module_task_error_response(error)
+
+
+@app.get("/api/module-capabilities/v1/chat")
+async def module_capability_chat(request: Request):
+    try:
+        return await module_task_service.capability_chat_read(
+            _module_capability_bearer(request)
+        )
+    except ModuleTaskError as error:
+        return _module_task_error_response(error)
+
+
+@app.get("/api/module-capabilities/v1/resources/{resource_id}")
+async def module_capability_resource(resource_id: str, request: Request):
+    try:
+        return await module_task_service.capability_resource_read(
+            _module_capability_bearer(request),
+            resource_id,
+        )
+    except ModuleTaskError as error:
+        return _module_task_error_response(error)
+
+
+@app.post("/api/module-capabilities/v1/model/invoke")
+async def module_capability_model(request: Request):
+    try:
+        token = _module_capability_bearer(request)
+        payload = await _module_admin_body(request, max_bytes=64 * 1024)
+        if set(payload) != {"prompt"}:
+            raise ModuleTaskError(
+                "invalid_model_request",
+                "Model request fields are invalid",
+            )
+        return await module_task_service.capability_model_invoke(
+            token,
+            payload["prompt"],
+        )
+    except ModuleTaskError as error:
+        return _module_task_error_response(error)
+
+
+@app.get("/api/admin/modules")
+async def list_modules(request: Request):
+    require_admin(request)
+    return {"modules": module_registry.list()}
+
+
+def _is_loopback_service_url(raw_url: Any) -> bool:
+    if not isinstance(raw_url, str) or not raw_url.strip():
+        return False
+    try:
+        hostname = (urlparse(raw_url.strip()).hostname or "").lower()
+    except ValueError:
+        return False
+    if hostname == "localhost":
+        return True
+    try:
+        return ipaddress.ip_address(hostname).is_loopback
+    except ValueError:
+        return False
+
+
+def _deployment_warnings() -> list[dict[str, str]]:
+    if not CONTAINERIZED:
+        return []
+    warnings = []
+    for model in db.get_model_configs():
+        if _is_loopback_service_url(model.api_url):
+            warnings.append(
+                {
+                    "code": "model_loopback_unreachable_from_container",
+                    "target": f"model:{model.id}",
+                    "message": (
+                        f"Model “{model.name}” uses localhost. In Compose, "
+                        "localhost points to ChatRaw; replace it with a "
+                        "container-reachable service address."
+                    ),
+                }
+            )
+    plugin_config = load_plugin_config()
+    hermes_config = plugin_config.get("plugins", {}).get(
+        HERMES_PLUGIN_ID,
+        {},
+    )
+    if hermes_config.get("enabled"):
+        settings = hermes_config.get("settings_values", {}) or {}
+        if _is_loopback_service_url(
+            settings.get("baseUrl") or HERMES_DEFAULT_BASE_URL
+        ):
+            warnings.append(
+                {
+                    "code": "hermes_loopback_unreachable_from_container",
+                    "target": "plugin:hermes",
+                    "message": (
+                        "Hermes uses localhost. In Compose, localhost points "
+                        "to ChatRaw; replace it with a container-reachable "
+                        "service address."
+                    ),
+                }
+            )
+    return warnings
+
+
+@app.get("/api/admin/deployment-status")
+async def get_deployment_status(request: Request):
+    require_admin(request)
+    return {
+        "mode": "compose" if CONTAINERIZED else "source",
+        "module_network": MODULE_NETWORK_NAME if CONTAINERIZED else None,
+        "warnings": _deployment_warnings(),
+    }
+
+
+@app.get("/api/admin/modules/{registration_id}")
+async def get_module(registration_id: str, request: Request):
+    require_admin(request)
+    try:
+        return module_registry.get(registration_id)
+    except ModuleRegistryError as error:
+        return _module_error_response(error)
+
+
+@app.post("/api/admin/modules/pair")
+async def pair_module(request: Request):
+    require_admin(request)
+    payload = await _module_admin_body(request, max_bytes=16 * 1024)
+    if set(payload) != {"base_url", "pairing_code"}:
+        raise HTTPException(
+            status_code=400,
+            detail="Pairing request fields are invalid",
+        )
+    principal = current_principal(request)
+    try:
+        module = await module_registry.pair(
+            base_url=payload.get("base_url"),
+            pairing_code=payload.get("pairing_code"),
+            actor_user_id=principal.id,
+        )
+        return JSONResponse(module, status_code=201)
+    except ModuleRegistryError as error:
+        _audit_module_failure(request, "module.pair", error)
+        return _module_error_response(error)
+    except Exception as error:
+        logger.error(
+            "Module pairing failed: %s",
+            error.__class__.__name__,
+        )
+        return JSONResponse(
+            {
+                "detail": "Module pairing failed",
+                "code": "module_pairing_failed",
+            },
+            status_code=500,
+        )
+
+
+@app.post("/api/admin/modules/{registration_id}/approve")
+async def approve_module(registration_id: str, request: Request):
+    require_admin(request)
+    payload = await _module_admin_body(request, max_bytes=32 * 1024)
+    if set(payload) != {"manifest_digest", "approved_capabilities"}:
+        raise HTTPException(
+            status_code=400,
+            detail="Approval request fields are invalid",
+        )
+    if not isinstance(payload["approved_capabilities"], list):
+        raise HTTPException(
+            status_code=400,
+            detail="Approved capabilities must be a list",
+        )
+    try:
+        return module_registry.approve(
+            registration_id,
+            manifest_digest=payload.get("manifest_digest"),
+            approved_capabilities=payload["approved_capabilities"],
+            actor_user_id=current_principal(request).id,
+        )
+    except ModuleRegistryError as error:
+        _audit_module_failure(
+            request,
+            "module.approve",
+            error,
+            registration_id,
+        )
+        return _module_error_response(error)
+
+
+@app.post("/api/admin/modules/{registration_id}/refresh")
+async def refresh_module(registration_id: str, request: Request):
+    require_admin(request)
+    try:
+        return await module_registry.refresh(
+            registration_id,
+            actor_user_id=current_principal(request).id,
+        )
+    except ModuleRegistryError as error:
+        _audit_module_failure(
+            request,
+            "module.refresh",
+            error,
+            registration_id,
+        )
+        return _module_error_response(error)
+
+
+@app.post("/api/admin/modules/{registration_id}/check")
+async def check_module(registration_id: str, request: Request):
+    require_admin(request)
+    try:
+        return await module_registry.check(
+            registration_id,
+            actor_user_id=current_principal(request).id,
+        )
+    except ModuleRegistryError as error:
+        _audit_module_failure(
+            request,
+            "module.check",
+            error,
+            registration_id,
+        )
+        return _module_error_response(error)
+
+
+@app.get("/api/admin/modules/{registration_id}/config")
+async def get_module_config(registration_id: str, request: Request):
+    require_admin(request)
+    try:
+        return await module_registry.get_config(registration_id)
+    except ModuleRegistryError as error:
+        _audit_module_failure(
+            request,
+            "module.config.read",
+            error,
+            registration_id,
+        )
+        return _module_error_response(error)
+
+
+@app.put("/api/admin/modules/{registration_id}/config")
+async def update_module_config(registration_id: str, request: Request):
+    require_admin(request)
+    payload = await _module_admin_body(request)
+    try:
+        return await module_registry.update_config(
+            registration_id,
+            payload,
+            actor_user_id=current_principal(request).id,
+        )
+    except ModuleRegistryError as error:
+        _audit_module_failure(
+            request,
+            "module.config.update",
+            error,
+            registration_id,
+        )
+        return _module_error_response(error)
+
+
+@app.post("/api/admin/modules/{registration_id}/enable")
+async def enable_module(registration_id: str, request: Request):
+    require_admin(request)
+    try:
+        return await module_registry.enable(
+            registration_id,
+            actor_user_id=current_principal(request).id,
+        )
+    except ModuleRegistryError as error:
+        _audit_module_failure(
+            request,
+            "module.enable",
+            error,
+            registration_id,
+        )
+        return _module_error_response(error)
+
+
+@app.post("/api/admin/modules/{registration_id}/drain")
+async def drain_module(registration_id: str, request: Request):
+    require_admin(request)
+    try:
+        return module_registry.drain(
+            registration_id,
+            actor_user_id=current_principal(request).id,
+        )
+    except ModuleRegistryError as error:
+        _audit_module_failure(
+            request,
+            "module.drain",
+            error,
+            registration_id,
+        )
+        return _module_error_response(error)
+
+
+@app.post("/api/admin/modules/{registration_id}/disable")
+async def disable_module(registration_id: str, request: Request):
+    require_admin(request)
+    try:
+        return module_registry.disable(
+            registration_id,
+            actor_user_id=current_principal(request).id,
+        )
+    except ModuleRegistryError as error:
+        _audit_module_failure(
+            request,
+            "module.disable",
+            error,
+            registration_id,
+        )
+        return _module_error_response(error)
+
+
+@app.post("/api/admin/modules/{registration_id}/disconnect")
+async def disconnect_module(registration_id: str, request: Request):
+    require_admin(request)
+    payload = await _module_admin_body(request, max_bytes=4096)
+    if set(payload) != {"confirmation"}:
+        raise HTTPException(
+            status_code=400,
+            detail="Disconnect confirmation is invalid",
+        )
+    try:
+        result = await module_registry.disconnect(
+            registration_id,
+            confirmation=payload.get("confirmation"),
+            actor_user_id=current_principal(request).id,
+        )
+        module_task_service.force_disconnect(registration_id)
+        return result
+    except ModuleRegistryError as error:
+        _audit_module_failure(
+            request,
+            "module.disconnect",
+            error,
+            registration_id,
+        )
+        return _module_error_response(error)
+
+
+@app.post("/api/admin/modules/{registration_id}/purge-data")
+async def purge_module_data(registration_id: str, request: Request):
+    require_admin(request)
+    payload = await _module_admin_body(request, max_bytes=4096)
+    if set(payload) != {"confirmation"}:
+        raise HTTPException(
+            status_code=400,
+            detail="Purge confirmation is invalid",
+        )
+    if module_task_service.has_active_registration_tasks(registration_id):
+        return _module_task_error_response(
+            ModuleTaskError(
+                "active_tasks_block_purge",
+                "Active tasks must finish before module data can be purged",
+                status_code=409,
+            )
+        )
+    try:
+        return await module_registry.purge_data(
+            registration_id,
+            confirmation=payload.get("confirmation"),
+            actor_user_id=current_principal(request).id,
+        )
+    except ModuleRegistryError as error:
+        _audit_module_failure(
+            request,
+            "module.data.purge",
+            error,
+            registration_id,
+        )
+        return _module_error_response(error)
+
 
 # Custom StaticFiles with caching headers
 class CachedStaticFiles(StaticFiles):

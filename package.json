@@ -1,5 +1,7 @@
 {
   "scripts": {
+    "build:frontend": "node scripts/build-frontend.mjs --write",
+    "check:frontend": "node scripts/build-frontend.mjs --check",
     "build:markmap": "node Plugins/Plugin_market/mindmap-renderer/build-markmap.js"
   },
   "devDependencies": {

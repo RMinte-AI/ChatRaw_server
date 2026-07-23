@@ -19,6 +19,7 @@
   "dependencies": {
     "xlsx": "/api/plugins/excel-parser/lib/xlsx.full.min.js"
   },
+  "runtimeSettings": ["max_rows", "max_cols", "date_format", "include_empty_rows"],
   "settings": [
     {
       "id": "max_rows",

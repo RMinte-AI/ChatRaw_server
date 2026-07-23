@@ -1,16 +1,41 @@
 name: CI
 
 on:
+  push:
+    branches: [main]
+    paths:
+      - 'backend/**/*.py'
+      - 'backend/requirements.txt'
+      - 'backend/static/**'
+      - 'backend/contracts/**'
+      - 'examples/reference-module/**'
+      - 'Plugins/Plugin_market/reference-module-companion/**'
+      - 'package.json'
+      - 'package-lock.json'
+      - 'scripts/**'
+      - 'Dockerfile'
+      - 'docker-compose.yml'
+      - 'docs/**'
+      - '.github/workflows/**'
   pull_request:
     branches: [main]
     paths:
       - 'backend/**/*.py'
       - 'backend/requirements.txt'
       - 'backend/static/**'
+      - 'backend/contracts/**'
+      - 'examples/reference-module/**'
+      - 'Plugins/Plugin_market/reference-module-companion/**'
+      - 'package.json'
+      - 'package-lock.json'
+      - 'scripts/**'
       - 'Dockerfile'
       - 'docker-compose.yml'
       - 'docs/**'
       - '.github/workflows/**'
+
+permissions:
+  contents: read
 
 jobs:
   code-check:
@@ -30,38 +55,36 @@ jobs:
 
       - name: Install dependencies
         run: |
-          pip install -r backend/requirements.txt flake8
-
-      - name: Get changed Python files
-        id: changed
-        run: |
-          FILES=$(git diff --name-only origin/${{ github.base_ref }}...HEAD -- '*.py' 'backend/**/*.py' || true)
-          echo "files<<EOF" >> $GITHUB_OUTPUT
-          echo "$FILES" >> $GITHUB_OUTPUT
-          echo "EOF" >> $GITHUB_OUTPUT
+          pip install -r backend/requirements.txt pytest flake8
 
       - name: Syntax check
-        run: |
-          FILES="${{ steps.changed.outputs.files }}"
-          if [ -n "$FILES" ]; then
-            for f in $FILES; do
-              if [ -f "$f" ]; then
-                python -m py_compile "$f" || exit 1
-              fi
-            done
-          fi
+        run: python -m compileall -q backend
 
       - name: Flake8 (critical errors only)
-        run: |
-          FILES="${{ steps.changed.outputs.files }}"
-          if [ -n "$FILES" ]; then
-            flake8 --select=E9,F63,F7,F82 $FILES || exit 1
-          fi
+        run: flake8 --select=E9,F63,F7,F82 backend
 
       - name: Module import test
         run: |
-          cd backend
-          python -c "from main import app"
+          module_data_dir=$(mktemp -d)
+          DATA_DIR="$module_data_dir" CHATRAW_TEST_MODE=1 python -c "from backend.main import app"
+
+      - name: Backend regression suite
+        run: ./scripts/run-backend-tests.sh
+
+      - name: T6 source deployment acceptance
+        run: ./scripts/run-t6-source-gate.sh
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+
+      - name: Install locked frontend build dependencies
+        run: npm ci --ignore-scripts
+
+      - name: Verify frontend build artifacts
+        run: npm run check:frontend
 
   docker-build:
     name: Docker Build
@@ -74,5 +97,8 @@ jobs:
       - name: Build Docker image
         run: docker build -t chatraw:test .
 
-      - name: Smoke test
-        run: docker run --rm chatraw:test python -c "print('✅ Docker OK')"
+      - name: Real HTTP health smoke test
+        run: ./scripts/check-docker-health.sh chatraw:test
+
+      - name: T6 Compose deployment acceptance
+        run: ./scripts/run-t6-compose-gate.sh

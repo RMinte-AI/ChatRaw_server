@@ -1,0 +1,19 @@
+{
+  "id": "reference-module-companion",
+  "version": "1.0.0",
+  "name": {
+    "en": "Reference Module Companion",
+    "zh": "参考模块连接插件"
+  },
+  "description": {
+    "en": "Connects the reference backend module to ChatRaw through the stable same-origin module SDK.",
+    "zh": "通过稳定的同源模块 SDK，将参考后端模块接入 ChatRaw。"
+  },
+  "author": "ChatRaw",
+  "icon": "icon.svg",
+  "main": "main.js",
+  "type": "ui_extension",
+  "hooks": [],
+  "customSettings": false,
+  "settings": []
+}

@@ -318,16 +318,17 @@ class ContextCompactionTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertNotIn(chat.id, main._context_compaction_locks)
 
-    async def test_create_chat_cleanup_clears_stale_compaction_locks(self):
+    async def test_create_chat_keeps_old_compaction_and_lock(self):
         chats = [self.create_chat_with_messages(10) for _ in range(10)]
-        stale_chat = chats[0]
-        await self.service.compact_chat_history(stale_chat.id)
-        self.assertIn(stale_chat.id, main._context_compaction_locks)
+        old_chat = chats[0]
+        await self.service.compact_chat_history(old_chat.id)
+        self.assertIn(old_chat.id, main._context_compaction_locks)
 
         self.db.create_chat("Newest")
 
-        self.assertNotIn(stale_chat.id, main._context_compaction_locks)
-        self.assertIsNone(self.db.get_chat_compaction(stale_chat.id))
+        self.assertIn(old_chat.id, main._context_compaction_locks)
+        self.assertIsNotNone(self.db.get_chat_compaction(old_chat.id))
+        self.assertEqual(len(self.db.get_chats()), 11)
 
     def test_threshold_is_clamped(self):
         self.assertEqual(main.clamp_context_threshold(1), 30)

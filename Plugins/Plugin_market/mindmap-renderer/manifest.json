@@ -18,6 +18,7 @@
   "dependencies": {
     "markmap": "/api/plugins/mindmap-renderer/lib/markmap-bundle.min.js"
   },
+  "runtimeSettings": ["enableMindmap", "autoDetect", "minLevels"],
   "settings": [
     {
       "id": "enableMindmap",

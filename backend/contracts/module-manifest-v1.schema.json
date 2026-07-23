@@ -1,0 +1,159 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://chatraw.example/contracts/module-manifest-v1.schema.json",
+  "title": "ChatRaw Module Manifest v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "module_id",
+    "module_version",
+    "protocol_version",
+    "name",
+    "description",
+    "actions",
+    "config_schema",
+    "requested_host_capabilities",
+    "companion_plugin",
+    "administration"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "1"
+    },
+    "module_id": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9]*(?:[.-][a-z0-9]+)*$",
+      "minLength": 3,
+      "maxLength": 128
+    },
+    "module_version": {
+      "$ref": "#/$defs/semver"
+    },
+    "protocol_version": {
+      "$ref": "#/$defs/semver"
+    },
+    "name": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 120
+    },
+    "description": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 1000
+    },
+    "actions": {
+      "type": "array",
+      "maxItems": 100,
+      "items": {
+        "$ref": "#/$defs/action"
+      }
+    },
+    "config_schema": {
+      "type": "object"
+    },
+    "requested_host_capabilities": {
+      "type": "array",
+      "maxItems": 32,
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "pattern": "^[a-z][a-z0-9]*(?:[._-][a-z0-9]+)*$",
+        "maxLength": 128
+      }
+    },
+    "companion_plugin": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "version_range"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+          "maxLength": 64
+        },
+        "version_range": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 120
+        }
+      }
+    },
+    "administration": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "supports_data_purge"
+      ],
+      "properties": {
+        "supports_data_purge": {
+          "type": "boolean"
+        }
+      }
+    }
+  },
+  "$defs": {
+    "semver": {
+      "type": "string",
+      "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)(?:-[0-9A-Za-z.-]+)?(?:\\+[0-9A-Za-z.-]+)?$",
+      "maxLength": 64
+    },
+    "action": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "action_id",
+        "action_version",
+        "minimum_role",
+        "input_schema",
+        "output_schema",
+        "supports_stream",
+        "supports_cancel",
+        "supports_approval",
+        "supports_artifacts",
+        "supports_chat_projection"
+      ],
+      "properties": {
+        "action_id": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9]*(?:[._-][a-z0-9]+)*$",
+          "maxLength": 128
+        },
+        "action_version": {
+          "$ref": "#/$defs/semver"
+        },
+        "minimum_role": {
+          "enum": [
+            "member",
+            "admin"
+          ]
+        },
+        "input_schema": {
+          "type": "object"
+        },
+        "output_schema": {
+          "type": "object"
+        },
+        "supports_stream": {
+          "type": "boolean"
+        },
+        "supports_cancel": {
+          "type": "boolean"
+        },
+        "supports_approval": {
+          "type": "boolean"
+        },
+        "supports_artifacts": {
+          "type": "boolean"
+        },
+        "supports_chat_projection": {
+          "type": "boolean"
+        }
+      }
+    }
+  }
+}

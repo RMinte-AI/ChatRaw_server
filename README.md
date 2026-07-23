@@ -1,763 +1,310 @@
-<div align="center">
+# ChatRaw Server
 
-![ChatRaw Template](assets/chatrawtemplate.png)
+ChatRaw Server 是 ChatRaw 的多人共享版本：用户必须登录后才能使用任何业务功能；管理员统一管理用户、模型、插件和后端模块；普通用户可以使用已启用的功能，但不能安装、停用或删除插件与模块。
 
-**Lightweight AI Chat Interface with Plugin System | 轻量 AI 聊天界面与插件系统**
+[English](#english) · [用户指南](docs/user-guide.md) · [管理员指南](docs/admin-guide.md) · [模块开发](docs/module-developer-guide.md)
 
-*Fast, Lightweight, Extensible | 快速、轻量、可扩展*
+## 它解决什么问题
 
-![Lighthouse Performance](https://img.shields.io/badge/Lighthouse-100%2F100%2F100%2F100-brightgreen?logo=lighthouse)
-![License](https://img.shields.io/badge/license-MIT-blue.svg)
-![Python](https://img.shields.io/badge/Python-3.12+-3776AB?logo=python)
-![JavaScript](https://img.shields.io/badge/JavaScript-F7DF1E?logo=javascript&logoColor=black)
-![macOS](https://img.shields.io/badge/macOS-14%2B-000000?logo=apple)
-![Docker](https://img.shields.io/badge/Docker-Ready-2496ED?logo=docker)
-![Docker Pulls](https://img.shields.io/docker/pulls/massif01/chatraw?logo=docker)
-![Memory](https://img.shields.io/badge/Memory-~60MB-green?logo=microsoftedge)
-![Startup](https://img.shields.io/badge/Startup-Seconds-brightgreen?logo=rocket)
-![OpenAI Compatible](https://img.shields.io/badge/OpenAI-Compatible-412991?logo=openai)
+ChatRaw Server 只做两件核心事情：
 
-[English](#english) | [中文](#中文)
+1. **多人共享与权限管理**：所有用户共享同一个 ChatRaw 平台和业务数据，不做租户式数据隔离；管理员与普通用户拥有不同的管理权限。
+2. **大型功能模块化**：需要独立后端、高权限或复杂依赖的功能作为单独模块运行，不把业务代码塞进 ChatRaw 后端。模块的前端入口仍由 ChatRaw 插件提供。
 
-</div>
+插件与模块不是同一种东西：
+
+- **插件**运行在 ChatRaw 前端，用来增加按钮、拦截发送或展示结果。
+- **模块**是独立后端服务，负责长任务、私有依赖、数据库或高权限能力。
+- **ChatRaw Server**负责登录、授权、模块生命周期、任务转发和安全边界。
+- 模块不能直接修改 ChatRaw 前端，也不能向浏览器下发可执行界面代码。
+
+```text
+用户
+  → ChatRaw 前端
+  → 配套插件
+  → ChatRaw 通用模块网关
+  → 独立模块
+  → 模块自己的私有依赖
+```
+
+Agent 是第一个正式模块，但模块协议并不包含 Agent 专用逻辑：
+
+```text
+用户 → Agent 配套插件 → ChatRaw Module Protocol v1
+     → Agent → Agent–LinkDB 私有协议 → LinkDB
+```
+
+只有 ChatRaw 到 Agent 的北向接口是通用模块协议。Agent–LinkDB 协议继续保持私有，不属于公共模块开发接口。
+
+## 权限模型
+
+| 操作 | 管理员 | 普通用户 |
+|---|---:|---:|
+| 登录并使用聊天、文档和已启用功能 | ✓ | ✓ |
+| 使用已启用插件与模块 | ✓ | ✓ |
+| 管理用户和审计记录 | ✓ | — |
+| 配置模型、插件和模块 | ✓ | — |
+| 安装、启停或删除插件 | ✓ | — |
+| 连接、审批、启停、断开或清理模块 | ✓ | — |
+
+ChatRaw Server 是共享平台，不是应用编排或租户隔离平台。聊天和文档对平台用户可见；创建者和管理员可以执行相应管理操作，经典版导入的无归属数据只能由管理员管理。
+
+## 快速开始
+
+### Docker Compose
+
+要求：Docker Engine 和 Docker Compose v2。
+
+```bash
+./scripts/create-module-network.sh
+docker compose up -d --build
+docker compose exec chatraw \
+  python -c "from pathlib import Path; print(Path('/app/data/secrets/setup-token').read_text().strip())"
+```
+
+打开 `http://127.0.0.1:51111/setup`，输入一次性 Setup Token，创建首位管理员。
+
+Compose 默认：
+
+- 只向宿主机发布 ChatRaw 的 `51111` 端口。
+- 将 Server 数据保存在命名卷中。
+- 将 Server 接入外部 `chatraw-modules` 网桥。
+- 模块可以加入网桥，但模块的私有依赖不应加入该网桥。
+
+生产环境必须在可信反向代理后使用 HTTPS。不要在公网环境开启 `CHATRAW_LOOPBACK_DEV=1`。
+
+### 源码运行
+
+要求：Python 3.11 或更高版本。
+
+```bash
+python3 -m venv .venv
+.venv/bin/pip install -r backend/requirements.txt
+.venv/bin/python scripts/prepare-server-secrets.py --data-dir data
+DATA_DIR="$PWD/data" CHATRAW_LOOPBACK_DEV=1 \
+  .venv/bin/python backend/main.py
+```
+
+打开终端输出中提示的 `/setup` 地址。`CHATRAW_LOOPBACK_DEV=1` 只用于本机 HTTP 开发；正式部署必须使用 HTTPS。
+
+## 管理流程
+
+首次管理员登录后：
+
+1. 在设置中创建普通用户或其他管理员。
+2. 配置并验证模型。
+3. 安装需要的插件。
+4. 启动独立模块，由模块生成一次性 Pairing Code。
+5. 在“设置 → Modules”中输入模块地址和 Pairing Code。
+6. 检查模块请求的 Host Capability、Action、配套插件版本和数据清理能力。
+7. 批准、配置、检查并启用模块。
+
+断开模块默认保留模块自己的数据。清理模块数据是独立的高风险操作，仅在模块声明支持时出现。
+
+## 数据迁移、备份与恢复
+
+经典 ChatRaw 数据必须在旧服务停止后导入到一个**不存在的新目录**：
+
+```bash
+.venv/bin/python -m backend.server_data import-classic \
+  --source-data-dir /path/to/classic-data \
+  --server-data-dir /path/to/new-server-data \
+  --confirm-source-quiesced
+```
+
+Server 备份必须在服务停止后执行：
+
+```bash
+.venv/bin/python -m backend.server_data backup \
+  --data-dir /path/to/server-data \
+  --backup-dir /path/to/new-backup \
+  --confirm-source-quiesced
+
+.venv/bin/python -m backend.server_data verify \
+  --backup-dir /path/to/new-backup
+```
+
+恢复默认拒绝覆盖任何已有目录：
+
+```bash
+.venv/bin/python -m backend.server_data restore \
+  --backup-dir /path/to/backup \
+  --data-dir /path/to/new-restored-data \
+  --confirm-destination-quiesced
+```
+
+ChatRaw 备份不包含模块自己的数据库。每个模块必须独立备份，并在恢复后重新检查连接状态。完整操作见[管理员指南](docs/admin-guide.md)。
+
+## 开发者入口
+
+- [Plugin Developer Guide](docs/plugin-developer-guide.md)：前端可信代码边界、插件生命周期和 Module SDK。
+- [Module Developer Guide](docs/module-developer-guide.md)：manifest、任务、SSE、审批、产物、Host Capability 和部署模板。
+- [Human + AI Development Guide](docs/human-ai-development-guide.md)：面向人和 AI 的最小目录、Schema、命令、验收清单和禁止事项。
+- [Server 与模块部署](docs/deployment/server-and-modules.md)：Source/Compose 网络与持久化。
+- [发布流程](docs/release/release-process.md)与 [T8 验收状态](docs/release/acceptance-status.md)
+- [OpenAPI](docs/api/openapi.json)：Server HTTP API 的机器可读快照。
+- [Module Manifest Schema](backend/contracts/module-manifest-v1.schema.json)
+- [Module Management Schema](backend/contracts/module-management-v1.schema.json)
+- [Module Task Schema](backend/contracts/module-task-v1.schema.json)
+- [Module Plugin SDK Contract](backend/contracts/module-plugin-sdk-v1.json)
+- [Reference Module](examples/reference-module/)
+
+常用一致性检查：
+
+```bash
+.venv/bin/python scripts/export-openapi.py --check
+.venv/bin/python scripts/module-conformance.py contracts
+./scripts/run-t6-source-gate.sh
+```
+
+## 兼容与发布边界
+
+- 经典 `v2.2.1` 数据通过只读源导入进入 Server，不在原目录上迁移。
+- 旧插件接口继续兼容；模块配套插件应只通过 `window.ChatRaw.modules` 访问模块功能。
+- Module Protocol v1 只承诺协议主版本 1 内的兼容规则。
+- 本仓库的 Source、Compose、参考模块和 Agent 链路有本地工程验收。
+- 客户数据、客户 Token、客户硬件与网络、生产 DNS/TLS/防火墙、真实上游 API 和生产性能仍为 `PENDING_ONSITE`，合成测试不代表客户或生产验收。
+
+## License
+
+MIT
 
 ---
 
 # English
 
-## Interface Preview
+ChatRaw Server is the shared multi-user edition of ChatRaw. Every user must sign in before accessing product data or functions. Administrators manage users, models, plugins, and backend modules. Members can use enabled features but cannot install, disable, or remove plugins or modules.
 
-### Main Chat Interface
-![Main Interface](assets/main-interface.png)
+[User Guide](docs/user-guide.md) · [Administrator Guide](docs/admin-guide.md) · [Module Development](docs/module-developer-guide.md)
 
-### Model Configuration
-![Model Configuration](assets/model-configuration.png)
+## Product model
 
-### Plugin Market
-![Plugin Market](assets/plugin-market.png?v=2)
+ChatRaw Server has two primary responsibilities:
 
----
+1. **Shared multi-user access with roles.** Users share one platform and its business data; this is not tenant-level data isolation.
+2. **Large features as independent modules.** A feature that needs a backend, privileged access, a database, or complex dependencies runs outside the ChatRaw backend. Its frontend entry point is still a ChatRaw plugin.
 
-## Why ChatRaw?
+- A **plugin** is trusted frontend code that adds an entry point or presentation.
+- A **module** is an independent backend service.
+- **ChatRaw Server** owns authentication, authorization, lifecycle management, task forwarding, and the security boundary.
+- A module cannot modify the ChatRaw frontend or deliver executable UI code.
 
-Many developers, AI hardware vendors, and users just need a simple, lightweight application that can quickly demonstrate their model capabilities. That's why we created ChatRaw - a minimal, ready-to-use chat interface that deploys in seconds. No complex configuration, no heavy dependencies—just a clean, fast AI chat experience.
-
----
-
-## ChatRaw for Mac
-
-ChatRaw now includes a native macOS desktop version: **ChatRaw for Mac**. It wraps the same lightweight web interface in a SwiftUI + WKWebView desktop shell, automatically starts a local ChatRaw backend, and loads the app through a local `127.0.0.1` address. This gives macOS users a double-click desktop experience while keeping the same model settings, plugin system, document parsing, image understanding, and OpenAI-compatible API support as the web/Docker version.
-
-The current macOS package targets Apple Silicon and requires macOS 14 or later. A DMG package is available from [Releases](https://github.com/massif-01/ChatRaw/releases), and developers can also build and run it from source with the included script.
-
----
-
-## Part 1: Core Features
-
-*Fast, Lightweight, Convenient*
-
-### Core Highlights
-
-- **Native macOS App** - ChatRaw for Mac provides a desktop shell with automatic local backend startup
-- **Ultra Lightweight** - ~60MB memory footprint, optimized binary embedding storage
-- **Instant Startup** - Ready in seconds with connection pooling for fast API calls
-- **Custom Branding** - Freely customize name, logo, and theme
-- **Universal API Support** - Works with any OpenAI-compatible API (Ollama, vLLM, LocalAI, LM Studio, etc.)
-- **Document Parsing** - Native PDF, DOCX, TXT, MD parsing as chat context
-- **Vision AI Ready** - Multimodal image understanding with auto-compression when the chat model's Vision capability is enabled
-- **Thinking Mode** - Support for reasoning models (DeepSeek-R1, Qwen, o1, etc.)
-- **Responsive Design** - Optimized for desktop, tablet, and mobile with touch-friendly UI
-- **One-Click Copy** - Copy AI responses instantly (text only, no metadata)
-- **Bilingual UI** - English & Chinese with one-click switch
-- **Zero Registration** - Settings auto-saved locally
-- **One-Click Deploy** - Docker deployment in 30 seconds
-
-### Key Features
-
-**Multi-Model Configuration**
-- Supports unlimited chat, embedding, and reranking models
-- Automatic API key rotation to bypass rate limits
-- Built-in endpoint validation and testing
-
-**Thinking Mode**
-- Deep reasoning for supported models
-- Collapsible thought process display
-
-**Custom Branding**
-- Customize interface: name, Logo, subtitle, avatar, and theme colors
-
-**Document & Image Support**
-- Upload documents (PDF, DOCX, TXT, MD) as chat context. AI can read and reference document content
-- Attach images for multimodal understanding. Automatically compressed to WebP format (~2MB)
-
----
-
-## Part 2: Extension Plugins
-
-*Flexible, Free, Community-Driven*
-
-ChatRaw features a complete **plugin system** to extend functionality:
-
-### Official Plugins
-
-- **Lightweight RAG Demo** — Knowledge base retrieval
-- **Bocha Search** — Web / AI search
-- **Tavily Search** — Web search with AI answers
-- **Excel Parser** — Parse .xlsx/.xls for chat
-- **CSV Parser** — Parse CSV/TSV for chat
-- **Enhanced Web Parsing** — Parse web pages (browser / Firecrawl / Jina)
-- **Multi-Model Manager** — Manage and switch models
-- **Markdown Renderer Plus** — Math (KaTeX), Mermaid, code copy, offline
-- **Context Compressor** — Compact older chat history automatically or from the input toolbar
-- **Skill Manager** — Install Agent Skills from GitHub or local files and activate them inline with `/skill-name`
-- **Hermes Router** — Route selected messages to a local or confirmed remote Hermes API Server through the secure backend bridge
-- **Toolbar Extension Demo** — Demo plugin showcasing UI Extension API
-
-### Toolbar Extension
-> Plugins can add custom buttons to the input toolbar with active/loading states, overflow menu for many buttons, and fullscreen modal for complex interactions.
-
-### Plugin Development
-- Complete development documentation
-- Rich hook system (including new UI Extension API)
-- Custom settings UI
-- One-click packaging and distribution
-
-**Plugin Development Guide**: [Plugins/README.md](Plugins/README.md)
-
-**Hermes Router Guide**: [docs/hermes.md](docs/hermes.md)
-
----
-
-## Performance
-
-> **Note**: Performance tests conducted using Google Lighthouse on localhost deployment
-
-|                    Desktop                    |                    Mobile                    |
-| :-------------------------------------------: | :------------------------------------------: |
-|     ![Desktop Performance][perf-desktop]      |     ![Mobile Performance][perf-mobile]       |
-| [Lighthouse Report][perf-desktop-report]   | [Lighthouse Report][perf-mobile-report]   |
-
-**Desktop**: Performance 100 | Accessibility 100 | Best Practices 100 | SEO 100
-
-**Mobile**: Performance 96 | Accessibility 93 | Best Practices 100 | SEO 100
-
-[perf-desktop]: assets/lighthouse-desktop.png
-[perf-mobile]: assets/lighthouse-mobile.png
-[perf-desktop-report]: https://htmlpreview.github.io/?https://github.com/massif-01/ChatRaw/blob/main/docs/lighthouse/desktop.html
-[perf-mobile-report]: https://htmlpreview.github.io/?https://github.com/massif-01/ChatRaw/blob/main/docs/lighthouse/mobile.html
-
----
-
-## Quick Start
-
-### Option 1: Docker (Recommended)
-
-**Prerequisites**: [Docker](https://docs.docker.com/get-docker/) installed.
-
-Docker images are published to **Docker Hub** and **GitHub Container Registry**. To get the **latest** image (not a cached old one), always run `docker pull` with the tag you want before creating the container. Use `:latest` for the current release, or a version tag (e.g. `v2.1.2`) from [Releases](https://github.com/massif-01/ChatRaw/releases) for a fixed version.
-
-**Supported platforms**: linux/amd64 (Intel/AMD), linux/arm64 (Apple Silicon, Raspberry Pi 4/5).
-
----
-
-#### Method A: `docker run` (no project files)
-
-Run these commands in a terminal. Data is stored in a Docker volume `chatraw-data`.
-
-```bash
-# 1. Pull the latest image (run this again whenever you want to update)
-docker pull massif01/chatraw:latest
-
-# 2. Start the container (creates volume chatraw-data if needed)
-docker run -d -p 51111:51111 -v chatraw-data:/app/data --name chatraw massif01/chatraw:latest
+```text
+User → ChatRaw UI → companion plugin → generic module gateway
+     → independent module → module-private dependencies
 ```
 
-- **Access**: http://localhost:51111  
-- **To access LAN services** (e.g. local LLM at 192.168.x.x), use host network instead:
-  ```bash
-  docker run -d --network host -v chatraw-data:/app/data -e PORT=51111 --name chatraw massif01/chatraw:latest
-  ```
+Agent is the first production module. Only the ChatRaw-to-Agent northbound interface is standardized. The private Agent–LinkDB protocol is unchanged and is not part of the public Module Protocol.
 
----
+## Roles
 
-#### Method B: docker-compose (host network, good for LAN)
+| Operation | Admin | Member |
+|---|---:|---:|
+| Sign in and use shared product data | ✓ | ✓ |
+| Use enabled plugins and modules | ✓ | ✓ |
+| Manage users and audit events | ✓ | — |
+| Configure models, plugins, and modules | ✓ | — |
+| Install, disable, or remove plugins | ✓ | — |
+| Pair, approve, enable, disconnect, or purge modules | ✓ | — |
 
-Clone the project and run from the repo root. The included `docker-compose.yml` uses host network so the app can reach LAN services (e.g. 192.168.x.x) without extra config.
+Classic imported resources have no creator. Members can use them, while only administrators can manage them.
 
-```bash
-# 1. Clone the repository
-git clone https://github.com/massif-01/ChatRaw.git
-cd ChatRaw
-
-# 2. Pull the latest image and start the service
-docker compose pull
-docker compose up -d
-```
-
-- **Access**: http://localhost:51111 (or http://\<your-ip\>:51111 from other devices).
-
----
-
-### Option 2: macOS Desktop App
-
-**Requirements**: Apple Silicon Mac, macOS 14+
-
-Download the latest `ChatRaw-for-Mac-*.dmg` from [Releases](https://github.com/massif-01/ChatRaw/releases), open it, and drag **ChatRaw for Mac.app** into Applications.
-
-The macOS app starts the local backend automatically and opens ChatRaw in a native desktop window. Your data is stored under the app's local Application Support directory instead of a Docker volume.
-
-For local development:
-
-**Development requirements**: Xcode Command Line Tools or SwiftPM, plus Python 3.11+
-
-```bash
-# Clone repository
-git clone https://github.com/massif-01/ChatRaw.git
-cd ChatRaw
-
-# Build and run the macOS app
-./script/build_and_run.sh
-```
-
----
-
-### Option 3: From Source
-
-**Requirements**: Python 3.12+
-
-```bash
-# Clone repository
-git clone https://github.com/massif-01/ChatRaw.git
-cd ChatRaw/backend
-
-# Install dependencies
-pip install -r requirements.txt
-
-# Run
-python main.py
-```
-
-**Access**: http://localhost:51111
-
----
-
-## Docker image sources
-
-| Source | Pull command |
-|--------|----------------|
-| Docker Hub | `docker pull massif01/chatraw:latest` |
-| GitHub Container Registry | `docker pull ghcr.io/massif-01/chatraw:latest` |
-
-Use the same tag for a specific version, e.g. `massif01/chatraw:v2.1.2` (see [Releases](https://github.com/massif-01/ChatRaw/releases)).
-
----
-
-## Update Guide
-
-### Docker (docker run)
-
-```bash
-# Stop and remove the current container
-docker stop chatraw && docker rm chatraw
-
-# Pull the latest image (important: otherwise the old image is reused)
-docker pull massif01/chatraw:latest
-
-# Start again (same volume keeps your data)
-docker run -d -p 51111:51111 -v chatraw-data:/app/data --name chatraw massif01/chatraw:latest
-```
+## Quick start
 
 ### Docker Compose
 
 ```bash
-cd ChatRaw
-git pull origin main
-docker compose pull
-docker compose up -d
+./scripts/create-module-network.sh
+docker compose up -d --build
+docker compose exec chatraw \
+  python -c "from pathlib import Path; print(Path('/app/data/secrets/setup-token').read_text().strip())"
 ```
 
-### macOS Desktop App
+Open `http://127.0.0.1:51111/setup` and use the one-time Setup Token to create the first administrator.
 
-Download the latest `ChatRaw-for-Mac-*.dmg` from [Releases](https://github.com/massif-01/ChatRaw/releases), replace the old app in Applications, and launch it again. Existing local app data is preserved in Application Support.
+The default Compose project exposes only the Server port, persists Server data in a named volume, and joins the external `chatraw-modules` bridge. Production deployments must use HTTPS behind a trusted reverse proxy. Never enable `CHATRAW_LOOPBACK_DEV=1` on a public deployment.
 
-### From Source
+### Source
 
 ```bash
-cd ChatRaw
-git pull origin main
-cd backend
-pip install -r requirements.txt --upgrade
-python main.py
+python3 -m venv .venv
+.venv/bin/pip install -r backend/requirements.txt
+.venv/bin/python scripts/prepare-server-secrets.py --data-dir data
+DATA_DIR="$PWD/data" CHATRAW_LOOPBACK_DEV=1 \
+  .venv/bin/python backend/main.py
 ```
 
-### Important changes in v2.0.0 (if upgrading from v1.x)
+The loopback development flag is only for local HTTP use.
 
-- RAG is now a plugin: install **Lightweight RAG Demo** from Plugin Market if you need it.
-- Default theme is light (changeable in Settings).
-- Chat history and settings are preserved.
+## Module onboarding
 
----
+An administrator starts a module, obtains its one-time Pairing Code, and pairs it under **Settings → Modules**. Before enabling it, review:
 
-## Configuration
+- requested Host Capabilities;
+- actions and minimum roles;
+- companion plugin ID and version range;
+- health, readiness, and configuration state;
+- whether destructive data purge is supported.
 
-### Initial Setup
+Disconnect preserves module-owned data. Data purge is a separate, explicit operation.
 
-1. Open http://localhost:51111
-2. Click the **Settings** button in the bottom-left corner
-3. Go to **Model Settings**
-4. Add your API configuration:
-   - API Base URL (e.g., `https://api.openai.com/v1`)
-   - Model ID (e.g., `gpt-4`)
-   - API Key
-5. Click **Verify** to test the connection
-6. Click **Save**
+## Migration, backup, and recovery
 
-### Custom Branding
+Import classic data only while the classic service is stopped, and always target a new directory:
 
-In **Settings** → **Interface**, you can customize:
-- Application name and logo
-- User and AI avatars
-- Theme mode (light/dark)
+```bash
+.venv/bin/python -m backend.server_data import-classic \
+  --source-data-dir /path/to/classic-data \
+  --server-data-dir /path/to/new-server-data \
+  --confirm-source-quiesced
+```
 
-### Install Plugins
+Back up and verify Server data while the service is stopped:
 
-1. Click the **Plugins** button in the bottom-left corner
-2. Browse the **Plugin Market** tab
-3. Click **Install** on any plugin
-4. After installation, enable the plugin in the **Installed** tab
+```bash
+.venv/bin/python -m backend.server_data backup \
+  --data-dir /path/to/server-data \
+  --backup-dir /path/to/new-backup \
+  --confirm-source-quiesced
 
-For **Context Compressor**, enable the plugin to use compacted history in model requests. The
-`autoCompress` setting creates or updates summaries automatically; when it is off, existing summaries are
-still used and you can click the input toolbar compression button to compact manually.
+.venv/bin/python -m backend.server_data verify \
+  --backup-dir /path/to/new-backup
+```
 
-### Use Agent Skills
+Restore into a new destination:
 
-Install and enable **Skill Manager** to manage Agent Skills. You can install skills from a GitHub
-repository URL, `owner/repo` shorthand, raw/blob `SKILL.md`, public tree URL, or upload a local
-`SKILL.md` / `.zip` package. GitHub repository roots are accepted when ChatRaw can resolve exactly one
-skill, such as a root `SKILL.md` or a single `skills/<name>/SKILL.md`; repositories with multiple skills
-require a specific tree URL.
+```bash
+.venv/bin/python -m backend.server_data restore \
+  --backup-dir /path/to/backup \
+  --data-dir /path/to/new-restored-data \
+  --confirm-destination-quiesced
+```
 
-Activate skills by typing `/skill-name` directly in the composer. Known skill tokens are highlighted
-inline, Backspace/Delete removes a whole skill token at once, and each request can activate up to five
-distinct skills. The suggestions menu keeps at most five rows visible and scrolls when there are more
-matches. You can also type a clear command such as `install this skill <GitHub URL>` to install a GitHub
-skill from chat.
+Server backups do not contain module-owned databases. Back up each module separately and re-check it after recovery.
 
-![Skill autocomplete](assets/skill-autocomplete.png)
+## Documentation and contracts
 
-Skills are third-party instruction content. ChatRaw does not execute skill `scripts/`, does not grant
-permissions from `allowed-tools`, and treats `trusted` as metadata only. For GitHub installs, ChatRaw
-records `license` from `SKILL.md` frontmatter or the repository license API when available; `compatibility`
-metadata is not stored or displayed. See the full guide:
-[docs/skills.md](docs/skills.md).
+- [User Guide](docs/user-guide.md)
+- [Administrator Guide](docs/admin-guide.md)
+- [Plugin Developer Guide](docs/plugin-developer-guide.md)
+- [Module Developer Guide](docs/module-developer-guide.md)
+- [Human + AI Development Guide](docs/human-ai-development-guide.md)
+- [Deployment and module operations](docs/deployment/server-and-modules.md)
+- [Release process](docs/release/release-process.md) and [acceptance status](docs/release/acceptance-status.md)
+- [OpenAPI snapshot](docs/api/openapi.json)
+- [Module JSON Schemas](backend/contracts/)
+- [Reference module](examples/reference-module/)
 
----
+```bash
+.venv/bin/python scripts/export-openapi.py --check
+.venv/bin/python scripts/module-conformance.py contracts
+./scripts/run-t6-source-gate.sh
+```
 
-## Use Cases
+## Acceptance boundary
 
-- **Developers**: Quickly test and demo your AI models
-- **AI Hardware Vendors**: Showcase device capabilities with a ready-to-use interface
-- **Researchers**: Experiment with RAG, embeddings, and reranking
-- **Students**: Learn AI applications hands-on
-- **Enterprises**: Internal AI tools and knowledge bases
-
----
-
-## Contributing
-
-Contributions are welcome! Please submit issues or pull requests.
-
-### Development Guidelines
-
-1. Fork this repository
-2. Create your feature branch (`git checkout -b feature/AmazingFeature`)
-3. Commit your changes (`git commit -m 'Add some AmazingFeature'`)
-4. Push to the branch (`git push origin feature/AmazingFeature`)
-5. Open a Pull Request
-
----
+Source, Compose, the reference module, and the Agent chain have local engineering evidence. Customer data, credentials, hardware, networks, production DNS/TLS/firewall, real upstream behavior, and production performance remain `PENDING_ONSITE`. Synthetic evidence must not be presented as customer or production acceptance.
 
 ## License
 
-MIT License
-
-© 2026 ChatRaw by massif-01
-
----
-
-## Links
-
-- **GitHub**: https://github.com/massif-01/ChatRaw
-- **Docker Hub**: https://hub.docker.com/r/massif01/chatraw
-- **Plugin Development**: [Plugins/README.md](Plugins/README.md)
-- **Issue Tracker**: https://github.com/massif-01/ChatRaw/issues
-
----
-
-<br><br>
-
----
-
-<br><br>
-
-# 中文
-
-## 界面展示
-
-### 主聊天界面
-![主界面](assets/main-interface.png)
-
-### 模型配置
-![模型配置](assets/model-configuration.png)
-
-### 插件市场
-![插件市场](assets/plugin-market.png?v=2)
-
----
-
-## 为什么选择 ChatRaw？
-
-很多开发者、AI 硬件厂商，甚至是用户只需要一个简洁轻量，能够快速展示自己模型使用的应用，于是我们提供了极简、开箱即用的聊天界面，秒级部署。无需复杂配置，无重型依赖——只需一个干净、快速的 AI 聊天体验。
-
----
-
-## ChatRaw for Mac
-
-ChatRaw 现在提供原生 macOS 桌面版本：**ChatRaw for Mac**。它使用 SwiftUI + WKWebView 桌面外壳承载同一套轻量 Web 界面，并自动启动本地 ChatRaw 后端，通过本机 `127.0.0.1` 地址加载应用。macOS 用户可以像普通桌面 App 一样双击使用，同时保留与 Web/Docker 版本一致的模型配置、插件系统、文档解析、图片理解和 OpenAI 兼容 API 支持。
-
-当前 macOS 安装包面向 Apple Silicon，要求 macOS 14 或更高版本。可在 [Releases](https://github.com/massif-01/ChatRaw/releases) 下载 DMG 安装包；开发者也可以使用仓库内置脚本从源码构建并运行。
-
----
-
-## 第一部分：核心功能
-
-*快速、轻量、便捷*
-
-### 核心亮点
-
-- **原生 macOS 应用** - ChatRaw for Mac 提供桌面外壳，并自动启动本地后端
-- **极致轻量** - 内存占用约 60MB，优化的二进制向量存储
-- **极速启动** - 秒级启动，连接池加速 API 调用
-- **自定义品牌** - 自由定制名称、Logo 和主题
-- **通用 API 支持** - 兼容任意 OpenAI 兼容 API（Ollama、vLLM、LocalAI、LM Studio 等）
-- **文档解析** - 原生支持 PDF、DOCX、TXT、MD 解析作为聊天上下文
-- **视觉 AI 就绪** - 在聊天模型启用“视觉”能力后支持多模态图片理解和自动压缩
-- **思考模式** - 支持推理模型（DeepSeek-R1、Qwen、o1 等）
-- **响应式设计** - 完美适配桌面、平板和移动设备，触控友好
-- **一键复制** - 一键复制 AI 回复内容（纯文本，不含元数据）
-- **双语界面** - 中英文一键切换
-- **零注册** - 设置本地自动保存
-- **一键部署** - Docker 30 秒部署
-
-### 主要功能
-
-**多模型配置**
-- 支持无限数量的聊天、嵌入和重排模型
-- 自动 API Key 轮换以绕过速率限制
-- 内置端点验证和测试
-
-**思考模式**
-- 为支持的模型启用深度推理
-- 可折叠的思考过程显示
-
-**自定义品牌**
-- 自定义界面：名称、Logo、副标题、头像和主题颜色
-
-**文档与图片支持**
-- 上传文档（PDF、DOCX、TXT、MD）作为聊天上下文。AI 可以阅读和引用文档内容
-- 附加图片进行多模态理解。自动压缩为 WebP 格式（约 2MB）
-
----
-
-## 第二部分：扩展插件
-
-*灵活、自由、社区驱动*
-
-ChatRaw 拥有完整的**插件系统**以扩展功能：
-
-### 官方插件
-
-- **轻量 RAG 演示** — 知识库检索
-- **博查搜索** — Web / AI 搜索
-- **Tavily 搜索** — Web 搜索 + AI 答案
-- **Excel 解析器** — 解析 .xlsx/.xls 供对话使用
-- **CSV 解析器** — 解析 CSV/TSV 供对话使用
-- **增强网页解析** — 解析网页（浏览器 / Firecrawl / Jina）
-- **多模型管理** — 管理并切换模型
-- **Markdown 渲染增强** — 数学公式、Mermaid、代码复制，离线可用
-- **上下文压缩** — 自动或通过输入框工具栏压缩较早聊天历史
-- **Skill 管理器** — 从 GitHub 或本地文件安装 Agent Skills，并用 `/skill-name` 在输入框内联激活
-- **Hermes Router** — 通过安全后端桥接，将选定消息路由到本机或已确认放行的远程 Hermes API Server
-- **工具栏扩展演示** — 展示 UI 扩展 API 的演示插件
-
-### 工具栏扩展
-> 插件可以在输入框工具栏添加自定义按钮，支持激活态/加载态、按钮溢出折叠菜单，以及全屏模态框实现复杂交互。
-
-### 插件开发
-- 完整的开发文档
-- 丰富的 Hook 系统（包含全新 UI 扩展 API）
-- 自定义设置界面
-- 一键打包分发
-
-**插件开发指南**: [Plugins/README.md](Plugins/README.md)
-
-**Hermes Router 指南**: [docs/hermes.md](docs/hermes.md)
-
----
-
-## 性能测试
-
-> **说明**: 使用 Google Lighthouse 对本地部署进行性能测试
-
-|                    桌面端                     |                    移动端                     |
-| :-------------------------------------------: | :-------------------------------------------: |
-|     ![桌面端性能][perf-desktop]               |     ![移动端性能][perf-mobile]                |
-| [Lighthouse 测试报告][perf-desktop-report] | [Lighthouse 测试报告][perf-mobile-report]  |
-
-**桌面端**: 性能 100 | 无障碍 100 | 最佳做法 100 | SEO 100
-
-**移动端**: 性能 96 | 无障碍 93 | 最佳做法 100 | SEO 100
-
----
-
-## 快速开始
-
-### 方式一：Docker（推荐）
-
-**前置条件**：已安装 [Docker](https://docs.docker.com/get-docker/)。
-
-镜像发布在 **Docker Hub** 和 **GitHub Container Registry**。若想用**最新**镜像（避免用到本地缓存的旧镜像），在创建容器前请先执行一次 `docker pull`。使用 `:latest` 表示当前最新版本；如需固定版本，可使用 [Releases](https://github.com/massif-01/ChatRaw/releases) 中的版本号标签（如 `v2.1.2`）。
-
-**支持平台**：linux/amd64（Intel/AMD）、linux/arm64（Apple Silicon、树莓派 4/5）。
-
----
-
-#### 方式 A：`docker run`（无需项目文件）
-
-在终端依次执行。数据保存在 Docker 卷 `chatraw-data` 中。
-
-```bash
-# 1. 拉取最新镜像（每次要更新时重新执行此命令）
-docker pull massif01/chatraw:latest
-
-# 2. 启动容器（若卷 chatraw-data 不存在会自动创建）
-docker run -d -p 51111:51111 -v chatraw-data:/app/data --name chatraw massif01/chatraw:latest
-```
-
-- **访问**：http://localhost:51111  
-- **如需访问局域网服务**（例如本机 LLM 在 192.168.x.x），可改用 host 网络：
-  ```bash
-  docker run -d --network host -v chatraw-data:/app/data -e PORT=51111 --name chatraw massif01/chatraw:latest
-  ```
-
----
-
-#### 方式 B：docker-compose（host 网络，适合访问局域网）
-
-克隆项目后在仓库根目录执行。项目内的 `docker-compose.yml` 使用 host 网络，可直接访问局域网服务（如 192.168.x.x），无需额外配置。
-
-```bash
-# 1. 克隆仓库
-git clone https://github.com/massif-01/ChatRaw.git
-cd ChatRaw
-
-# 2. 拉取最新镜像并启动服务
-docker compose pull
-docker compose up -d
-```
-
-- **访问**：http://localhost:51111（或本机 IP http://\<你的IP\>:51111 从其他设备访问）。
-
----
-
-### 方式二：macOS 桌面应用
-
-**环境要求**：Apple Silicon Mac，macOS 14+
-
-从 [Releases](https://github.com/massif-01/ChatRaw/releases) 下载最新的 `ChatRaw-for-Mac-*.dmg`，打开后将 **ChatRaw for Mac.app** 拖入 Applications。
-
-macOS 应用会自动启动本地后端，并在原生桌面窗口中打开 ChatRaw。数据保存在应用的本地 Application Support 目录中，而不是 Docker 卷中。
-
-本地开发时可使用：
-
-**开发环境要求**：Xcode Command Line Tools 或 SwiftPM，以及 Python 3.11+
-
-```bash
-# 克隆仓库
-git clone https://github.com/massif-01/ChatRaw.git
-cd ChatRaw
-
-# 构建并运行 macOS 应用
-./script/build_and_run.sh
-```
-
----
-
-### 方式三：源码部署
-
-**环境要求**：Python 3.12+
-
-```bash
-# 克隆仓库
-git clone https://github.com/massif-01/ChatRaw.git
-cd ChatRaw/backend
-
-# 安装依赖
-pip install -r requirements.txt
-
-# 运行
-python main.py
-```
-
-**访问**：http://localhost:51111
-
----
-
-## Docker 镜像来源
-
-| 来源 | 拉取命令 |
-|------|----------|
-| Docker Hub | `docker pull massif01/chatraw:latest` |
-| GitHub Container Registry | `docker pull ghcr.io/massif-01/chatraw:latest` |
-
-需要固定版本时使用相同标签格式，例如 `massif01/chatraw:v2.1.2`，版本号见 [Releases](https://github.com/massif-01/ChatRaw/releases)。
-
----
-
-## 更新指南
-
-### Docker（docker run）
-
-```bash
-# 停止并删除当前容器
-docker stop chatraw && docker rm chatraw
-
-# 拉取最新镜像（重要：否则会继续用旧镜像）
-docker pull massif01/chatraw:latest
-
-# 再次启动（使用同一卷，数据保留）
-docker run -d -p 51111:51111 -v chatraw-data:/app/data --name chatraw massif01/chatraw:latest
-```
-
-### Docker Compose
-
-```bash
-cd ChatRaw
-git pull origin main
-docker compose pull
-docker compose up -d
-```
-
-### macOS 桌面应用
-
-从 [Releases](https://github.com/massif-01/ChatRaw/releases) 下载更新的 `ChatRaw-for-Mac-*.dmg`，替换 Applications 中的旧版应用后重新打开。已有本地应用数据会继续保留在 Application Support 中。
-
-### 源码部署
-
-```bash
-cd ChatRaw
-git pull origin main
-cd backend
-pip install -r requirements.txt --upgrade
-python main.py
-```
-
-### v2.0.0 重要变更（从 v1.x 升级时）
-
-- RAG 已改为插件：需要 RAG 时请在插件市场中安装 **轻量 RAG 演示**。
-- 默认主题为亮色（可在设置中修改）。
-- 对话历史与设置会保留。
-
----
-
-## 配置说明
-
-### 初始设置
-
-1. 打开 http://localhost:51111
-2. 点击左下角的**设置**按钮
-3. 进入**模型设置**
-4. 添加你的 API 配置：
-   - API Base URL（例如：`https://api.openai.com/v1`）
-   - Model ID（例如：`gpt-4`）
-   - API Key
-5. 点击**验证**测试连接
-6. 点击**保存**
-
-### 自定义品牌
-
-在**设置** → **界面**中，你可以自定义：
-- 应用名称和 Logo
-- 用户和 AI 头像
-- 主题模式（亮色/暗色）
-
-### 安装插件
-
-1. 点击左下角的**插件**按钮
-2. 浏览**插件市场**标签页
-3. 点击任意插件的**安装**按钮
-4. 安装后，在**已安装**标签页中启用插件
-
-对于**上下文压缩**插件，启用插件后模型请求会使用压缩后的历史摘要。`autoCompress` 会自动创建或更新摘要；
-关闭自动压缩后，已有摘要仍会继续使用，未创建摘要时则走完整历史，也可以点击输入框工具栏的压缩按钮手动压缩。
-
-### 使用 Agent Skills
-
-安装并启用 **Skill 管理器**后即可管理 Agent Skills。你可以从 GitHub 仓库 URL、`owner/repo`
-简写、raw/blob `SKILL.md`、公开 tree URL 安装，也可以上传本地 `SKILL.md` / `.zip` 包。GitHub
-仓库根目录在能唯一解析出一个 skill 时可直接安装，例如根目录有 `SKILL.md`，或只有一个
-`skills/<name>/SKILL.md`；包含多个 skills 的仓库需要提供具体 tree URL。
-
-在输入框中直接输入 `/skill-name` 即可激活 skill。已知 skill token 会在文本内高亮，
-Backspace/Delete 会一次删除整个 skill token，每次请求最多激活 5 个不同 skills。建议菜单最多显示
-5 行，更多匹配项通过滚动查看。也可以输入明确命令，例如 `安装这个 skill <GitHub URL>`，
-从聊天中安装 GitHub skill。
-
-![Skill 自动补全](assets/skill-autocomplete.png)
-
-Skills 是第三方指令内容。ChatRaw 不执行 skill `scripts/`，不会根据 `allowed-tools` 授权，
-`trusted` 也只是元数据。GitHub 安装时，ChatRaw 会优先读取 `SKILL.md` frontmatter 中的
-`license`，没有时再尝试读取仓库许可证；`compatibility` 不再保存或展示。完整指南见：
-[docs/skills.md](docs/skills.md)。
-
----
-
-## 使用场景
-
-- **开发者**：快速测试和演示你的 AI 模型
-- **AI 硬件厂商**：用即插即用的界面展示设备能力
-- **研究人员**：实验 RAG、嵌入和重排技术
-- **学生**：动手学习 AI 应用
-- **企业**：内部 AI 工具和知识库
-
----
-
-## 贡献
-
-欢迎贡献！请提交 issue 或 pull request。
-
-### 开发指南
-
-1. Fork 本仓库
-2. 创建你的特性分支 (`git checkout -b feature/AmazingFeature`)
-3. 提交你的更改 (`git commit -m 'Add some AmazingFeature'`)
-4. 推送到分支 (`git push origin feature/AmazingFeature`)
-5. 打开一个 Pull Request
-
----
-
-## 开源协议
-
-MIT License
-
-© 2026 ChatRaw by massif-01
-
----
-
-## 相关链接
-
-- **GitHub**: https://github.com/massif-01/ChatRaw
-- **Docker Hub**: https://hub.docker.com/r/massif01/chatraw
-- **插件开发**: [Plugins/README.md](Plugins/README.md)
-- **问题反馈**: https://github.com/massif-01/ChatRaw/issues
+MIT

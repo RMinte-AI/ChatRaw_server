@@ -16,6 +16,7 @@
   "type": "message_router",
   "hooks": ["route_message", "custom_settings"],
   "customSettings": true,
+  "runtimeSettings": ["baseUrl", "model", "apiMode", "requestTimeoutSeconds"],
   "settings": [
     {
       "id": "baseUrl",

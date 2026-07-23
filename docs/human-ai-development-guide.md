@@ -1,0 +1,400 @@
+# ChatRaw Human + AI Development Guide
+
+本指南把模块与配套插件开发约束写成同时适合人和 AI 执行的工作协议。它不替代机器可读契约。
+
+## 1. 开始前必须回答
+
+先用一句话回答以下问题：
+
+1. 这个功能为什么不能只做成普通插件？
+2. 独立模块真正需要的后端能力是什么？
+3. 哪些数据属于 ChatRaw，哪些数据属于模块？
+4. 普通用户能做什么，管理员能做什么？
+5. 模块需要哪些 Host Capability？为什么每一项都不可再减少？
+6. 哪一部分是公开 Module Protocol，哪一部分必须保持模块私有？
+7. Source 和 Compose 分别如何持久化和恢复？
+
+如果这些边界无法明确，不要开始写代码。
+
+## 2. 选择插件还是模块
+
+```text
+只增加前端交互或轻量转换？
+  ├─ 是 → 插件
+  └─ 否
+      需要独立后端、数据库、长任务、原生依赖或高权限？
+        ├─ 是 → 模块 + 配套插件
+        └─ 否 → 先证明为什么现有插件能力不够
+```
+
+模块不能直接修改 ChatRaw 前端；插件不能直连模块。两者通过 ChatRaw Module SDK 和 Server 网关连接。
+
+## 3. AI 必读顺序
+
+人或 AI 在生成代码前，按顺序完整读取：
+
+1. [module-manifest-v1.schema.json](../backend/contracts/module-manifest-v1.schema.json)
+2. [module-management-v1.schema.json](../backend/contracts/module-management-v1.schema.json)
+3. [module-task-v1.schema.json](../backend/contracts/module-task-v1.schema.json)
+4. [module-plugin-sdk-v1.json](../backend/contracts/module-plugin-sdk-v1.json)
+5. [manifest.example.json](../examples/reference-module/manifest.example.json)
+6. [reference module app.py](../examples/reference-module/app.py)
+7. [reference Compose](../examples/reference-module/compose.yml)
+8. [Plugin Developer Guide](plugin-developer-guide.md)
+9. [Module Developer Guide](module-developer-guide.md)
+
+不要只阅读示例代码而跳过 Schema。示例证明一种实现，Schema 定义允许的契约。
+
+## 4. 推荐仓库结构
+
+大型功能使用两个独立交付物：
+
+```text
+feature-module/
+├── module_manifest.json
+├── src/
+│   ├── api.*
+│   ├── tasks.*
+│   ├── storage.*
+│   └── private_backend.*
+├── tests/
+│   ├── test_manifest.*
+│   ├── test_management_api.*
+│   ├── test_tasks.*
+│   ├── test_restart.*
+│   └── test_security_negative.*
+├── deploy/
+│   └── module.env.example
+├── Dockerfile
+├── compose.yml
+└── README.md
+
+feature-companion-plugin/
+├── feature-plugin/
+│   ├── manifest.json
+│   ├── main.js
+│   └── icon.png
+├── tests/
+│   └── plugin-contract.test.mjs
+└── feature-plugin.zip
+```
+
+模块的私有协议实现放在模块仓库内部，不复制到 Server、插件或公共指南。
+
+## 5. 最小 manifest 模板
+
+复制后只替换明确的占位符：
+
+```json
+{
+  "schema_version": "1",
+  "module_id": "com.example.feature",
+  "module_version": "0.1.0",
+  "protocol_version": "1.0.0",
+  "name": "Example Feature",
+  "description": "One sentence describing the backend capability.",
+  "actions": [
+    {
+      "action_id": "feature.run",
+      "action_version": "1.0.0",
+      "minimum_role": "member",
+      "input_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["text"],
+        "properties": {
+          "text": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 4000
+          }
+        }
+      },
+      "output_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["answer"],
+        "properties": {
+          "answer": {
+            "type": "string",
+            "maxLength": 8192
+          }
+        }
+      },
+      "supports_stream": false,
+      "supports_cancel": false,
+      "supports_approval": false,
+      "supports_artifacts": false,
+      "supports_chat_projection": true
+    }
+  ],
+  "config_schema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {}
+  },
+  "requested_host_capabilities": [],
+  "companion_plugin": {
+    "id": "example-feature-companion",
+    "version_range": ">=1.0.0,<2.0.0"
+  },
+  "administration": {
+    "supports_data_purge": false
+  }
+}
+```
+
+不要先把所有 capability 和可选能力设为 `true`。只有实现、持久化和验收完成的能力才能声明。
+
+## 6. 最小配套插件模板
+
+```js
+(function () {
+    'use strict';
+
+    const PLUGIN_ID = 'example-feature-companion';
+    const MODULE_ID = 'com.example.feature';
+    const ACTION_ID = 'feature.run';
+
+    async function run() {
+        const status =
+            await window.ChatRaw.modules.getFeatureStatus(MODULE_ID);
+        if (!status.available) {
+            ChatRawPlugin.utils.showToast(
+                status.reason?.message || 'Feature unavailable',
+                'error'
+            );
+            return;
+        }
+        await window.ChatRaw.modules.startTask({
+            module_id: MODULE_ID,
+            action_id: ACTION_ID,
+            input: { text: 'hello' },
+            chat_id:
+                ChatRawPlugin.utils.getCurrentChatId() || undefined
+        });
+    }
+
+    ChatRawPlugin.ui.registerToolbarButton(
+        {
+            id: 'run',
+            icon: 'ri-pulse-line',
+            label: { en: 'Example', zh: '示例' },
+            order: 70,
+            onClick: run
+        },
+        PLUGIN_ID
+    );
+})();
+```
+
+不得添加模块 URL、模块 Token、`fetch(moduleUrl)`、旧 proxy 隧道或用户身份字段。
+
+## 7. 机器可读错误码
+
+代码根据 `code` 处理，UI 显示 `message`。不得解析 message 文本。
+
+Module SDK 本地错误：
+
+| Code | 含义 |
+|---|---|
+| `invalid_sdk_argument` | 插件传给 SDK 的参数错误 |
+| `module_request_failed` | Server 请求失败且没有更具体代码 |
+| `module_event_stream_failed` | SSE 连接恢复失败 |
+| `artifact_download_failed` | 产物下载失败 |
+| `invalid_event_cursor` | 模块事件 ID 无效 |
+
+常见 Server 功能错误：
+
+| Code | 插件应该做什么 |
+|---|---|
+| `module_not_enabled` | 显示不可用，不直连模块 |
+| `module_not_ready` | 提示管理员检查依赖和配置 |
+| `module_review_required` | 提示等待管理员审批 |
+| `plugin_missing` | 提示管理员安装配套插件 |
+| `plugin_disabled` | 提示管理员启用插件 |
+| `plugin_incompatible` | 提示版本不兼容 |
+| `module_action_not_found` | 停止并检查 Action ID/版本 |
+| `module_action_forbidden` | 不重试，不提升用户身份 |
+| `invalid_task_request` | 修正插件或输入 |
+| `task_not_found` | 清除本地 task ID |
+| `task_control_forbidden` | 不允许当前用户控制该任务 |
+| `invalid_approval` | 刷新任务摘要 |
+| `artifact_not_found` | 刷新任务或提示产物不存在 |
+| `artifact_expired` | 提示产物已过期 |
+
+完整集合以 [module-plugin-sdk-v1.json](../backend/contracts/module-plugin-sdk-v1.json) 的 `errors` 为准。模块内部错误通过稳定的 `outcome_code` 暴露，不把堆栈、SQL、私有地址或上游响应原文传给用户。
+
+## 8. 实现顺序
+
+按以下顺序提交代码，禁止倒序用 UI 掩盖后端缺口：
+
+1. 定义数据归属、角色和能力边界。
+2. 写 manifest，并通过离线 conformance。
+3. 实现一次性 Pair 和 Bearer 鉴权。
+4. 实现 Health、Ready 和脱敏 Config。
+5. 实现持久 task、幂等创建和 GET 摘要。
+6. 实现持久 SSE 与断线续传。
+7. 逐项实现并测试 cancel、approval、artifact；未实现的保持 `false`。
+8. 实现 Host Capability，最小化申请范围。
+9. 完成 Source 部署和重启恢复。
+10. 完成 Compose 网络、卷和健康检查。
+11. 最后写配套插件，只使用公共 SDK。
+12. 真实浏览器验证管理员和普通用户。
+13. 完成备份恢复和安全负向检查。
+14. 代码与协议稳定后再更新正式文档。
+
+## 9. Conformance 命令
+
+Server 仓库：
+
+```bash
+.venv/bin/python scripts/export-openapi.py --check
+.venv/bin/python scripts/module-conformance.py contracts
+.venv/bin/python scripts/module-conformance.py manifest \
+  /path/to/module_manifest.json
+./scripts/run-backend-tests.sh
+npm run check:frontend
+./scripts/run-t6-source-gate.sh
+./scripts/run-t6-compose-gate.sh
+```
+
+未配对测试实例：
+
+```bash
+.venv/bin/python scripts/module-conformance.py probe \
+  --base-url http://127.0.0.1:8765 \
+  --pairing-code A_FRESH_ONE_TIME_CODE
+```
+
+配套插件：
+
+```bash
+node --check feature-plugin/main.js
+node --test tests/plugin-contract.test.mjs
+unzip -t feature-plugin.zip
+```
+
+项目可以增加自己的命令，但不能删除上述契约层级。
+
+## 10. 自动化验收清单
+
+AI 在报告完成前逐项给出命令、退出码和证据：
+
+### Manifest 与管理面
+
+- [ ] Schema 验证通过。
+- [ ] Pairing Code 有效期和单次消费通过。
+- [ ] Access Token 只返回一次，持久化摘要。
+- [ ] 错误 Token 返回 401。
+- [ ] Health 与 Ready 能区分。
+- [ ] Config 不回显秘密，revision 冲突返回 409。
+- [ ] Disconnect 保留数据。
+- [ ] Purge 仅在声明支持时可用。
+
+### Task
+
+- [ ] 同 task ID + 同 digest 幂等。
+- [ ] 同 task ID + 不同 digest 返回冲突。
+- [ ] task/event 重启后存在。
+- [ ] Event ID 严格递增。
+- [ ] `Last-Event-ID` 重放无缺失、无重复副作用。
+- [ ] 终态摘要和 `task.terminal` 一致。
+- [ ] output 符合 manifest Schema。
+- [ ] 所有 `true` 能力均有正向、拒绝和竞争测试。
+
+### 权限与秘密
+
+- [ ] 未登录不能访问业务 API。
+- [ ] member 不能管理插件和模块。
+- [ ] member 能使用启用后的功能。
+- [ ] Host Capability 与 task/scope/用户绑定。
+- [ ] 浏览器、插件、manifest、OpenAPI、日志没有模块 Token。
+- [ ] 公共文件没有私有协议、私有 URL 或客户秘密。
+
+### 部署与恢复
+
+- [ ] 全新 Source 安装。
+- [ ] 全新 Compose 安装。
+- [ ] Server 重启。
+- [ ] 模块重启。
+- [ ] `compose down/up` 后卷数据保留。
+- [ ] 模块离线时功能 fail closed，普通聊天可用。
+- [ ] 私有依赖离线时 Ready/任务错误正确。
+- [ ] Server 与模块分别备份。
+- [ ] 恢复到新位置后管理员和 member 登录。
+- [ ] 恢复后真实模块任务成功。
+
+### 浏览器
+
+- [ ] 管理员能看到管理入口和状态。
+- [ ] member 看不到安装、停用、删除入口。
+- [ ] member 能使用配套插件。
+- [ ] 审批、取消、产物按声明展示。
+- [ ] 刷新后任务恢复。
+- [ ] 控制台无错误。
+- [ ] 网络请求只到 ChatRaw Server origin。
+
+## 11. 禁止事项
+
+AI 和人都不得：
+
+- 为单个模块在 ChatRaw Server 中增加专用业务路由。
+- 让模块直接注入或修改 ChatRaw 前端。
+- 让插件直接连接模块或私有后端。
+- 在浏览器中保存模块 Token、任务输入、任务输出或秘密配置。
+- 伪造真实浏览器、客户数据、生产网络或硬件证据。
+- 用 mock 通过冒充全链路验收。
+- 将合成负载称为生产性能。
+- 为了通过测试降低权限、删除失败路径或关闭鉴权。
+- 在未实现时把 manifest capability 写成 `true`。
+- 靠无限重试掩盖确定性错误。
+- 自动覆盖已有数据目录或备份。
+- 把 Agent–LinkDB 或任何商业私有协议写进公共指南。
+
+## 12. AI 完成报告格式
+
+```text
+Outcome:
+- What became true for the user.
+
+Public contract:
+- module_id, module version, protocol version
+- actions and capability flags
+- requested Host Capabilities
+- companion plugin ID and range
+
+Persistence and recovery:
+- Source data path
+- Compose volume
+- restart evidence
+- backup and restore evidence
+
+Security:
+- auth and role evidence
+- browser secret-negative evidence
+- private-boundary evidence
+
+Validation:
+- exact commands and results
+- real browser flows
+- Source and Compose flows
+
+PENDING_ONSITE:
+- customer data
+- customer credentials
+- customer hardware/network
+- production TLS/firewall
+- real upstream behavior
+- production performance
+```
+
+没有证据的项目写“未验证”，不能写“应该没问题”。
+
+---
+
+# English execution summary
+
+Humans and AI must derive behavior from the committed OpenAPI snapshot, JSON Schemas, Module SDK contract, reference module, and conformance commands. Decide the plugin/module boundary before coding. Implement persistent protocol behavior before UI. Request the minimum Host Capabilities. Keep private dependencies private.
+
+Completion requires exact command output, real Source and Compose runtime evidence, both roles in a real browser, outage behavior, restart recovery, separate Server/module backup restoration, and negative secret checks. Synthetic fixtures are engineering evidence only. Any missing customer environment, credential, network, hardware, upstream, or production-performance evidence remains `PENDING_ONSITE`.

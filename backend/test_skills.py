@@ -1721,7 +1721,7 @@ Use this skill for PDF work.
         self.assertIsInstance(payload["messages"][-1]["content"], list)
         self.assertEqual(payload["messages"][-1]["content"][0]["text"], "look")
 
-    def test_skill_activation_audit_is_removed_on_delete_and_stale_chat_cleanup(self):
+    def test_skill_activation_audit_is_removed_only_on_explicit_delete(self):
         self.enable_skill_manager()
         self.configure_chat(stream=False)
         self.patch_chat_session()
@@ -1753,7 +1753,8 @@ Use this skill for PDF work.
         for idx in range(10):
             main.db.create_chat(f"new-{idx}")
 
-        self.assertEqual(self.activation_rows(old_chat.id), [])
+        self.assertEqual(len(self.activation_rows(old_chat.id)), 1)
+        self.assertTrue(main.db.chat_exists(old_chat.id))
 
     def test_skill_routes_are_registered_before_static_mount(self):
         expected = {

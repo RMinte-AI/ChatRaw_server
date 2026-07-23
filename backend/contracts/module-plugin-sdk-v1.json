@@ -1,0 +1,347 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://chatraw.local/contracts/module-plugin-sdk-v1.json",
+  "contract": "ChatRaw Module Plugin SDK",
+  "version": "1.0.0",
+  "global": "window.ChatRaw.modules",
+  "transport": {
+    "origin": "same-origin",
+    "authentication": "ChatRaw session",
+    "plugin_calls_module_directly": false,
+    "module_supplies_frontend_code": false
+  },
+  "methods": {
+    "getFeatureStatus": {
+      "arguments": [
+        {
+          "name": "moduleId",
+          "type": "string",
+          "required": true
+        }
+      ],
+      "returns": "Promise<FeatureStatus>",
+      "endpoint": "GET /api/module-features/{moduleId}"
+    },
+    "startTask": {
+      "arguments": [
+        {
+          "name": "request",
+          "type": "StartTaskRequest",
+          "required": true
+        }
+      ],
+      "returns": "Promise<Task>",
+      "endpoint": "POST /api/module-tasks",
+      "side_effect": "opens the ChatRaw core task UI and subscribes to events"
+    },
+    "getTask": {
+      "arguments": [
+        {
+          "name": "taskId",
+          "type": "string",
+          "required": true
+        }
+      ],
+      "returns": "Promise<Task>",
+      "endpoint": "GET /api/module-tasks/{taskId}"
+    },
+    "subscribe": {
+      "arguments": [
+        {
+          "name": "taskId",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "listener",
+          "type": "function | EventHandlers | null",
+          "required": false
+        }
+      ],
+      "returns": "UnsubscribeFunction",
+      "endpoint": "GET /api/module-tasks/{taskId}/events",
+      "recovery": "reconnects with Last-Event-ID and bounded backoff"
+    },
+    "cancelTask": {
+      "arguments": [
+        {
+          "name": "taskId",
+          "type": "string",
+          "required": true
+        }
+      ],
+      "returns": "Promise<Task>",
+      "endpoint": "POST /api/module-tasks/{taskId}/cancel"
+    },
+    "respondApproval": {
+      "arguments": [
+        {
+          "name": "taskId",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "approvalId",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "decision",
+          "type": "approve | deny",
+          "required": true
+        }
+      ],
+      "returns": "Promise<Task>",
+      "endpoint": "POST /api/module-tasks/{taskId}/approvals/{approvalId}"
+    },
+    "downloadArtifact": {
+      "arguments": [
+        {
+          "name": "taskId",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "artifactRef",
+          "type": "string",
+          "required": true
+        }
+      ],
+      "returns": "Promise<{filename: string}>",
+      "endpoint": "GET /api/module-tasks/{taskId}/artifacts/{artifactRef}"
+    }
+  },
+  "events": {
+    "schema": "module-task-v1.schema.json#/$defs/event",
+    "types": {
+      "task.status": {
+        "data": {
+          "state": "PublicTaskState",
+          "outcome_code": "string | absent"
+        }
+      },
+      "task.progress": {
+        "data": {
+          "progress": "number 0..1",
+          "message": "string | absent"
+        }
+      },
+      "output.delta": {
+        "data": {
+          "text": "string"
+        }
+      },
+      "output.snapshot": {
+        "data": {
+          "text": "string",
+          "compacted_through": "integer | absent"
+        }
+      },
+      "approval.requested": {
+        "data": {
+          "approval_id": "string",
+          "prompt": "string",
+          "expires_at": "RFC3339 timestamp"
+        }
+      },
+      "approval.resolved": {
+        "data": {
+          "approval_id": "string",
+          "decision": "approve | deny"
+        }
+      },
+      "artifact.added": {
+        "data": "module artifact metadata; call getTask for the Server artifact_ref"
+      },
+      "task.terminal": {
+        "data": {
+          "state": "succeeded | failed | cancelled",
+          "outcome_code": "string | absent"
+        }
+      }
+    }
+  },
+  "errors": {
+    "shape": {
+      "name": "ModuleSdkError",
+      "message": "safe public message",
+      "code": "stable machine code",
+      "status": "HTTP status or 0 for local validation"
+    },
+    "local_codes": [
+      "invalid_sdk_argument",
+      "module_request_failed",
+      "module_event_stream_failed",
+      "artifact_download_failed",
+      "invalid_event_cursor"
+    ],
+    "common_server_codes": [
+      "module_not_enabled",
+      "module_not_ready",
+      "module_review_required",
+      "plugin_missing",
+      "plugin_disabled",
+      "plugin_incompatible",
+      "module_action_not_found",
+      "module_action_forbidden",
+      "invalid_task_request",
+      "task_not_found",
+      "task_control_forbidden",
+      "invalid_approval",
+      "artifact_not_found",
+      "artifact_expired"
+    ],
+    "passthrough": "When Server returns {detail, code}, the SDK preserves code and HTTP status."
+  },
+  "$defs": {
+    "StartTaskRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "module_id",
+        "action_id",
+        "input"
+      ],
+      "properties": {
+        "module_id": {
+          "type": "string"
+        },
+        "action_id": {
+          "type": "string"
+        },
+        "input": {
+          "type": "object"
+        },
+        "chat_id": {
+          "type": "string"
+        },
+        "user_message": {
+          "type": "string"
+        },
+        "resource_ids": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "idempotency_key": {
+          "type": "string"
+        }
+      }
+    },
+    "FeatureStatus": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "sdk_version",
+        "module_id",
+        "name",
+        "module_version",
+        "protocol_version",
+        "visible",
+        "available",
+        "state",
+        "reason",
+        "companion_plugin",
+        "actions"
+      ],
+      "properties": {
+        "sdk_version": {
+          "const": "1.0.0"
+        },
+        "module_id": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "module_version": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "protocol_version": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "visible": {
+          "type": "boolean"
+        },
+        "available": {
+          "type": "boolean"
+        },
+        "state": {
+          "enum": [
+            "hidden",
+            "available",
+            "unavailable"
+          ]
+        },
+        "reason": {
+          "type": [
+            "object",
+            "null"
+          ]
+        },
+        "companion_plugin": {
+          "type": [
+            "object",
+            "null"
+          ]
+        },
+        "actions": {
+          "type": "array"
+        }
+      }
+    },
+    "SdkError": {
+      "type": "object",
+      "required": [
+        "name",
+        "message",
+        "code",
+        "status"
+      ],
+      "properties": {
+        "name": {
+          "const": "ModuleSdkError"
+        },
+        "message": {
+          "type": "string"
+        },
+        "code": {
+          "type": "string"
+        },
+        "status": {
+          "type": "integer"
+        }
+      }
+    }
+  },
+  "browser_persistence": {
+    "key": "chatraw_module_tasks_v1",
+    "allowed": [
+      "task_id"
+    ],
+    "forbidden": [
+      "module_address",
+      "module_token",
+      "artifact_path",
+      "task_input",
+      "task_output"
+    ]
+  },
+  "compatibility": {
+    "preserve_globals": [
+      "window.ChatRawPlugin"
+    ],
+    "preserve_extension_points": [
+      "hooks",
+      "toolbar buttons",
+      "plugin fullscreen modal"
+    ]
+  }
+}

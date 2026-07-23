@@ -1,0 +1,255 @@
+{
+  "baseline": {
+    "repository": "https://github.com/massif-01/ChatRaw.git",
+    "tag": "v2.2.1",
+    "commit": "7d3c939"
+  },
+  "legacy_routes": [
+    ["DELETE", "/api/chats/{chat_id}"],
+    ["DELETE", "/api/documents/{doc_id}"],
+    ["DELETE", "/api/models/{model_id}"],
+    ["DELETE", "/api/plugins/{plugin_id}"],
+    ["DELETE", "/api/skills/{skill_name}"],
+    ["GET", "/api/chats"],
+    ["GET", "/api/chats/{chat_id}/messages"],
+    ["GET", "/api/documents"],
+    ["GET", "/api/hermes/health"],
+    ["GET", "/api/models"],
+    ["GET", "/api/plugins"],
+    ["GET", "/api/plugins/api-keys"],
+    ["GET", "/api/plugins/market"],
+    ["GET", "/api/plugins/market/{plugin_folder}/icon"],
+    ["GET", "/api/plugins/{plugin_id}/icon"],
+    ["GET", "/api/plugins/{plugin_id}/lib/{filename:path}"],
+    ["GET", "/api/plugins/{plugin_id}/main.js"],
+    ["GET", "/api/plugins/{plugin_id}/manifest"],
+    ["GET", "/api/settings"],
+    ["GET", "/api/settings/logo"],
+    ["GET", "/api/skills"],
+    ["GET", "/api/skills/{skill_name}"],
+    ["GET", "/api/skills/{skill_name}/content"],
+    ["GET", "/api/skills/{skill_name}/resources"],
+    ["GET", "/fonts/{path:path}"],
+    ["GET", "/health"],
+    ["GET", "/ready"],
+    ["POST", "/api/chat"],
+    ["POST", "/api/chats"],
+    ["POST", "/api/chats/{chat_id}/compact"],
+    ["POST", "/api/documents"],
+    ["POST", "/api/fetch-raw-url"],
+    ["POST", "/api/hermes/chat"],
+    ["POST", "/api/hermes/remote-base-urls/normalize"],
+    ["POST", "/api/hermes/runs/{run_id:path}/approval"],
+    ["POST", "/api/models"],
+    ["POST", "/api/models/verify"],
+    ["POST", "/api/parse-url"],
+    ["POST", "/api/plugins/api-key"],
+    ["POST", "/api/plugins/install"],
+    ["POST", "/api/plugins/upload"],
+    ["POST", "/api/plugins/{plugin_id}/settings"],
+    ["POST", "/api/plugins/{plugin_id}/toggle"],
+    ["POST", "/api/proxy/request"],
+    ["POST", "/api/proxy/upload"],
+    ["POST", "/api/settings"],
+    ["POST", "/api/skills/install"],
+    ["POST", "/api/skills/upload"],
+    ["POST", "/api/skills/{skill_name}/toggle"],
+    ["POST", "/api/skills/{skill_name}/trust"],
+    ["POST", "/api/upload/document"],
+    ["POST", "/api/upload/image"]
+  ],
+  "static_mount": {
+    "path": "",
+    "name": "static"
+  },
+  "stream_contracts": {
+    "/api/chat": {
+      "media_type": "text/event-stream",
+      "framing": "newline-delimited-json",
+      "first_record_field": "chat_id"
+    },
+    "/api/hermes/chat": {
+      "media_type": "text/event-stream",
+      "framing": "newline-delimited-json",
+      "first_record_field": "chat_id"
+    },
+    "/api/upload/document": {
+      "media_type": "application/x-ndjson",
+      "framing": "newline-delimited-json"
+    }
+  },
+  "database_tables": {
+    "settings": ["key", "value"],
+    "model_configs": [
+      "id",
+      "name",
+      "api_key",
+      "api_url",
+      "model_id",
+      "context_length",
+      "max_output",
+      "type",
+      "capability",
+      "created_at"
+    ],
+    "chats": ["id", "title", "created_at", "updated_at"],
+    "messages": ["id", "chat_id", "role", "content", "created_at"],
+    "chat_compactions": [
+      "chat_id",
+      "summary",
+      "boundary_message_id",
+      "boundary_created_at",
+      "original_token_estimate",
+      "summary_token_estimate",
+      "compressed_message_count",
+      "updated_at"
+    ],
+    "chat_skill_activations": [
+      "id",
+      "chat_id",
+      "message_id",
+      "skill_name",
+      "source_json",
+      "created_at"
+    ],
+    "documents": ["id", "filename", "content", "created_at"],
+    "document_chunks": [
+      "id",
+      "document_id",
+      "content",
+      "embedding",
+      "created_at"
+    ]
+  },
+  "pydantic_models": {
+    "ModelConfig": [
+      "id",
+      "name",
+      "api_key",
+      "api_url",
+      "model_id",
+      "context_length",
+      "max_output",
+      "type",
+      "capability"
+    ],
+    "ChatRequest": [
+      "chat_id",
+      "message",
+      "use_rag",
+      "use_thinking",
+      "image_base64",
+      "web_content",
+      "web_url",
+      "active_skills"
+    ],
+    "Chat": ["id", "title", "created_at", "updated_at"],
+    "Message": ["id", "chat_id", "role", "content", "created_at"]
+  },
+  "plugin_api": {
+    "global": "window.ChatRawPlugin",
+    "namespaces": [
+      "hooks",
+      "require",
+      "proxy",
+      "settings",
+      "input",
+      "utils",
+      "storage",
+      "ui"
+    ],
+    "available_hooks": [
+      "parse_document",
+      "parse_url",
+      "web_search",
+      "pre_embedding",
+      "post_retrieval",
+      "send_intercept",
+      "before_send",
+      "route_message",
+      "after_receive",
+      "toolbar_button",
+      "file_preview",
+      "custom_action",
+      "custom_settings",
+      "transform_input",
+      "transform_output"
+    ]
+  },
+  "bundled_plugins": {
+    "bocha-search": {
+      "type": "search_provider",
+      "hooks": ["before_send", "custom_settings"]
+    },
+    "context-compressor": {
+      "type": "message_processor",
+      "hooks": ["plugin_load"]
+    },
+    "csv-parser": {
+      "type": "document_parser",
+      "hooks": ["parse_document"]
+    },
+    "enhanced-export": {
+      "type": "message_processor",
+      "hooks": ["after_receive", "custom_settings"]
+    },
+    "excel-parser": {
+      "type": "document_parser",
+      "hooks": ["parse_document"]
+    },
+    "hermes": {
+      "type": "message_router",
+      "hooks": ["route_message", "custom_settings"]
+    },
+    "lightweight-rag": {
+      "type": "rag_enhancer",
+      "hooks": ["before_send", "custom_settings"]
+    },
+    "markdown-enhancer": {
+      "type": "message_processor",
+      "hooks": ["after_receive"]
+    },
+    "mindmap-renderer": {
+      "type": "message_processor",
+      "hooks": ["after_receive"]
+    },
+    "multi-model-manager": {
+      "type": "model_manager",
+      "hooks": ["custom_settings"]
+    },
+    "skill-manager": {
+      "type": "ui_extension",
+      "hooks": ["plugin_load", "send_intercept"]
+    },
+    "tavily-search": {
+      "type": "search_provider",
+      "hooks": ["before_send", "custom_settings"]
+    },
+    "toolbar-extension-demo": {
+      "type": "demo",
+      "hooks": ["plugin_load"]
+    },
+    "voice-input": {
+      "type": "ui_extension",
+      "hooks": ["plugin_load"]
+    },
+    "web-parser": {
+      "type": "url_parser",
+      "hooks": ["parse_url", "custom_settings"]
+    }
+  },
+  "frontend_build": {
+    "javascript_source": "backend/static/app.js",
+    "javascript_artifact": "backend/static/app.min.js",
+    "stylesheet_source": "backend/static/styles.css",
+    "stylesheet_artifact": "backend/static/styles.min.css",
+    "html_entrypoint": "backend/static/index.html",
+    "alpine_root": "app()"
+  },
+  "deployment": {
+    "python_entrypoints": ["python main.py", "backend.main:app"],
+    "default_port": 51111,
+    "database": "DATA_DIR/chatraw.db",
+    "persistent_directories": ["DATA_DIR/plugins", "DATA_DIR/skills"]
+  }
+}

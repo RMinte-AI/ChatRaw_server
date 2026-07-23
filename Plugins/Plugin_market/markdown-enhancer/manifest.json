@@ -35,6 +35,7 @@
     "hljs-xml": "/api/plugins/markdown-enhancer/lib/hljs-xml.min.js",
     "hljs-yaml": "/api/plugins/markdown-enhancer/lib/hljs-yaml.min.js"
   },
+  "runtimeSettings": ["enableKatex", "enableMermaid", "enableCopyButton", "enableExtraLanguages", "mermaidTheme"],
   "settings": [
     {
       "id": "enableKatex",

@@ -17,7 +17,7 @@
     <!-- Performance: Preload Critical Resources -->
     <link rel="preload" href="fonts/remixicon/remixicon.woff2?t=1769685282643" as="font" type="font/woff2" crossorigin>
     <link rel="preload" href="styles.min.css?v=7.6" as="style">
-    <link rel="preload" href="app.min.js?v=7.7" as="script">
+    <link rel="preload" href="app.min.js?v=7.10" as="script">
     <link rel="preload" href="https://unpkg.com/alpinejs@3.13.3/dist/cdn.min.js" as="script" crossorigin="anonymous">
     <link rel="preload" href="https://unpkg.com/marked@9.1.6/marked.min.js" as="script" crossorigin="anonymous">
     
@@ -149,7 +149,7 @@
     <link rel="stylesheet" href="fonts/remixicon/remixicon.css">
     <link rel="stylesheet" href="styles.min.css?v=7.6">
 </head>
-<body x-data="app()" x-init="init()" :data-theme="settings.ui_settings.theme_mode">
+<body x-data="app()" :data-theme="settings.ui_settings.theme_mode">
     <!-- Sidebar Overlay for Mobile -->
     <div class="sidebar-overlay" x-show="isMobileView && !sidebarCollapsed" @click="closeSidebar()" x-transition:enter="fade-enter" x-transition:leave="fade-leave"></div>
     
@@ -180,6 +180,9 @@
                 <div class="chat-item" :class="{ 'active': currentChatId === chat.id }" @click="selectChat(chat.id)">
                     <i class="ri-message-3-line"></i>
                     <span class="chat-title" x-text="chat.title"></span>
+                    <button class="btn-delete" @click.stop="renameChat(chat)" title="Rename">
+                        <i class="ri-edit-line"></i>
+                    </button>
                     <button class="btn-delete" @click.stop="deleteChat(chat.id)" :title="t('delete')">
                         <i class="ri-close-line"></i>
                     </button>
@@ -187,13 +190,13 @@
             </template>
         </div>
         
-        <button class="btn-clear-all" x-show="!sidebarCollapsed && chats.length > 0" @click="clearAllChats()" :title="t('clearAllChats')">
+        <button class="btn-clear-all" x-show="!sidebarCollapsed && chats.length > 0 && isAdmin()" @click="clearAllChats()" :title="t('clearAllChats')">
             <i class="ri-delete-bin-line"></i>
             <span x-text="t('clearAllChats')"></span>
         </button>
 
         <div class="sidebar-footer" x-show="!sidebarCollapsed">
-            <button class="btn-plugins" @click="openPluginsPanel()">
+            <button class="btn-plugins" x-show="isAdmin()" @click="openPluginsPanel()">
                 <i class="ri-tools-line"></i>
                 <span x-text="t('plugins')"></span>
             </button>
@@ -201,9 +204,13 @@
                 <i class="ri-settings-3-line"></i>
                 <span x-text="t('settings')"></span>
             </button>
+            <button class="btn-settings" @click="logout()">
+                <i class="ri-logout-box-r-line"></i>
+                <span x-text="me ? me.username : 'Account'"></span>
+            </button>
         </div>
         
-        <button class="btn-icon sidebar-plugins-collapsed" @click="openPluginsPanel()" x-show="sidebarCollapsed" :title="t('plugins')">
+        <button class="btn-icon sidebar-plugins-collapsed" @click="openPluginsPanel()" x-show="sidebarCollapsed && isAdmin()" :title="t('plugins')">
             <i class="ri-tools-line"></i>
         </button>
         <button class="btn-icon sidebar-settings-collapsed" @click="openSettingsPanel()" x-show="sidebarCollapsed" :title="t('settings')">
@@ -582,9 +589,12 @@
             <!-- Left Nav -->
             <div class="settings-nav" role="tablist" aria-label="Settings navigation">
                 <div class="settings-title" id="settings-modal-title" x-text="t('settings')"></div>
-                <div class="nav-item" role="tab" :aria-selected="settingsTab === 'models'" :class="{ 'active': settingsTab === 'models' }" @click="settingsTab = 'models'" x-text="t('modelConfig')"></div>
-                <div class="nav-item" role="tab" :aria-selected="settingsTab === 'chat'" :class="{ 'active': settingsTab === 'chat' }" @click="settingsTab = 'chat'" x-text="t('chatSettings')"></div>
-                <div class="nav-item" role="tab" :aria-selected="settingsTab === 'ui'" :class="{ 'active': settingsTab === 'ui' }" @click="settingsTab = 'ui'" x-text="t('uiSettings')"></div>
+                <div class="nav-item" x-show="isAdmin()" role="tab" :aria-selected="settingsTab === 'models'" :class="{ 'active': settingsTab === 'models' }" @click="settingsTab = 'models'" x-text="t('modelConfig')"></div>
+                <div class="nav-item" x-show="isAdmin()" role="tab" :aria-selected="settingsTab === 'chat'" :class="{ 'active': settingsTab === 'chat' }" @click="settingsTab = 'chat'" x-text="t('chatSettings')"></div>
+                <div class="nav-item" x-show="isAdmin()" role="tab" :aria-selected="settingsTab === 'ui'" :class="{ 'active': settingsTab === 'ui' }" @click="settingsTab = 'ui'" x-text="t('uiSettings')"></div>
+                <div class="nav-item" x-show="isAdmin()" role="tab" :aria-selected="settingsTab === 'users'" :class="{ 'active': settingsTab === 'users' }" @click="settingsTab = 'users'; loadAdminUsers()">Users</div>
+                <div class="nav-item" x-show="isAdmin()" role="tab" :aria-selected="settingsTab === 'modules'" :class="{ 'active': settingsTab === 'modules' }" @click="settingsTab = 'modules'; loadModules()">Modules</div>
+                <div class="nav-item" role="tab" :aria-selected="settingsTab === 'account'" :class="{ 'active': settingsTab === 'account' }" @click="settingsTab = 'account'">Account</div>
                 <div class="settings-footer">
                     © 2026 ChatRaw by massif-01<br>
                     <a href="https://opensource.org/licenses/MIT" target="_blank" rel="noopener" class="settings-footer-link" x-text="t('mitLicense')"></a>
@@ -619,7 +629,15 @@
                                 
                                 <div class="form-group">
                                     <label class="form-label">API Key (Optional)</label>
-                                    <input type="password" class="input-minimal" x-model="model.api_key">
+                                    <input type="password" class="input-minimal"
+                                           x-model="model.api_key"
+                                           :placeholder="model.api_key_configured ? 'Configured — enter to replace' : ''"
+                                           @input="model.api_key_action = 'replace'">
+                                    <button type="button" class="btn-secondary btn-compact"
+                                            x-show="model.api_key_configured"
+                                            @click="model.api_key = ''; model.api_key_action = 'clear'">
+                                        Clear key
+                                    </button>
                                 </div>
 
                                 <div class="form-group">
@@ -782,12 +800,310 @@
                         </div>
                     </div>
 
+                    <div x-show="settingsTab === 'users' && isAdmin()">
+                        <div class="section-header">
+                            <h2 class="section-title">User management</h2>
+                            <p class="section-desc">Create accounts, control access, and reset passwords. Usernames cannot be changed.</p>
+                        </div>
+                        <div class="model-card">
+                            <div class="form-group">
+                                <label class="form-label">Username</label>
+                                <input class="input-minimal" x-model="newUser.username" autocomplete="off">
+                            </div>
+                            <div class="form-group">
+                                <label class="form-label">Initial password</label>
+                                <input class="input-minimal" type="password" minlength="12" x-model="newUser.password" autocomplete="new-password">
+                            </div>
+                            <div class="form-group">
+                                <label class="form-label">Role</label>
+                                <select class="input-minimal" x-model="newUser.role">
+                                    <option value="member">Member</option>
+                                    <option value="admin">Administrator</option>
+                                </select>
+                            </div>
+                            <button class="btn-primary" @click="createManagedUser()">Create user</button>
+                        </div>
+                        <template x-for="user in adminUsers" :key="user.id">
+                            <div class="model-card">
+                                <div class="model-header">
+                                    <strong x-text="user.username"></strong>
+                                    <span class="model-badge" x-text="user.role"></span>
+                                </div>
+                                <p class="section-desc" x-text="user.enabled ? 'Enabled' : 'Disabled'"></p>
+                                <div class="plugin-actions">
+                                    <button class="btn-secondary btn-compact" @click="setManagedUserEnabled(user, !user.enabled)" x-text="user.enabled ? 'Disable' : 'Enable'"></button>
+                                    <button class="btn-secondary btn-compact" @click="resetManagedUserPassword(user)">Reset password</button>
+                                </div>
+                            </div>
+                        </template>
+                    </div>
+
+                    <div x-show="settingsTab === 'modules' && isAdmin()">
+                        <div class="section-header">
+                            <h2 class="section-title">Feature suites</h2>
+                            <p class="section-desc">Each product feature joins one backend module with one companion plugin. ChatRaw does not start processes or containers.</p>
+                        </div>
+
+                        <div class="model-card"
+                             x-show="deploymentStatus.mode === 'compose'">
+                            <div class="model-header">
+                                <strong>Compose network</strong>
+                                <span class="model-badge"
+                                      x-text="deploymentStatus.module_network"></span>
+                            </div>
+                            <p class="section-desc">
+                                Use the module service name on this shared network,
+                                for example http://chatraw-reference-module:8765.
+                                localhost points back to the ChatRaw container.
+                            </p>
+                        </div>
+
+                        <div class="module-task-error"
+                             x-show="deploymentStatus.warnings.length > 0">
+                            <strong>Container address repair required</strong>
+                            <template x-for="warning in deploymentStatus.warnings"
+                                      :key="warning.target">
+                                <p x-text="warning.message"></p>
+                            </template>
+                            <small>Existing addresses were not changed automatically.</small>
+                        </div>
+
+                        <div class="model-card">
+                            <div class="form-group">
+                                <label class="form-label">Module address</label>
+                                <input class="input-minimal"
+                                       type="url"
+                                       :placeholder="deploymentStatus.mode === 'compose' ? 'http://chatraw-reference-module:8765' : 'http://127.0.0.1:8765'"
+                                       x-model="modulePairForm.base_url"
+                                       autocomplete="off">
+                                <span class="form-sublabel form-sublabel-block">The address is sent to ChatRaw once and is never returned by the management API.</span>
+                            </div>
+                            <div class="form-group">
+                                <label class="form-label">One-time pairing code</label>
+                                <input class="input-minimal"
+                                       type="password"
+                                       x-model="modulePairForm.pairing_code"
+                                       autocomplete="off">
+                            </div>
+                            <button class="btn-primary"
+                                    :disabled="moduleBusy === 'pair' || !modulePairForm.base_url || !modulePairForm.pairing_code"
+                                    @click="pairModule()">Connect for review</button>
+                        </div>
+
+                        <p class="section-desc" x-show="modules.length === 0">No modules are connected.</p>
+
+                        <template x-for="module in modules" :key="module.id">
+                            <div class="model-card">
+                                <div class="model-header">
+                                    <div>
+                                        <strong x-text="module.name"></strong>
+                                        <span class="model-badge" x-text="module.module_version"></span>
+                                    </div>
+                                    <span class="model-badge" x-text="module.lifecycle_state"></span>
+                                </div>
+                                <p class="section-desc" x-text="module.description"></p>
+                                <p class="section-desc"><strong>Module ID:</strong> <span x-text="module.module_id"></span></p>
+
+                                <div class="checkbox-group">
+                                    <span class="model-badge" x-text="'Health: ' + module.health_status"></span>
+                                    <span class="model-badge" x-text="'Ready: ' + module.ready_status"></span>
+                                    <span class="model-badge" x-text="'Config: ' + module.config_status"></span>
+                                    <span class="model-badge" x-text="'Plugin: ' + module.feature_suite.status"></span>
+                                </div>
+
+                                <div class="form-group">
+                                    <label class="form-label">Suite compatibility</label>
+                                    <p class="section-desc">
+                                        Module protocol <span x-text="module.protocol_version"></span>
+                                        · module <span x-text="module.module_version"></span>
+                                    </p>
+                                    <p class="section-desc">
+                                        Plugin <span x-text="module.feature_suite.plugin_id"></span>
+                                        <span x-text="module.feature_suite.installed_version || 'not installed'"></span>
+                                        · requires <span x-text="module.feature_suite.required_version"></span>
+                                    </p>
+                                    <p class="section-desc"
+                                       x-show="module.feature_suite.trust"
+                                       x-text="module.feature_suite.trust?.label"></p>
+                                    <p class="section-desc"
+                                       x-show="module.feature_suite.trust?.sha256"
+                                       x-text="'SHA-256 ' + module.feature_suite.trust?.sha256"></p>
+                                </div>
+
+                                <div class="form-group">
+                                    <label class="form-label">Network and configuration</label>
+                                    <p class="section-desc">
+                                        Network <span x-text="module.network.status"></span>
+                                        · configuration <span x-text="module.config_status"></span>
+                                        · ready <span x-text="module.ready_status"></span>
+                                    </p>
+                                    <p class="section-desc"
+                                       x-text="module.network.last_checked_at ? 'Last checked ' + module.network.last_checked_at : 'Not checked yet'"></p>
+                                </div>
+
+                                <div class="form-group">
+                                    <label class="form-label">Data ownership and retention</label>
+                                    <p class="section-desc">
+                                        Module-managed data
+                                        <span x-text="module.data_retention.supports_purge ? '· administrator purge supported' : '· no remote purge declared'"></span>
+                                    </p>
+                                </div>
+
+                                <div class="form-group">
+                                    <label class="form-label">Requested host capabilities</label>
+                                    <p class="section-desc" x-show="module.requested_host_capabilities.length === 0">None.</p>
+                                    <template x-for="review in module.capability_reviews" :key="review.capability">
+                                        <span class="model-badge" x-text="review.capability + ' · risk ' + review.risk + ' · declaration only'"></span>
+                                    </template>
+                                </div>
+
+                                <div class="module-task-error"
+                                     x-show="module.recent_fault">
+                                    <strong>Recent fault</strong>
+                                    <p x-text="module.recent_fault?.message"></p>
+                                    <small x-text="module.recent_fault?.code"></small>
+                                </div>
+
+                                <div class="form-group">
+                                    <label class="form-label">Declared actions</label>
+                                    <p class="section-desc" x-show="module.actions.length === 0">No actions declared.</p>
+                                    <template x-for="action in module.actions" :key="action.action_id">
+                                        <p class="section-desc">
+                                            <strong x-text="action.action_id"></strong>
+                                            <span x-text="' v' + action.action_version + ' · minimum role ' + action.minimum_role"></span>
+                                            <span x-show="action.supports_stream"> · stream</span>
+                                            <span x-show="action.supports_cancel"> · cancel</span>
+                                            <span x-show="action.supports_approval"> · approval</span>
+                                            <span x-show="action.supports_artifacts"> · artifacts</span>
+                                            <span x-show="action.supports_chat_projection"> · chat projection</span>
+                                        </p>
+                                    </template>
+                                </div>
+
+                                <p class="section-desc" x-show="!module.reviewed">Review is required before this module can be enabled.</p>
+                                <p class="section-desc" x-show="module.reviewed && !module.can_enable">Approved, but health, configuration, Ready, or companion plugin requirements are incomplete.</p>
+
+                                <div class="plugin-actions">
+                                    <button class="btn-primary btn-compact"
+                                            x-show="!module.reviewed && module.health_status !== 'incompatible'"
+                                            :disabled="moduleBusy === module.id"
+                                            @click="approveModule(module)">Approve declaration</button>
+                                    <button class="btn-secondary btn-compact"
+                                            :disabled="moduleBusy === module.id"
+                                            @click="runModuleAction(module, 'check')">Check health</button>
+                                    <button class="btn-secondary btn-compact"
+                                            :disabled="moduleBusy === module.id"
+                                            @click="runModuleAction(module, 'refresh')">Refresh manifest</button>
+                                    <button class="btn-secondary btn-compact"
+                                            :disabled="moduleBusy === module.id || module.health_status === 'unreachable'"
+                                            @click="openModuleConfig(module)">Configure</button>
+                                    <button class="btn-primary btn-compact"
+                                            x-show="['pending_review', 'disabled'].includes(module.lifecycle_state)"
+                                            :disabled="moduleBusy === module.id || !module.can_enable"
+                                            @click="runModuleAction(module, 'enable')">Enable suite</button>
+                                    <button class="btn-secondary btn-compact"
+                                            x-show="module.lifecycle_state === 'enabled'"
+                                            :disabled="moduleBusy === module.id"
+                                            @click="runModuleAction(module, 'drain')">Drain</button>
+                                    <button class="btn-secondary btn-compact"
+                                            x-show="['enabled', 'draining'].includes(module.lifecycle_state)"
+                                            :disabled="moduleBusy === module.id"
+                                            @click="runModuleAction(module, 'disable')">Disable</button>
+                                    <button class="btn-delete btn-compact"
+                                            x-show="module.supports_data_purge"
+                                            :disabled="moduleBusy === module.id"
+                                            @click="purgeModuleData(module)">Purge module data</button>
+                                    <button class="btn-delete btn-compact"
+                                            :disabled="moduleBusy === module.id"
+                                            @click="disconnectModule(module)">Disconnect</button>
+                                </div>
+                            </div>
+                        </template>
+
+                        <div class="model-card" x-show="moduleConfig">
+                            <div class="model-header">
+                                <strong>Module configuration</strong>
+                                <span class="model-badge" x-text="'Revision ' + moduleConfig?.revision"></span>
+                            </div>
+                            <p class="section-desc" x-text="moduleConfig?.moduleName"></p>
+                            <template x-for="field in moduleConfigFields()" :key="field.name">
+                                <div class="form-group">
+                                    <label class="form-label" x-text="field.schema.title || field.name"></label>
+                                    <template x-if="field.secret">
+                                        <div>
+                                            <p class="section-desc" x-text="moduleConfig?.secret_configured?.[field.name] ? 'Secret configured' : 'Secret not configured'"></p>
+                                            <select class="input-minimal" x-model="moduleSecretActions[field.name].action">
+                                                <option value="keep">Keep</option>
+                                                <option value="replace">Replace</option>
+                                                <option value="clear">Clear</option>
+                                            </select>
+                                            <input class="input-minimal"
+                                                   type="password"
+                                                   x-show="moduleSecretActions[field.name].action === 'replace'"
+                                                   x-model="moduleSecretActions[field.name].value"
+                                                   autocomplete="new-password"
+                                                   placeholder="New secret">
+                                        </div>
+                                    </template>
+                                    <template x-if="!field.secret && Array.isArray(field.schema.enum)">
+                                        <select class="input-minimal" x-model="moduleConfigValues[field.name]">
+                                            <template x-for="option in field.schema.enum" :key="option">
+                                                <option :value="option" x-text="option"></option>
+                                            </template>
+                                        </select>
+                                    </template>
+                                    <template x-if="!field.secret && !Array.isArray(field.schema.enum) && field.schema.type === 'boolean'">
+                                        <input type="checkbox" x-model="moduleConfigValues[field.name]">
+                                    </template>
+                                    <template x-if="!field.secret && !Array.isArray(field.schema.enum) && ['number', 'integer'].includes(field.schema.type)">
+                                        <input class="input-minimal"
+                                               type="number"
+                                               :min="field.schema.minimum"
+                                               :max="field.schema.maximum"
+                                               :step="field.schema.type === 'integer' ? 1 : (field.schema.multipleOf || 'any')"
+                                               x-model.number="moduleConfigValues[field.name]">
+                                    </template>
+                                    <template x-if="!field.secret && !Array.isArray(field.schema.enum) && field.schema.type === 'string'">
+                                        <input class="input-minimal"
+                                               type="text"
+                                               :minlength="field.schema.minLength"
+                                               :maxlength="field.schema.maxLength"
+                                               x-model="moduleConfigValues[field.name]">
+                                    </template>
+                                </div>
+                            </template>
+                            <div class="plugin-actions">
+                                <button class="btn-primary" @click="saveModuleConfig()">Save module configuration</button>
+                                <button class="btn-secondary" @click="moduleConfig = null">Cancel</button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div x-show="settingsTab === 'account'">
+                        <div class="section-header">
+                            <h2 class="section-title">Account</h2>
+                            <p class="section-desc"><span x-text="me?.username"></span> · <span x-text="me?.role"></span></p>
+                        </div>
+                        <div class="model-card">
+                            <div class="form-group">
+                                <label class="form-label">Current password</label>
+                                <input class="input-minimal" type="password" x-model="passwordForm.current_password" autocomplete="current-password">
+                            </div>
+                            <div class="form-group">
+                                <label class="form-label">New password</label>
+                                <input class="input-minimal" type="password" minlength="12" x-model="passwordForm.new_password" autocomplete="new-password">
+                            </div>
+                            <button class="btn-primary" @click="changeMyPassword()">Change password</button>
+                            <button class="btn-secondary" @click="logout()">Sign out</button>
+                        </div>
+                    </div>
+
                 </div>
                 
                 <!-- Modal Actions Footer -->
                 <div class="modal-actions-bar">
                     <button class="btn-secondary" @click="showSettings = false" x-text="t('cancel')"></button>
-                    <button class="btn-primary" @click="saveAllSettings()" x-text="t('save')"></button>
+                    <button class="btn-primary" x-show="isAdmin() && ['models', 'chat', 'ui'].includes(settingsTab)" @click="saveAllSettings()" x-text="t('save')"></button>
                 </div>
             </div>
         </div>
@@ -1047,9 +1363,14 @@
                                 <p class="form-sublabel" x-text="proxy.description?.[lang] || proxy.description?.en || ''"></p>
                                 <input type="text" class="input-minimal" 
                                        x-model="pluginApiKeys[proxy.id]"
-                                       :placeholder="pluginApiKeys[proxy.id] ? '' : t('enterApiKey')"
-                                       @focus="if(pluginApiKeys[proxy.id]?.includes('*')) pluginApiKeys[proxy.id] = ''">
-                                <p class="form-hint" x-show="pluginApiKeys[proxy.id]?.includes('*')" x-text="t('apiKeySet')"></p>
+                                       :placeholder="pluginApiKeyConfigured[proxy.id] ? t('apiKeySet') : t('enterApiKey')"
+                                       @input="pluginApiKeyActions[proxy.id] = 'replace'">
+                                <p class="form-hint" x-show="pluginApiKeyConfigured[proxy.id] && pluginApiKeyActions[proxy.id] !== 'clear'" x-text="t('apiKeySet')"></p>
+                                <button type="button" class="btn-secondary btn-compact"
+                                        x-show="pluginApiKeyConfigured[proxy.id]"
+                                        @click="pluginApiKeys[proxy.id] = ''; pluginApiKeyActions[proxy.id] = 'clear'">
+                                    Clear key
+                                </button>
                             </div>
                         </template>
                     </div>
@@ -1062,6 +1383,98 @@
         </div>
     </div>
 
+    <!-- Core module task UI. Modules never supply or inject this markup. -->
+    <div class="modal-overlay module-task-modal"
+         x-show="moduleTaskUi.show"
+         x-cloak
+         x-transition
+         @click.self="closeModuleTask()"
+         @keydown.escape.window="moduleTaskUi.show && closeModuleTask()">
+        <section class="module-task-panel"
+                 role="dialog"
+                 aria-modal="true"
+                 aria-labelledby="module-task-title">
+            <header class="module-task-header">
+                <div>
+                    <p class="module-task-eyebrow">Module task</p>
+                    <h2 id="module-task-title"
+                        x-text="moduleTaskUi.task?.action_id || 'Task'"></h2>
+                </div>
+                <div class="module-task-header-actions">
+                    <span class="model-badge"
+                          x-text="moduleTaskUi.task?.state || 'loading'"></span>
+                    <button class="btn-icon"
+                            type="button"
+                            aria-label="Close task"
+                            @click="closeModuleTask()">
+                        <i class="ri-close-line"></i>
+                    </button>
+                </div>
+            </header>
+
+            <div class="module-task-body">
+                <div class="module-task-progress"
+                     role="progressbar"
+                     aria-label="Task progress"
+                     :aria-valuenow="Math.round(moduleTaskUi.progress * 100)"
+                     aria-valuemin="0"
+                     aria-valuemax="100">
+                    <span :style="`width: ${Math.round(moduleTaskUi.progress * 100)}%`"></span>
+                </div>
+                <p class="section-desc"
+                   x-show="moduleTaskUi.progressMessage"
+                   x-text="moduleTaskUi.progressMessage"></p>
+
+                <div class="module-task-error"
+                     x-show="moduleTaskUi.error"
+                     x-text="moduleTaskUi.error"></div>
+
+                <section class="module-task-approval"
+                         x-show="moduleTaskUi.approval">
+                    <strong>Approval required</strong>
+                    <p x-text="moduleTaskUi.approval?.prompt"></p>
+                    <div class="plugin-actions">
+                        <button class="btn-primary btn-compact"
+                                type="button"
+                                @click="resolveModuleTaskApproval('approve')">Approve</button>
+                        <button class="btn-secondary btn-compact"
+                                type="button"
+                                @click="resolveModuleTaskApproval('deny')">Deny</button>
+                    </div>
+                </section>
+
+                <section x-show="moduleTaskUi.output">
+                    <h3 class="module-task-section-title">Output</h3>
+                    <pre class="module-task-output"
+                         x-text="moduleTaskUi.output"></pre>
+                </section>
+
+                <section x-show="moduleTaskUi.artifacts.length > 0">
+                    <h3 class="module-task-section-title">Artifacts</h3>
+                    <template x-for="artifact in moduleTaskUi.artifacts"
+                              :key="artifact.artifact_ref">
+                        <button class="module-task-artifact"
+                                type="button"
+                                @click="downloadVisibleModuleArtifact(artifact)">
+                            <i class="ri-download-line"></i>
+                            <span x-text="artifact.filename"></span>
+                            <small x-text="`${artifact.size} bytes`"></small>
+                        </button>
+                    </template>
+                </section>
+            </div>
+
+            <footer class="module-task-footer">
+                <span class="section-desc"
+                      x-text="moduleTaskUi.task?.task_id || ''"></span>
+                <button class="btn-secondary btn-compact"
+                        type="button"
+                        x-show="moduleTaskUi.task && !['succeeded', 'failed', 'cancelled'].includes(moduleTaskUi.task.state)"
+                        @click="cancelVisibleModuleTask()">Cancel task</button>
+            </footer>
+        </section>
+    </div>
+
     <!-- Plugin Fullscreen Modal -->
     <div class="modal-overlay plugin-fullscreen-modal" 
          x-show="pluginFullscreenModal.show" 
@@ -1072,6 +1485,6 @@
         <div class="plugin-fullscreen-content" x-html="pluginFullscreenModal.content"></div>
     </div>
 
-    <script src="app.min.js?v=7.7"></script>
+    <script src="app.min.js?v=7.10"></script>
 </body>
 </html>

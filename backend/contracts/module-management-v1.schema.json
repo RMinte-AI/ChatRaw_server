@@ -1,0 +1,221 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://chatraw.local/contracts/module-management-v1.schema.json",
+  "title": "ChatRaw Module Protocol v1 Management Contracts",
+  "$defs": {
+    "pairRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "pairing_code",
+        "host"
+      ],
+      "properties": {
+        "pairing_code": {
+          "type": "string",
+          "minLength": 16,
+          "maxLength": 512
+        },
+        "host": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "product",
+            "module_protocol"
+          ],
+          "properties": {
+            "product": {
+              "const": "ChatRaw Server"
+            },
+            "module_protocol": {
+              "const": "1.0.0"
+            }
+          }
+        }
+      }
+    },
+    "pairResponse": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "module_id",
+        "instance_id",
+        "access_token"
+      ],
+      "properties": {
+        "module_id": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 128
+        },
+        "instance_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "access_token": {
+          "type": "string",
+          "minLength": 32,
+          "maxLength": 4096
+        }
+      }
+    },
+    "health": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "status"
+      ],
+      "properties": {
+        "status": {
+          "enum": [
+            "healthy",
+            "unhealthy"
+          ]
+        }
+      }
+    },
+    "ready": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "ready",
+        "reasons"
+      ],
+      "properties": {
+        "ready": {
+          "type": "boolean"
+        },
+        "reasons": {
+          "type": "array",
+          "maxItems": 32,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          }
+        }
+      }
+    },
+    "configView": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "revision",
+        "values",
+        "secret_configured",
+        "configured",
+        "missing_required"
+      ],
+      "properties": {
+        "revision": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "values": {
+          "type": "object"
+        },
+        "secret_configured": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "boolean"
+          }
+        },
+        "configured": {
+          "type": "boolean"
+        },
+        "missing_required": {
+          "type": "array",
+          "maxItems": 256,
+          "uniqueItems": true,
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "configUpdate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "revision",
+        "values",
+        "secrets"
+      ],
+      "properties": {
+        "revision": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "values": {
+          "type": "object"
+        },
+        "secrets": {
+          "type": "object",
+          "additionalProperties": {
+            "oneOf": [
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "action"
+                ],
+                "properties": {
+                  "action": {
+                    "enum": [
+                      "keep",
+                      "clear"
+                    ]
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "action",
+                  "value"
+                ],
+                "properties": {
+                  "action": {
+                    "const": "replace"
+                  },
+                  "value": {}
+                }
+              }
+            ]
+          }
+        }
+      }
+    },
+    "disconnectRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "preserve_data"
+      ],
+      "properties": {
+        "preserve_data": {
+          "const": true
+        }
+      }
+    },
+    "purgeRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "confirmation"
+      ],
+      "properties": {
+        "confirmation": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 512
+        }
+      }
+    }
+  }
+}

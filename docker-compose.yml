@@ -1,16 +1,30 @@
 services:
   chatraw:
-    image: docker.io/massif01/chatraw:latest
-    container_name: chatraw
-    # Use host network mode to access LAN services (e.g., local LLM on 192.168.x.x)
-    # 使用 host 网络模式以访问局域网服务（如本地部署的 LLM）
-    network_mode: host
+    build:
+      context: .
+    ports:
+      - "${CHATRAW_PORT:-51111}:51111"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     volumes:
       - chatraw_data:/app/data
     environment:
-      - PORT=51111
-      - DATA_DIR=/app/data
+      PORT: "51111"
+      DATA_DIR: /app/data
+      CHATRAW_CONTAINERIZED: "1"
+      CHATRAW_LOOPBACK_DEV: "${CHATRAW_LOOPBACK_DEV:-0}"
+      CHATRAW_MODULE_NETWORK: "${CHATRAW_MODULE_NETWORK:-chatraw-modules}"
+      CHATRAW_MODULE_BRIDGE_CIDRS: "${CHATRAW_MODULE_NETWORK_CIDR:-172.30.0.0/24},${CHATRAW_MODULE_EXTRA_CIDRS:-}"
+    networks:
+      module_bridge:
+        aliases:
+          - chatraw-server
     restart: unless-stopped
 
 volumes:
   chatraw_data:
+
+networks:
+  module_bridge:
+    external: true
+    name: "${CHATRAW_MODULE_NETWORK:-chatraw-modules}"

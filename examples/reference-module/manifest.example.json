@@ -1,0 +1,121 @@
+{
+  "schema_version": "1",
+  "module_id": "chatraw.reference.echo",
+  "module_version": "1.0.0",
+  "protocol_version": "1.0.0",
+  "name": "Reference Echo Module",
+  "description": "A durable reference module used to verify Module Protocol v1 registration and task consistency.",
+  "actions": [
+    {
+      "action_id": "echo.task",
+      "action_version": "1.0.0",
+      "minimum_role": "member",
+      "input_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "text"
+        ],
+        "properties": {
+          "text": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 4000
+          },
+          "steps": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 200,
+            "default": 8
+          },
+          "delay_ms": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 1000,
+            "default": 15
+          },
+          "require_approval": {
+            "type": "boolean",
+            "default": false
+          },
+          "create_artifact": {
+            "type": "boolean",
+            "default": false
+          },
+          "outcome_unknown": {
+            "type": "boolean",
+            "default": false
+          },
+          "cancel_race_succeeds": {
+            "type": "boolean",
+            "default": false
+          },
+          "cancel_rejected": {
+            "type": "boolean",
+            "default": false
+          },
+          "artifact_ttl_seconds": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 3600,
+            "default": 600
+          }
+        }
+      },
+      "output_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "text"
+        ],
+        "properties": {
+          "text": {
+            "type": "string",
+            "maxLength": 8192
+          }
+        }
+      },
+      "supports_stream": true,
+      "supports_cancel": true,
+      "supports_approval": true,
+      "supports_artifacts": true,
+      "supports_chat_projection": true
+    }
+  ],
+  "config_schema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+      "greeting"
+    ],
+    "properties": {
+      "greeting": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 200,
+        "default": "Hello"
+      },
+      "uppercase": {
+        "type": "boolean",
+        "default": false
+      },
+      "service_key": {
+        "type": "string",
+        "x-chatraw-secret": true
+      }
+    }
+  },
+  "requested_host_capabilities": [
+    "chat.read",
+    "resource.read",
+    "model.invoke"
+  ],
+  "companion_plugin": {
+    "id": "reference-module-companion",
+    "version_range": ">=1.0.0,<2.0.0"
+  },
+  "administration": {
+    "supports_data_purge": true
+  }
+}

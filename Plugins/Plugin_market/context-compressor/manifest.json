@@ -15,6 +15,7 @@
   "main": "main.js",
   "type": "message_processor",
   "hooks": ["plugin_load"],
+  "runtimeSettings": ["autoCompress", "thresholdPercent"],
   "settings": [
     {
       "id": "autoCompress",

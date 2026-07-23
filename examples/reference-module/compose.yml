@@ -1,0 +1,62 @@
+services:
+  reference-module:
+    build:
+      context: .
+    environment:
+      REFERENCE_MODULE_DATA_DIR: /app/data
+      REFERENCE_MODULE_INSTANCE_ID: chatraw-reference-compose
+      REFERENCE_MODULE_PRIVATE_HEALTH_URL: http://reference-private:9090/health
+      REFERENCE_MODULE_PAIRING_CODE: "${REFERENCE_MODULE_PAIRING_CODE:-}"
+    volumes:
+      - reference_module_data:/app/data
+    expose:
+      - "8765"
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import json,socket,urllib.request; socket.create_connection(('127.0.0.1',8765),2).close(); assert json.load(urllib.request.urlopen('http://reference-private:9090/health',timeout=2))['status']=='healthy'"
+      interval: 5s
+      timeout: 3s
+      retries: 12
+      start_period: 5s
+    depends_on:
+      reference-private:
+        condition: service_healthy
+    networks:
+      module_bridge:
+        aliases:
+          - chatraw-reference-module
+      module_private:
+    restart: unless-stopped
+
+  reference-private:
+    build:
+      context: .
+    command: ["python", "private_dependency.py"]
+    expose:
+      - "9090"
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import json,urllib.request; assert json.load(urllib.request.urlopen('http://127.0.0.1:9090/health',timeout=2))['status']=='healthy'"
+      interval: 5s
+      timeout: 3s
+      retries: 12
+      start_period: 2s
+    networks:
+      - module_private
+    restart: unless-stopped
+
+volumes:
+  reference_module_data:
+
+networks:
+  module_bridge:
+    external: true
+    name: "${CHATRAW_MODULE_NETWORK:-chatraw-modules}"
+  module_private:
+    internal: true

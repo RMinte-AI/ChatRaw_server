@@ -420,6 +420,9 @@ const ROUTE_MESSAGE_RESULT_KEYS = new Set(['success', 'route']);
 const RESERVED_SLASH_COMMANDS = new Set(['plugins', 'settings', 'help', 'clear', 'compact', 'api']);
 const COMMON_PATH_ROOTS = new Set(['tmp', 'var', 'usr', 'etc', 'home', 'users', 'opt', 'private', 'volumes', 'mnt']);
 const SKILL_NAME_PATTERN = /^[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?$/;
+const MODULE_SDK_VERSION = '1.0.0';
+const MODULE_TASK_STORAGE_KEY = 'chatraw_module_tasks_v1';
+const MODULE_TERMINAL_STATES = new Set(['succeeded', 'failed', 'cancelled']);
 
 function app() {
     const initialDesktopCollapsed = localStorage.getItem('chatraw_sidebar_collapsed') === '1';
@@ -436,6 +439,33 @@ function app() {
         _resizeRaf: null,
         showSettings: false,
         settingsTab: 'models',
+        me: null,
+        adminUsers: [],
+        newUser: { username: '', password: '', role: 'member' },
+        passwordForm: { current_password: '', new_password: '' },
+        modules: [],
+        modulePairForm: { base_url: '', pairing_code: '' },
+        deploymentStatus: {
+            mode: 'source',
+            module_network: null,
+            warnings: []
+        },
+        moduleBusy: null,
+        moduleConfig: null,
+        moduleConfigValues: {},
+        moduleSecretActions: {},
+        moduleTaskUi: {
+            show: false,
+            task: null,
+            events: [],
+            output: '',
+            progress: 0,
+            progressMessage: '',
+            approval: null,
+            artifacts: [],
+            error: null
+        },
+        moduleTaskSubscriptions: {},
         showSystemPrompt: false,
         currentChatId: null,
         inputMessage: '',
@@ -483,6 +513,8 @@ function app() {
         currentPluginSettings: null,
         pluginSettingsValues: {},
         pluginApiKeys: {},
+        pluginApiKeyConfigured: {},
+        pluginApiKeyActions: {},
         
         // Plugin toolbar extension state
         pluginToolbarButtons: [],  // [{fullId, pluginId, id, icon, label, onClick, order, active, loading}]
@@ -595,6 +627,7 @@ function app() {
         // Initialize
         async init() {
             this.initResponsiveLayout();
+            await this.loadMe();
             await this.loadSettings();
             await this.loadModels();
             await this.loadChats();
@@ -604,6 +637,421 @@ function app() {
             // Note: favicon is updated by loadLogo() which is called from loadSettings()
             // Initialize plugin system
             this.initPluginSystem();
+            await this.resumeModuleTasks();
+        },
+
+        isAdmin() {
+            return this.me?.role === 'admin';
+        },
+
+        async loadMe() {
+            const response = await fetch('/api/me');
+            if (!response.ok) {
+                location.replace('/login');
+                throw new Error('Authentication required');
+            }
+            this.me = await response.json();
+            if (!this.isAdmin()) this.settingsTab = 'account';
+        },
+
+        async logout() {
+            await fetch('/api/auth/logout', { method: 'POST' });
+            location.replace('/login');
+        },
+
+        async loadAdminUsers() {
+            if (!this.isAdmin()) return;
+            const response = await fetch('/api/admin/users');
+            if (response.ok) {
+                const data = await response.json();
+                this.adminUsers = data.users || [];
+            }
+        },
+
+        async createManagedUser() {
+            const response = await fetch('/api/admin/users', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(this.newUser)
+            });
+            const result = await response.json();
+            if (!response.ok) {
+                this.showToast(result.detail || 'Unable to create user', 'error');
+                return;
+            }
+            this.newUser = { username: '', password: '', role: 'member' };
+            await this.loadAdminUsers();
+            this.showToast('User created', 'success');
+        },
+
+        async setManagedUserEnabled(user, enabled) {
+            const action = enabled ? 'enable' : 'disable';
+            const response = await fetch(`/api/admin/users/${encodeURIComponent(user.id)}/${action}`, {
+                method: 'POST'
+            });
+            const result = await response.json();
+            if (!response.ok) {
+                this.showToast(result.detail || 'Unable to update user', 'error');
+                return;
+            }
+            await this.loadAdminUsers();
+        },
+
+        async resetManagedUserPassword(user) {
+            const newPassword = window.prompt(`New password for ${user.username}`);
+            if (!newPassword) return;
+            const response = await fetch(`/api/admin/users/${encodeURIComponent(user.id)}/reset-password`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ new_password: newPassword })
+            });
+            const result = await response.json();
+            if (!response.ok) {
+                this.showToast(result.detail || 'Unable to reset password', 'error');
+                return;
+            }
+            this.showToast('Password reset; existing sessions revoked', 'success');
+        },
+
+        async changeMyPassword() {
+            const response = await fetch('/api/me/password', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(this.passwordForm)
+            });
+            const result = await response.json();
+            if (!response.ok) {
+                this.showToast(result.detail || 'Unable to change password', 'error');
+                return;
+            }
+            location.replace('/login');
+        },
+
+        async moduleApi(path, options = {}) {
+            const response = await fetch(path, options);
+            let result = {};
+            try {
+                result = await response.json();
+            } catch (_error) {
+                result = {};
+            }
+            if (!response.ok) {
+                throw new Error(result.detail || 'Module operation failed');
+            }
+            return result;
+        },
+
+        moduleTaskIds() {
+            try {
+                const value = JSON.parse(
+                    localStorage.getItem(MODULE_TASK_STORAGE_KEY) || '[]'
+                );
+                return Array.isArray(value)
+                    ? value.filter(item => typeof item === 'string').slice(0, 20)
+                    : [];
+            } catch (_error) {
+                return [];
+            }
+        },
+
+        rememberModuleTask(taskId) {
+            const taskIds = [
+                taskId,
+                ...this.moduleTaskIds().filter(item => item !== taskId)
+            ].slice(0, 20);
+            localStorage.setItem(
+                MODULE_TASK_STORAGE_KEY,
+                JSON.stringify(taskIds)
+            );
+        },
+
+        forgetModuleTask(taskId) {
+            localStorage.setItem(
+                MODULE_TASK_STORAGE_KEY,
+                JSON.stringify(
+                    this.moduleTaskIds().filter(item => item !== taskId)
+                )
+            );
+        },
+
+        showModuleTask(task) {
+            this.moduleTaskUi = {
+                show: true,
+                task,
+                events: [],
+                output: task?.result?.text || task?.chat_projection || '',
+                progress: MODULE_TERMINAL_STATES.has(task?.state) ? 1 : 0,
+                progressMessage: '',
+                approval: null,
+                artifacts: Array.isArray(task?.artifacts) ? task.artifacts : [],
+                error: task?.state === 'failed'
+                    ? (task.outcome_code || 'Task failed')
+                    : null
+            };
+        },
+
+        closeModuleTask() {
+            this.moduleTaskUi.show = false;
+        },
+
+        applyModuleTaskEvent(taskId, event) {
+            if (this.moduleTaskUi.task?.task_id !== taskId) return;
+            const ui = this.moduleTaskUi;
+            ui.events.push(event);
+            if (ui.events.length > 200) ui.events.shift();
+            if (event.event === 'task.status' || event.event === 'task.terminal') {
+                ui.task.state = event.data.state;
+                if (event.data.outcome_code) {
+                    ui.task.outcome_code = event.data.outcome_code;
+                }
+                if (event.event === 'task.terminal') {
+                    ui.progress = 1;
+                    if (event.data.state === 'failed') {
+                        ui.error = event.data.outcome_code || 'Task failed';
+                    }
+                    ui.approval = null;
+                }
+            } else if (event.event === 'task.progress') {
+                ui.progress = event.data.progress;
+                ui.progressMessage = event.data.message || '';
+            } else if (event.event === 'output.delta') {
+                ui.output += event.data.text;
+            } else if (event.event === 'output.snapshot') {
+                ui.output = event.data.text;
+            } else if (event.event === 'approval.requested') {
+                ui.approval = event.data;
+            } else if (event.event === 'approval.resolved') {
+                ui.approval = null;
+            }
+        },
+
+        async resolveModuleTaskApproval(decision) {
+            const task = this.moduleTaskUi.task;
+            const approval = this.moduleTaskUi.approval;
+            if (!task || !approval) return;
+            try {
+                await window.ChatRaw.modules.respondApproval(
+                    task.task_id,
+                    approval.approval_id,
+                    decision
+                );
+            } catch (error) {
+                this.moduleTaskUi.error = error.message;
+            }
+        },
+
+        async cancelVisibleModuleTask() {
+            const taskId = this.moduleTaskUi.task?.task_id;
+            if (!taskId) return;
+            try {
+                const task = await window.ChatRaw.modules.cancelTask(taskId);
+                this.moduleTaskUi.task = task;
+            } catch (error) {
+                this.moduleTaskUi.error = error.message;
+            }
+        },
+
+        async downloadVisibleModuleArtifact(artifact) {
+            const taskId = this.moduleTaskUi.task?.task_id;
+            if (!taskId) return;
+            try {
+                await window.ChatRaw.modules.downloadArtifact(
+                    taskId,
+                    artifact.artifact_ref
+                );
+            } catch (error) {
+                this.moduleTaskUi.error = error.message;
+            }
+        },
+
+        async resumeModuleTasks() {
+            if (!window.ChatRaw?.modules) return;
+            for (const taskId of this.moduleTaskIds()) {
+                try {
+                    const task = await window.ChatRaw.modules.getTask(taskId);
+                    if (!MODULE_TERMINAL_STATES.has(task.state)) {
+                        this.showModuleTask(task);
+                        window.ChatRaw.modules.subscribe(taskId);
+                        return;
+                    }
+                } catch (error) {
+                    if (error?.status === 404) this.forgetModuleTask(taskId);
+                }
+            }
+        },
+
+        async loadModules() {
+            if (!this.isAdmin()) return;
+            try {
+                const [data, deployment] = await Promise.all([
+                    this.moduleApi('/api/admin/modules'),
+                    this.moduleApi('/api/admin/deployment-status')
+                ]);
+                this.modules = data.modules || [];
+                this.deploymentStatus = deployment;
+            } catch (error) {
+                this.showToast(error.message, 'error');
+            }
+        },
+
+        async pairModule() {
+            if (!this.isAdmin() || this.moduleBusy) return;
+            this.moduleBusy = 'pair';
+            try {
+                await this.moduleApi('/api/admin/modules/pair', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(this.modulePairForm)
+                });
+                this.modulePairForm = { base_url: '', pairing_code: '' };
+                await this.loadModules();
+                this.showToast('Module paired for review', 'success');
+            } catch (error) {
+                this.showToast(error.message, 'error');
+            } finally {
+                this.moduleBusy = null;
+            }
+        },
+
+        async approveModule(module) {
+            if (!this.isAdmin() || this.moduleBusy) return;
+            if (!window.confirm(`Approve ${module.module_id} and its declared capabilities?`)) return;
+            this.moduleBusy = module.id;
+            try {
+                await this.moduleApi(`/api/admin/modules/${encodeURIComponent(module.id)}/approve`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        manifest_digest: module.manifest_digest,
+                        approved_capabilities: module.requested_host_capabilities || []
+                    })
+                });
+                await this.loadModules();
+                this.showToast('Module manifest approved', 'success');
+            } catch (error) {
+                this.showToast(error.message, 'error');
+            } finally {
+                this.moduleBusy = null;
+            }
+        },
+
+        async runModuleAction(module, action) {
+            if (!this.isAdmin() || this.moduleBusy) return;
+            this.moduleBusy = module.id;
+            try {
+                await this.moduleApi(`/api/admin/modules/${encodeURIComponent(module.id)}/${action}`, {
+                    method: 'POST'
+                });
+                await this.loadModules();
+                this.showToast(`Module ${action} completed`, 'success');
+            } catch (error) {
+                this.showToast(error.message, 'error');
+            } finally {
+                this.moduleBusy = null;
+            }
+        },
+
+        moduleConfigFields() {
+            return Object.entries(this.moduleConfig?.schema?.properties || {}).map(([name, schema]) => ({
+                name,
+                schema,
+                secret: schema?.['x-chatraw-secret'] === true
+            }));
+        },
+
+        async openModuleConfig(module) {
+            if (!this.isAdmin()) return;
+            this.moduleBusy = module.id;
+            try {
+                const config = await this.moduleApi(`/api/admin/modules/${encodeURIComponent(module.id)}/config`);
+                this.moduleConfig = { ...config, moduleId: module.id, moduleName: module.name };
+                this.moduleConfigValues = { ...(config.values || {}) };
+                this.moduleSecretActions = {};
+                for (const field of Object.entries(config.schema?.properties || {})) {
+                    if (field[1]?.['x-chatraw-secret'] === true) {
+                        this.moduleSecretActions[field[0]] = {
+                            action: 'keep',
+                            value: ''
+                        };
+                    } else if (this.moduleConfigValues[field[0]] === undefined && field[1]?.default !== undefined) {
+                        this.moduleConfigValues[field[0]] = field[1].default;
+                    }
+                }
+            } catch (error) {
+                this.showToast(error.message, 'error');
+            } finally {
+                this.moduleBusy = null;
+            }
+        },
+
+        async saveModuleConfig() {
+            if (!this.isAdmin() || !this.moduleConfig || this.moduleBusy) return;
+            this.moduleBusy = this.moduleConfig.moduleId;
+            const secrets = {};
+            for (const [name, update] of Object.entries(this.moduleSecretActions)) {
+                secrets[name] = update.action === 'replace'
+                    ? { action: 'replace', value: update.value }
+                    : { action: update.action };
+            }
+            try {
+                const config = await this.moduleApi(`/api/admin/modules/${encodeURIComponent(this.moduleConfig.moduleId)}/config`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        revision: this.moduleConfig.revision,
+                        values: this.moduleConfigValues,
+                        secrets
+                    })
+                });
+                this.moduleConfig = null;
+                await this.loadModules();
+                this.showToast(`Configuration saved at revision ${config.revision}`, 'success');
+            } catch (error) {
+                this.showToast(error.message, 'error');
+            } finally {
+                this.moduleBusy = null;
+            }
+        },
+
+        async disconnectModule(module) {
+            if (!this.isAdmin() || this.moduleBusy) return;
+            const confirmation = window.prompt(`Type ${module.module_id} to disconnect. Module data will be preserved.`);
+            if (confirmation !== module.module_id) return;
+            this.moduleBusy = module.id;
+            try {
+                await this.moduleApi(`/api/admin/modules/${encodeURIComponent(module.id)}/disconnect`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ confirmation })
+                });
+                await this.loadModules();
+                this.showToast('Module disconnected; module data was preserved', 'success');
+            } catch (error) {
+                this.showToast(error.message, 'error');
+            } finally {
+                this.moduleBusy = null;
+            }
+        },
+
+        async purgeModuleData(module) {
+            if (!this.isAdmin() || !module.supports_data_purge || this.moduleBusy) return;
+            const expected = `PURGE ${module.module_id}`;
+            const confirmation = window.prompt(`This deletes data owned by the module. Type ${expected} to continue.`);
+            if (confirmation !== expected) return;
+            this.moduleBusy = module.id;
+            try {
+                await this.moduleApi(`/api/admin/modules/${encodeURIComponent(module.id)}/purge-data`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ confirmation })
+                });
+                await this.loadModules();
+                this.showToast('Module-owned data purged', 'success');
+            } catch (error) {
+                this.showToast(error.message, 'error');
+            } finally {
+                this.moduleBusy = null;
+            }
         },
         
         // Responsive layout sync (mobile drawer + desktop collapse)
@@ -660,11 +1108,17 @@ function app() {
         
         openSettingsPanel() {
             this.showPlugins = false;
+            this.settingsTab = this.isAdmin() ? 'models' : 'account';
             this.showSettings = true;
+            if (this.isAdmin()) {
+                this.loadAdminUsers();
+                this.loadModules();
+            }
             this.closeSidebarOnMobile();
         },
         
         openPluginsPanel() {
+            if (!this.isAdmin()) return;
             this.showSettings = false;
             this.showPlugins = true;
             this.loadPluginMarket();
@@ -723,6 +1177,8 @@ function app() {
                 if (res.ok) {
                     this.models = await res.json();
                     this.models.forEach(m => {
+                        m.api_key = '';
+                        m.api_key_action = 'preserve';
                         if (!m.capability) {
                             m.capability = { vision: false, reasoning: false, tools: false };
                         }
@@ -770,9 +1226,6 @@ function app() {
                 if (res.ok) {
                     const chat = await res.json();
                     this.chats.unshift(chat);
-                    if (this.chats.length > 10) {
-                        this.chats.pop();
-                    }
                     this.selectChat(chat.id);
                     this.closeSidebarOnMobile();
                 }
@@ -810,11 +1263,16 @@ function app() {
         
         // Delete chat
         async deleteChat(chatId) {
+            if (!confirm('Delete this shared chat? Other users will lose access to it.')) return;
             try {
                 if (this.currentChatId === chatId && this.isGenerating) {
                     this.stopGeneration();
                 }
-                await fetch(`/api/chats/${chatId}`, { method: 'DELETE' });
+                const response = await fetch(`/api/chats/${chatId}`, { method: 'DELETE' });
+                if (!response.ok) {
+                    const result = await response.json();
+                    throw new Error(result.detail || this.t('deleteFailed'));
+                }
                 this.chats = this.chats.filter(c => c.id !== chatId);
                 if (this.currentChatId === chatId) {
                     this.currentChatId = null;
@@ -823,6 +1281,22 @@ function app() {
             } catch (e) {
                 this.showToast(this.t('deleteFailed'), 'error');
             }
+        },
+
+        async renameChat(chat) {
+            const title = window.prompt('Rename this shared chat', chat.title);
+            if (!title || title.trim() === chat.title) return;
+            const response = await fetch(`/api/chats/${encodeURIComponent(chat.id)}`, {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ title: title.trim() })
+            });
+            const result = await response.json();
+            if (!response.ok) {
+                this.showToast(result.detail || 'Rename failed', 'error');
+                return;
+            }
+            chat.title = result.title;
         },
         
         // Clear all chats
@@ -835,7 +1309,8 @@ function app() {
             try {
                 // Delete all chats one by one
                 for (const chat of this.chats) {
-                    await fetch(`/api/chats/${chat.id}`, { method: 'DELETE' });
+                    const response = await fetch(`/api/chats/${chat.id}`, { method: 'DELETE' });
+                    if (!response.ok) throw new Error(this.t('deleteFailed'));
                 }
                 this.chats = [];
                 this.currentChatId = null;
@@ -2609,8 +3084,13 @@ function app() {
         
         // Delete document
         async deleteDocument(id) {
+            if (!confirm('Delete this shared document? Other users will lose access to it.')) return;
             try {
-                await fetch(`/api/documents/${id}`, { method: 'DELETE' });
+                const response = await fetch(`/api/documents/${id}`, { method: 'DELETE' });
+                if (!response.ok) {
+                    const result = await response.json();
+                    throw new Error(result.detail || this.t('deleteFailed'));
+                }
                 this.documents = this.documents.filter(d => d.id !== id);
                 this.showToast(this.t('documentDeleted'), 'success');
             } catch (e) {
@@ -2633,7 +3113,12 @@ function app() {
                 const saveRes = await fetch('/api/models', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(model)
+                    body: JSON.stringify({
+                        ...model,
+                        api_key_action: model.api_key_action === 'clear'
+                            ? 'clear'
+                            : (model.api_key ? 'replace' : 'preserve')
+                    })
                 });
                 
                 if (!saveRes.ok) {
@@ -2644,12 +3129,16 @@ function app() {
                 if (savedModel.id) {
                     model.id = savedModel.id;
                 }
+                model.api_key_configured = savedModel.api_key_configured;
+                model.api_key = '';
+                model.api_key_action = 'preserve';
                 
                 // Verify model connection
                 const verifyRes = await fetch('/api/models/verify', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
+                        id: model.id,
                         api_url: model.api_url,
                         api_key: model.api_key,
                         model_id: model.model_id,
@@ -2692,7 +3181,12 @@ function app() {
                     await fetch('/api/models', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify(model)
+                        body: JSON.stringify({
+                            ...model,
+                            api_key_action: model.api_key_action === 'clear'
+                                ? 'clear'
+                                : (model.api_key ? 'replace' : 'preserve')
+                        })
                     });
                 }
                 
@@ -2838,6 +3332,301 @@ function app() {
             
             // Reference to app instance for closures
             const appInstance = this;
+
+            class ModuleSdkError extends Error {
+                constructor(message, code, status) {
+                    super(message);
+                    this.name = 'ModuleSdkError';
+                    this.code = code || 'module_request_failed';
+                    this.status = status || 0;
+                }
+            }
+
+            const moduleRequest = async (path, options = {}) => {
+                const response = await fetch(path, {
+                    credentials: 'same-origin',
+                    ...options
+                });
+                let payload = null;
+                try {
+                    payload = await response.json();
+                } catch (_error) {
+                    payload = null;
+                }
+                if (!response.ok) {
+                    throw new ModuleSdkError(
+                        payload?.detail || 'Module request failed',
+                        payload?.code || 'module_request_failed',
+                        response.status
+                    );
+                }
+                return payload;
+            };
+
+            const taskPath = taskId => (
+                `/api/module-tasks/${encodeURIComponent(taskId)}`
+            );
+
+            const parseSseBlock = block => {
+                let id = null;
+                let event = 'message';
+                const data = [];
+                for (const line of block.split(/\r?\n/)) {
+                    if (!line || line.startsWith(':')) continue;
+                    const separator = line.indexOf(':');
+                    const field = separator < 0 ? line : line.slice(0, separator);
+                    let value = separator < 0 ? '' : line.slice(separator + 1);
+                    if (value.startsWith(' ')) value = value.slice(1);
+                    if (field === 'id') id = value;
+                    else if (field === 'event') event = value;
+                    else if (field === 'data') data.push(value);
+                }
+                if (!data.length) return null;
+                const numericId = Number(id);
+                if (!Number.isInteger(numericId) || numericId < 1) {
+                    throw new ModuleSdkError(
+                        'Module event stream returned an invalid cursor',
+                        'invalid_event_cursor',
+                        502
+                    );
+                }
+                return {
+                    id: numericId,
+                    event,
+                    data: JSON.parse(data.join('\n'))
+                };
+            };
+
+            const subscribe = (taskId, listener = null) => {
+                if (typeof taskId !== 'string' || !taskId) {
+                    throw new ModuleSdkError(
+                        'taskId is required',
+                        'invalid_sdk_argument',
+                        0
+                    );
+                }
+                appInstance.moduleTaskSubscriptions[taskId]?.abort();
+                const controller = new AbortController();
+                appInstance.moduleTaskSubscriptions[taskId] = controller;
+                const handlers = typeof listener === 'function'
+                    ? { onEvent: listener }
+                    : (listener || {});
+
+                (async () => {
+                    let cursor = 0;
+                    let failures = 0;
+                    while (!controller.signal.aborted) {
+                        try {
+                            const response = await fetch(
+                                `${taskPath(taskId)}/events`,
+                                {
+                                    headers: {
+                                        'Last-Event-ID': String(cursor)
+                                    },
+                                    credentials: 'same-origin',
+                                    signal: controller.signal
+                                }
+                            );
+                            if (!response.ok || !response.body) {
+                                let payload = null;
+                                try {
+                                    payload = await response.json();
+                                } catch (_error) {}
+                                throw new ModuleSdkError(
+                                    payload?.detail || 'Module event stream failed',
+                                    payload?.code || 'module_event_stream_failed',
+                                    response.status
+                                );
+                            }
+                            failures = 0;
+                            const reader = response.body
+                                .pipeThrough(new TextDecoderStream())
+                                .getReader();
+                            let buffer = '';
+                            while (!controller.signal.aborted) {
+                                const { value, done } = await reader.read();
+                                if (done) break;
+                                buffer += value;
+                                const blocks = buffer.split(/\r?\n\r?\n/);
+                                buffer = blocks.pop() || '';
+                                for (const block of blocks) {
+                                    const event = parseSseBlock(block);
+                                    if (!event || event.id <= cursor) continue;
+                                    cursor = event.id;
+                                    appInstance.applyModuleTaskEvent(taskId, event);
+                                    if (
+                                        event.event === 'artifact.added'
+                                        || event.event === 'task.terminal'
+                                    ) {
+                                        const task = await moduleRequest(
+                                            taskPath(taskId)
+                                        );
+                                        if (
+                                            appInstance.moduleTaskUi.task?.task_id
+                                            === taskId
+                                        ) {
+                                            appInstance.moduleTaskUi.task = task;
+                                            appInstance.moduleTaskUi.artifacts =
+                                                Array.isArray(task.artifacts)
+                                                    ? task.artifacts
+                                                    : [];
+                                        }
+                                        if (
+                                            event.event === 'task.terminal'
+                                            && task.chat_id
+                                            && appInstance.currentChatId
+                                                === task.chat_id
+                                        ) {
+                                            await appInstance.loadMessages(
+                                                task.chat_id
+                                            );
+                                            await appInstance.loadChats();
+                                        }
+                                    }
+                                    handlers.onEvent?.(event);
+                                    if (
+                                        event.event === 'task.terminal'
+                                        || MODULE_TERMINAL_STATES.has(event.data?.state)
+                                    ) {
+                                        handlers.onClose?.();
+                                        controller.abort();
+                                        break;
+                                    }
+                                }
+                            }
+                        } catch (error) {
+                            if (controller.signal.aborted) break;
+                            failures += 1;
+                            handlers.onError?.(error);
+                            if (failures >= 5) {
+                                if (appInstance.moduleTaskUi.task?.task_id === taskId) {
+                                    appInstance.moduleTaskUi.error =
+                                        error.message || 'Task updates unavailable';
+                                }
+                                break;
+                            }
+                            await new Promise(resolve => setTimeout(
+                                resolve,
+                                Math.min(500 * (2 ** (failures - 1)), 8000)
+                            ));
+                        }
+                    }
+                    if (appInstance.moduleTaskSubscriptions[taskId] === controller) {
+                        delete appInstance.moduleTaskSubscriptions[taskId];
+                    }
+                })();
+
+                return () => controller.abort();
+            };
+
+            const modulesSdk = Object.freeze({
+                version: MODULE_SDK_VERSION,
+                getFeatureStatus: moduleId => moduleRequest(
+                    `/api/module-features/${encodeURIComponent(moduleId)}`
+                ),
+                startTask: async request => {
+                    if (
+                        !request
+                        || typeof request.module_id !== 'string'
+                        || typeof request.action_id !== 'string'
+                        || !request.input
+                        || typeof request.input !== 'object'
+                        || Array.isArray(request.input)
+                    ) {
+                        throw new ModuleSdkError(
+                            'module_id, action_id, and object input are required',
+                            'invalid_sdk_argument',
+                            0
+                        );
+                    }
+                    const payload = {
+                        module_id: request.module_id,
+                        action_id: request.action_id,
+                        input: request.input
+                    };
+                    for (const key of [
+                        'chat_id',
+                        'user_message',
+                        'resource_ids'
+                    ]) {
+                        if (request[key] !== undefined) payload[key] = request[key];
+                    }
+                    const idempotencyKey = request.idempotency_key
+                        || crypto.randomUUID();
+                    const task = await moduleRequest('/api/module-tasks', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'Idempotency-Key': idempotencyKey
+                        },
+                        body: JSON.stringify(payload)
+                    });
+                    appInstance.rememberModuleTask(task.task_id);
+                    appInstance.showModuleTask(task);
+                    subscribe(task.task_id);
+                    return task;
+                },
+                getTask: taskId => moduleRequest(taskPath(taskId)),
+                subscribe,
+                cancelTask: taskId => moduleRequest(
+                    `${taskPath(taskId)}/cancel`,
+                    {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: '{}'
+                    }
+                ),
+                respondApproval: (taskId, approvalId, decision) => {
+                    if (!['approve', 'deny'].includes(decision)) {
+                        throw new ModuleSdkError(
+                            'decision must be approve or deny',
+                            'invalid_sdk_argument',
+                            0
+                        );
+                    }
+                    return moduleRequest(
+                        `${taskPath(taskId)}/approvals/${encodeURIComponent(approvalId)}`,
+                        {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ decision })
+                        }
+                    );
+                },
+                downloadArtifact: async (taskId, artifactRef) => {
+                    const response = await fetch(
+                        `${taskPath(taskId)}/artifacts/${encodeURIComponent(artifactRef)}`,
+                        { credentials: 'same-origin' }
+                    );
+                    if (!response.ok) {
+                        let payload = null;
+                        try {
+                            payload = await response.json();
+                        } catch (_error) {}
+                        throw new ModuleSdkError(
+                            payload?.detail || 'Artifact download failed',
+                            payload?.code || 'artifact_download_failed',
+                            response.status
+                        );
+                    }
+                    const disposition =
+                        response.headers.get('content-disposition') || '';
+                    const encoded = disposition.match(/filename\*=UTF-8''([^;]+)/i);
+                    const fallback = disposition.match(/filename="([^"]+)"/i);
+                    const filename = encoded
+                        ? decodeURIComponent(encoded[1])
+                        : (fallback?.[1] || 'artifact');
+                    const url = URL.createObjectURL(await response.blob());
+                    const anchor = document.createElement('a');
+                    anchor.href = url;
+                    anchor.download = filename;
+                    anchor.click();
+                    setTimeout(() => URL.revokeObjectURL(url), 0);
+                    return { filename };
+                }
+            });
+            window.ChatRaw = window.ChatRaw || {};
+            window.ChatRaw.modules = modulesSdk;
 
             // Create global ChatRawPlugin object for plugins
             window.ChatRawPlugin = {
@@ -3627,6 +4416,8 @@ function app() {
             
             this.pluginSettingsValues = settingsValues;
             this.pluginApiKeys = {};
+            this.pluginApiKeyConfigured = {};
+            this.pluginApiKeyActions = {};
             
             // Load saved API keys (masked) for display
             if (plugin.proxy && plugin.proxy.length > 0) {
@@ -3636,9 +4427,9 @@ function app() {
                         const data = await res.json();
                         const savedKeys = data.api_keys || {};
                         for (const proxy of plugin.proxy) {
-                            if (savedKeys[proxy.id]) {
-                                this.pluginApiKeys[proxy.id] = savedKeys[proxy.id];
-                            }
+                            this.pluginApiKeys[proxy.id] = '';
+                            this.pluginApiKeyConfigured[proxy.id] = Boolean(savedKeys[proxy.id]?.configured);
+                            this.pluginApiKeyActions[proxy.id] = 'preserve';
                         }
                     }
                 } catch (e) {
@@ -3676,12 +4467,14 @@ function app() {
                 
                 // Save API keys (only if user entered a new value, not the masked placeholder)
                 for (const [serviceId, apiKey] of Object.entries(this.pluginApiKeys)) {
-                    // Skip masked values (contain *) - user didn't change the key
-                    if (apiKey && !apiKey.includes('*')) {
+                    const action = this.pluginApiKeyActions[serviceId] === 'clear'
+                        ? 'clear'
+                        : (apiKey ? 'replace' : 'preserve');
+                    if (action !== 'preserve') {
                         await fetch('/api/plugins/api-key', {
                             method: 'POST',
                             headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ service_id: serviceId, api_key: apiKey })
+                            body: JSON.stringify({ service_id: serviceId, api_key: apiKey, action })
                         });
                     }
                 }

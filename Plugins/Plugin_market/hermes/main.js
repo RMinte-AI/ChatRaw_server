@@ -427,7 +427,7 @@ After enabling, ChatRaw only allows remote Hermes Base URLs explicitly listed in
         const res = await fetch('/api/plugins/api-key', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ service_id: serviceId, api_key: apiKey })
+            body: JSON.stringify({ service_id: serviceId, api_key: apiKey, action: apiKey ? 'replace' : 'clear' })
         });
         if (!res.ok) {
             const data = await res.json().catch(() => ({}));

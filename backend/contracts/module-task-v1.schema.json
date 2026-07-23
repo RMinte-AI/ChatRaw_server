@@ -1,0 +1,200 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://chatraw.local/contracts/module-task-v1.schema.json",
+  "title": "ChatRaw Module Protocol v1 Task Contracts",
+  "$defs": {
+    "publicState": {
+      "enum": [
+        "queued",
+        "running",
+        "waiting_approval",
+        "cancel_requested",
+        "succeeded",
+        "failed",
+        "cancelled"
+      ]
+    },
+    "artifact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "artifact_id",
+        "filename",
+        "media_type",
+        "size",
+        "expires_at"
+      ],
+      "properties": {
+        "artifact_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 160
+        },
+        "filename": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 255
+        },
+        "media_type": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 127
+        },
+        "size": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 16777216
+        },
+        "expires_at": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    },
+    "moduleCreate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "task_id",
+        "request_digest",
+        "action_id",
+        "action_version",
+        "config_revision",
+        "input",
+        "host_capabilities"
+      ],
+      "properties": {
+        "task_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "request_digest": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "action_id": {
+          "type": "string"
+        },
+        "action_version": {
+          "type": "string"
+        },
+        "config_revision": {
+          "type": "string"
+        },
+        "input": {
+          "type": "object"
+        },
+        "host_capabilities": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "capability",
+              "token",
+              "scope",
+              "expires_at"
+            ],
+            "properties": {
+              "capability": {
+                "enum": [
+                  "chat.read",
+                  "resource.read",
+                  "model.invoke"
+                ]
+              },
+              "token": {
+                "type": "string"
+              },
+              "scope": {
+                "type": "object"
+              },
+              "expires_at": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      }
+    },
+    "moduleSummary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "task_id",
+        "action_id",
+        "action_version",
+        "config_revision",
+        "state",
+        "last_event_id"
+      ],
+      "properties": {
+        "task_id": {
+          "type": "string"
+        },
+        "action_id": {
+          "type": "string"
+        },
+        "action_version": {
+          "type": "string"
+        },
+        "config_revision": {
+          "type": "string"
+        },
+        "state": {
+          "$ref": "#/$defs/publicState"
+        },
+        "last_event_id": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "outcome_code": {
+          "type": "string"
+        },
+        "result": {},
+        "chat_projection": {
+          "type": "string"
+        },
+        "artifacts": {
+          "type": "array",
+          "maxItems": 128,
+          "items": {
+            "$ref": "#/$defs/artifact"
+          }
+        }
+      }
+    },
+    "event": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "event",
+        "data"
+      ],
+      "properties": {
+        "id": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "event": {
+          "enum": [
+            "task.status",
+            "task.progress",
+            "output.delta",
+            "output.snapshot",
+            "approval.requested",
+            "approval.resolved",
+            "artifact.added",
+            "task.terminal"
+          ]
+        },
+        "data": {
+          "type": "object"
+        }
+      }
+    }
+  }
+}

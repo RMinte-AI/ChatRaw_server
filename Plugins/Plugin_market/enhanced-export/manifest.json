@@ -18,6 +18,7 @@
   "dependencies": {
     "html2pdf": "/api/plugins/enhanced-export/lib/html2pdf.bundle.min.js"
   },
+  "runtimeSettings": ["exportTxt", "exportMd", "exportPdf", "exportHtml"],
   "settings": [
     {
       "id": "exportTxt",

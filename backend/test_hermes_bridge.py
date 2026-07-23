@@ -1856,14 +1856,13 @@ class HermesBridgeTests(unittest.IsolatedAsyncioTestCase):
         ]
         for url in rejected_urls:
             with self.subTest(url=url):
-                result = await main.proxy_request(main.ProxyRequest(
-                    service_id="hermes",
-                    url=url,
-                ))
-                status, data = self.decode_result(result)
-                self.assertEqual(status, 400)
-                self.assertFalse(data["success"])
-                self.assertIn("internal networks", data["error"])
+                with self.assertRaises(main.HTTPException) as error:
+                    await main.proxy_request(main.ProxyRequest(
+                        service_id="hermes",
+                        url=url,
+                    ))
+                self.assertEqual(error.exception.status_code, 403)
+                self.assertIn("approved", error.exception.detail)
 
     async def test_hermes_routes_are_not_rate_limit_exempt(self):
         middleware = main.RateLimitMiddleware(lambda scope, receive, send: None, requests_per_window=1, window_seconds=60)

@@ -155,7 +155,7 @@
             const res = await fetch('/api/plugins/api-key', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ service_id: SERVICE_ID, api_key: apiKey })
+                body: JSON.stringify({ service_id: SERVICE_ID, api_key: apiKey, action: apiKey ? 'replace' : 'clear' })
             });
             return res.ok;
         } catch (e) {

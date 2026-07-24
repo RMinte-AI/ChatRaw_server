@@ -1,5 +1,5 @@
 {
-  "latest_schema_version": 7,
+  "latest_schema_version": 8,
   "migrations": [
     {
       "version": 1,
@@ -28,6 +28,10 @@
     {
       "version": 7,
       "name": "module_feature_visibility"
+    },
+    {
+      "version": 8,
+      "name": "frontend_integrations"
     }
   ],
   "new_tables": {
@@ -105,8 +109,9 @@
     ],
     "module_feature_suites": [
       "registration_id",
-      "companion_plugin_id",
-      "companion_plugin_version_range",
+      "integration_mode",
+      "integration_id",
+      "integration_version_range",
       "dependency_status",
       "checked_at"
     ],

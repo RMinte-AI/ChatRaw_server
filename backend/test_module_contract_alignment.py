@@ -5,7 +5,11 @@ from pathlib import Path
 
 from jsonschema import Draft202012Validator
 
-from backend.module_protocol import ModuleProtocolError, validate_manifest
+from backend.module_protocol import (
+    ModuleProtocolError,
+    permission_digest,
+    validate_manifest,
+)
 from backend.module_task_protocol import (
     ModuleTaskProtocolError,
     validate_task_event,
@@ -37,6 +41,70 @@ def _definition_validator(contract, definition):
 
 
 class ModuleContractAlignmentTests(unittest.TestCase):
+    def test_frontend_integration_legacy_plugin_normalizes_without_review_churn(
+        self,
+    ):
+        legacy = validate_manifest(copy.deepcopy(REFERENCE_MANIFEST))
+        canonical_input = copy.deepcopy(REFERENCE_MANIFEST)
+        plugin = canonical_input.pop("companion_plugin")
+        canonical_input["frontend_integration"] = {
+            "mode": "plugin",
+            **plugin,
+        }
+        canonical = validate_manifest(canonical_input)
+        self.assertNotIn("companion_plugin", legacy)
+        self.assertEqual(
+            legacy["frontend_integration"],
+            canonical["frontend_integration"],
+        )
+        self.assertEqual(
+            permission_digest(legacy),
+            permission_digest(canonical),
+        )
+
+    def test_manifest_accepts_exactly_one_plugin_or_resident_integration(self):
+        resident = json.loads(
+            (
+                ROOT
+                / "examples/reference-module/manifest.resident.example.json"
+            ).read_text(encoding="utf-8")
+        )
+        normalized = validate_manifest(resident)
+        self.assertEqual(
+            normalized["frontend_integration"],
+            {
+                "mode": "resident",
+                "id": "reference-module-workbench",
+                "version_range": ">=1.0.0,<2.0.0",
+            },
+        )
+
+        both = copy.deepcopy(REFERENCE_MANIFEST)
+        both["frontend_integration"] = copy.deepcopy(
+            resident["frontend_integration"]
+        )
+        neither = copy.deepcopy(REFERENCE_MANIFEST)
+        del neither["companion_plugin"]
+        for invalid in (both, neither):
+            with self.subTest(invalid=invalid):
+                with self.assertRaises(ModuleProtocolError):
+                    validate_manifest(invalid)
+
+    def test_manifest_rejects_invalid_resident_version_range(self):
+        resident = json.loads(
+            (
+                ROOT
+                / "examples/reference-module/manifest.resident.example.json"
+            ).read_text(encoding="utf-8")
+        )
+        resident["frontend_integration"]["version_range"] = "not a range"
+        with self.assertRaises(ModuleProtocolError) as rejected:
+            validate_manifest(resident)
+        self.assertEqual(
+            rejected.exception.code,
+            "invalid_frontend_integration_version_range",
+        )
+
     def test_contract_roots_reject_unrelated_values(self):
         for name in (
             "module-management-v1.schema.json",

@@ -174,6 +174,42 @@
             <i class="ri-add-line"></i>
         </button>
 
+        <!-- Stable sidebar mount for source-built Resident Integrations. -->
+        <div class="resident-sidebar-entries"
+             x-show="!sidebarCollapsed && residentEntries('sidebar').length > 0"
+             x-cloak>
+            <template x-for="entry in residentEntries('sidebar')"
+                      :key="entry.integration.id + ':' + entry.id">
+                <button class="resident-entry"
+                        type="button"
+                        :disabled="!entry.integration.feature?.available"
+                        :title="entry.integration.feature?.available
+                            ? residentText(entry.label)
+                            : (entry.integration.feature?.reason?.message || 'Unavailable')"
+                        @click="openResidentIntegration(entry.integration)">
+                    <i :class="entry.icon"></i>
+                    <span x-text="residentText(entry.label)"></span>
+                    <small x-show="!entry.integration.feature?.available">
+                        Unavailable
+                    </small>
+                </button>
+            </template>
+        </div>
+        <div class="resident-sidebar-collapsed"
+             x-show="sidebarCollapsed && residentEntries('sidebar').length > 0"
+             x-cloak>
+            <template x-for="entry in residentEntries('sidebar')"
+                      :key="entry.integration.id + ':' + entry.id">
+                <button class="btn-icon"
+                        type="button"
+                        :disabled="!entry.integration.feature?.available"
+                        :title="residentText(entry.label)"
+                        @click="openResidentIntegration(entry.integration)">
+                    <i :class="entry.icon"></i>
+                </button>
+            </template>
+        </div>
+
         <div class="chat-list" x-show="!sidebarCollapsed">
             <template x-for="chat in chats" :key="chat.id">
                 <div class="chat-item" :class="{ 'active': currentChatId === chat.id }" @click="selectChat(chat.id)">
@@ -525,6 +561,20 @@
                             <button class="btn-tool" @click="toggleUrlInput()" :title="t('parseUrl')" :class="{ 'active': parsedUrl }">
                                 <i class="ri-link"></i>
                             </button>
+
+                            <!-- Stable composer mount for Resident Integrations. -->
+                            <template x-for="entry in residentEntries('composer')"
+                                      :key="entry.integration.id + ':' + entry.id">
+                                <button class="btn-tool resident-composer-entry"
+                                        type="button"
+                                        :disabled="!entry.integration.feature?.available"
+                                        :title="entry.integration.feature?.available
+                                            ? residentText(entry.label)
+                                            : (entry.integration.feature?.reason?.message || 'Unavailable')"
+                                        @click="openResidentIntegration(entry.integration)">
+                                    <i :class="entry.icon"></i>
+                                </button>
+                            </template>
                             
                             <!-- Plugin Toolbar Buttons Extension Area -->
                             <div class="plugin-toolbar-area" x-show="pluginToolbarButtons.length > 0" x-cloak>
@@ -840,7 +890,7 @@
                     <div x-show="settingsTab === 'modules' && isAdmin()">
                         <div class="section-header">
                             <h2 class="section-title">Feature suites</h2>
-                            <p class="section-desc">Each product feature joins one backend module with one companion plugin. ChatRaw does not start processes or containers.</p>
+                            <p class="section-desc">Each product feature joins one backend module with either a companion plugin or a source-built Resident Integration. ChatRaw does not start processes or containers.</p>
                         </div>
 
                         <div class="model-card"
@@ -907,26 +957,31 @@
                                     <span class="model-badge" x-text="'Health: ' + module.health_status"></span>
                                     <span class="model-badge" x-text="'Ready: ' + module.ready_status"></span>
                                     <span class="model-badge" x-text="'Config: ' + module.config_status"></span>
-                                    <span class="model-badge" x-text="'Plugin: ' + module.feature_suite.status"></span>
+                                    <span class="model-badge" x-text="'Frontend: ' + module.frontend_integration.status"></span>
                                 </div>
 
                                 <div class="form-group">
-                                    <label class="form-label">Suite compatibility</label>
+                                    <label class="form-label">Frontend integration</label>
                                     <p class="section-desc">
                                         Module protocol <span x-text="module.protocol_version"></span>
                                         · module <span x-text="module.module_version"></span>
                                     </p>
                                     <p class="section-desc">
-                                        Plugin <span x-text="module.feature_suite.plugin_id"></span>
-                                        <span x-text="module.feature_suite.installed_version || 'not installed'"></span>
-                                        · requires <span x-text="module.feature_suite.required_version"></span>
+                                        <span x-text="module.frontend_integration.mode"></span>
+                                        <span x-text="module.frontend_integration.id"></span>
+                                        <span x-text="module.frontend_integration.installed_version || 'not present'"></span>
+                                        · requires <span x-text="module.frontend_integration.required_version"></span>
                                     </p>
                                     <p class="section-desc"
-                                       x-show="module.feature_suite.trust"
-                                       x-text="module.feature_suite.trust?.label"></p>
+                                       x-show="module.frontend_integration.mode === 'resident'">
+                                        Resident Integrations ship with the Server build and cannot be installed or removed from the Plugin Market.
+                                    </p>
                                     <p class="section-desc"
-                                       x-show="module.feature_suite.trust?.sha256"
-                                       x-text="'SHA-256 ' + module.feature_suite.trust?.sha256"></p>
+                                       x-show="module.frontend_integration.trust"
+                                       x-text="module.frontend_integration.trust?.label"></p>
+                                    <p class="section-desc"
+                                       x-show="module.frontend_integration.trust?.sha256"
+                                       x-text="'SHA-256 ' + module.frontend_integration.trust?.sha256"></p>
                                 </div>
 
                                 <div class="form-group">
@@ -980,7 +1035,7 @@
                                 </div>
 
                                 <p class="section-desc" x-show="!module.reviewed">Review is required before this module can be enabled.</p>
-                                <p class="section-desc" x-show="module.reviewed && !module.can_enable">Approved, but health, configuration, Ready, or companion plugin requirements are incomplete.</p>
+                                <p class="section-desc" x-show="module.reviewed && !module.can_enable">Approved, but health, configuration, Ready, or frontend integration requirements are incomplete.</p>
 
                                 <div class="plugin-actions">
                                     <button class="btn-primary btn-compact"
@@ -1380,6 +1435,35 @@
                 <button class="btn-primary" @click="savePluginSettings()" x-text="t('save')"></button>
             </div>
         </div>
+    </div>
+
+    <!-- Core-owned workspace mount for source-built Resident Integrations. -->
+    <div class="modal-overlay resident-workspace-modal"
+         x-show="residentWorkspace.show"
+         x-cloak
+         x-transition
+         @click.self="closeResidentWorkspace()"
+         @keydown.escape.window="residentWorkspace.show && closeResidentWorkspace()">
+        <section class="resident-workspace-panel"
+                 role="dialog"
+                 aria-modal="true"
+                 aria-labelledby="resident-workspace-title">
+            <header class="resident-workspace-header">
+                <h2 id="resident-workspace-title"
+                    x-text="residentWorkspace.title"></h2>
+                <button class="btn-icon"
+                        type="button"
+                        aria-label="Close Resident Integration"
+                        @click="closeResidentWorkspace()">
+                    <i class="ri-close-line"></i>
+                </button>
+            </header>
+            <div class="module-task-error"
+                 x-show="residentWorkspace.error"
+                 x-text="residentWorkspace.error"></div>
+            <div id="resident-workspace-mount"
+                 class="resident-workspace-mount"></div>
+        </section>
     </div>
 
     <!-- Core module task center. Modules never supply or inject this markup. -->

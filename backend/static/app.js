@@ -420,7 +420,7 @@ const ROUTE_MESSAGE_RESULT_KEYS = new Set(['success', 'route']);
 const RESERVED_SLASH_COMMANDS = new Set(['plugins', 'settings', 'help', 'clear', 'compact', 'api']);
 const COMMON_PATH_ROOTS = new Set(['tmp', 'var', 'usr', 'etc', 'home', 'users', 'opt', 'private', 'volumes', 'mnt']);
 const SKILL_NAME_PATTERN = /^[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?$/;
-const MODULE_SDK_VERSION = '1.0.0';
+const MODULE_SDK_VERSION = '1.1.0';
 const MODULE_TASK_STORAGE_KEY = 'chatraw_module_tasks_v1';
 const MODULE_TERMINAL_STATES = new Set(['succeeded', 'failed', 'cancelled']);
 
@@ -468,6 +468,18 @@ function app() {
         moduleTasks: {},
         moduleTaskOrder: [],
         moduleTaskSubscriptions: {},
+        residentIntegrations: [],
+        residentBuiltIntegrationIds: [],
+        residentIntegrationDefinitions: {},
+        residentRegistrationOpen: false,
+        residentWorkspace: {
+            show: false,
+            integrationId: null,
+            title: '',
+            error: null,
+            cleanup: null
+        },
+        _residentFocusHandler: null,
         showSystemPrompt: false,
         currentChatId: null,
         inputMessage: '',
@@ -639,6 +651,7 @@ function app() {
             // Note: favicon is updated by loadLogo() which is called from loadSettings()
             // Initialize plugin system
             this.initPluginSystem();
+            await this.initResidentIntegrations();
             await this.resumeModuleTasks();
         },
 
@@ -936,6 +949,216 @@ function app() {
             if (firstActive) this.selectModuleTask(firstActive);
         },
 
+        residentText(value) {
+            if (!value || typeof value !== 'object') return '';
+            return value[this.lang] || value.en || value.zh || '';
+        },
+
+        residentEntries(placement) {
+            return this.residentIntegrations
+                .flatMap(integration => (
+                    (integration.entrypoints || [])
+                        .filter(entrypoint => entrypoint.placement === placement)
+                        .map(entrypoint => ({
+                            ...entrypoint,
+                            integration
+                        }))
+                ))
+                .sort((left, right) => (
+                    (left.order ?? 100) - (right.order ?? 100)
+                ));
+        },
+
+        async refreshResidentIntegrationStatuses() {
+            if (!window.ChatRaw?.modules) return;
+            for (const integration of this.residentIntegrations) {
+                try {
+                    integration.feature = await window.ChatRaw.modules
+                        .getFeatureStatus(integration.module_id);
+                } catch (error) {
+                    integration.feature = {
+                        visible: true,
+                        available: false,
+                        state: 'unavailable',
+                        reason: {
+                            code: error?.code || 'module_not_found',
+                            message: 'This feature is currently unavailable.'
+                        }
+                    };
+                }
+            }
+        },
+
+        registerResidentIntegration(definition) {
+            if (
+                !this.residentRegistrationOpen
+                || !definition
+                || typeof definition.id !== 'string'
+                || typeof definition.mount !== 'function'
+                || Object.keys(definition).some(
+                    key => !['id', 'mount'].includes(key)
+                )
+                || !this.residentBuiltIntegrationIds.includes(definition.id)
+                || this.residentIntegrationDefinitions[definition.id]
+            ) {
+                throw new Error('Resident Integration registration rejected');
+            }
+            this.residentIntegrationDefinitions[definition.id] = Object.freeze({
+                id: definition.id,
+                mount: definition.mount
+            });
+        },
+
+        async initResidentIntegrations() {
+            const response = await fetch('/api/resident-integrations', {
+                credentials: 'same-origin'
+            });
+            if (!response.ok) {
+                throw new Error('Resident Integration catalog unavailable');
+            }
+            const payload = await response.json();
+            if (
+                typeof payload.bundle_version !== 'string'
+                || !/^[0-9a-f]{64}$/.test(payload.bundle_version)
+                || !Array.isArray(payload.built_integration_ids)
+                || payload.built_integration_ids.some(
+                    integrationId => (
+                        typeof integrationId !== 'string'
+                        || !integrationId
+                    )
+                )
+                || new Set(payload.built_integration_ids).size
+                    !== payload.built_integration_ids.length
+            ) {
+                throw new Error('Resident Integration catalog unavailable');
+            }
+            this.residentBuiltIntegrationIds = [
+                ...payload.built_integration_ids
+            ];
+            this.residentIntegrations = Array.isArray(payload.integrations)
+                ? payload.integrations.map(integration => ({
+                    ...integration,
+                    feature: {
+                        visible: true,
+                        available: false,
+                        state: 'unavailable',
+                        reason: {
+                            code: 'module_not_found',
+                            message: 'This feature is currently unavailable.'
+                        }
+                    }
+                }))
+                : [];
+            if (!this.residentIntegrations.length) return;
+
+            const appInstance = this;
+            window.ChatRawResident = Object.freeze({
+                register(definition) {
+                    appInstance.registerResidentIntegration(definition);
+                }
+            });
+            this.residentRegistrationOpen = true;
+            try {
+                await this.loadCSS(
+                    '/resident-integrations/resident-integrations.min.css?v='
+                    + encodeURIComponent(payload.bundle_version)
+                );
+                await this.loadScript(
+                    '/resident-integrations/resident-integrations.min.js?v='
+                    + encodeURIComponent(payload.bundle_version)
+                );
+            } finally {
+                this.residentRegistrationOpen = false;
+            }
+            for (const integrationId of this.residentBuiltIntegrationIds) {
+                if (!this.residentIntegrationDefinitions[integrationId]) {
+                    throw new Error(
+                        `Resident Integration ${integrationId} did not register`
+                    );
+                }
+            }
+            await this.refreshResidentIntegrationStatuses();
+            this._residentFocusHandler = () => {
+                this.refreshResidentIntegrationStatuses().catch(error => {
+                    console.warn('[Resident Integration refresh]', error);
+                });
+            };
+            window.addEventListener('focus', this._residentFocusHandler);
+        },
+
+        async openResidentIntegration(integration) {
+            await this.refreshResidentIntegrationStatuses();
+            const current = this.residentIntegrations.find(
+                item => item.id === integration.id
+            );
+            if (!current?.feature?.available) {
+                this.showToast(
+                    current?.feature?.reason?.message
+                        || 'This feature is currently unavailable.',
+                    'error'
+                );
+                return;
+            }
+            this.closeResidentWorkspace();
+            this.residentWorkspace = {
+                show: true,
+                integrationId: current.id,
+                title: this.residentText(current.name),
+                error: null,
+                cleanup: null
+            };
+            await new Promise(resolve => requestAnimationFrame(resolve));
+            const container = document.getElementById(
+                'resident-workspace-mount'
+            );
+            const definition = this.residentIntegrationDefinitions[current.id];
+            if (!container || !definition) {
+                this.residentWorkspace.error = (
+                    'Resident Integration failed to mount'
+                );
+                return;
+            }
+            try {
+                const cleanup = await definition.mount({
+                    container,
+                    moduleId: current.module_id,
+                    modules: window.ChatRaw.modules,
+                    t: value => this.residentText(value),
+                    showToast: (message, type = '') => (
+                        this.showToast(message, type)
+                    ),
+                    getCurrentChatId: () => this.currentChatId
+                });
+                if (typeof cleanup === 'function') {
+                    this.residentWorkspace.cleanup = cleanup;
+                }
+            } catch (error) {
+                container.replaceChildren();
+                this.residentWorkspace.error = (
+                    error?.message || 'Resident Integration failed to mount'
+                );
+            }
+        },
+
+        closeResidentWorkspace() {
+            try {
+                this.residentWorkspace.cleanup?.();
+            } catch (error) {
+                console.warn('[Resident Integration cleanup]', error);
+            }
+            const container = document.getElementById(
+                'resident-workspace-mount'
+            );
+            container?.replaceChildren();
+            this.residentWorkspace = {
+                show: false,
+                integrationId: null,
+                title: '',
+                error: null,
+                cleanup: null
+            };
+        },
+
         async loadModules() {
             if (!this.isAdmin()) return;
             try {
@@ -961,6 +1184,7 @@ function app() {
                 });
                 this.modulePairForm = { base_url: '', pairing_code: '' };
                 await this.loadModules();
+                await this.refreshResidentIntegrationStatuses();
                 this.showToast('Module paired for review', 'success');
             } catch (error) {
                 this.showToast(error.message, 'error');
@@ -983,6 +1207,7 @@ function app() {
                     })
                 });
                 await this.loadModules();
+                await this.refreshResidentIntegrationStatuses();
                 this.showToast('Module manifest approved', 'success');
             } catch (error) {
                 this.showToast(error.message, 'error');
@@ -999,6 +1224,7 @@ function app() {
                     method: 'POST'
                 });
                 await this.loadModules();
+                await this.refreshResidentIntegrationStatuses();
                 this.showToast(`Module ${action} completed`, 'success');
             } catch (error) {
                 this.showToast(error.message, 'error');
@@ -1061,6 +1287,7 @@ function app() {
                 });
                 this.moduleConfig = null;
                 await this.loadModules();
+                await this.refreshResidentIntegrationStatuses();
                 this.showToast(`Configuration saved at revision ${config.revision}`, 'success');
             } catch (error) {
                 this.showToast(error.message, 'error');
@@ -1081,6 +1308,7 @@ function app() {
                     body: JSON.stringify({ confirmation })
                 });
                 await this.loadModules();
+                await this.refreshResidentIntegrationStatuses();
                 this.showToast('Module disconnected; module data was preserved', 'success');
             } catch (error) {
                 this.showToast(error.message, 'error');
@@ -3578,7 +3806,7 @@ function app() {
                 getFeatureStatus: moduleId => moduleRequest(
                     `/api/module-features/${encodeURIComponent(moduleId)}`
                 ),
-                startTask: async request => {
+                startTask: async (request, options = {}) => {
                     if (
                         !request
                         || typeof request.module_id !== 'string'
@@ -3593,6 +3821,26 @@ function app() {
                             0
                         );
                     }
+                    if (
+                        !options
+                        || typeof options !== 'object'
+                        || Array.isArray(options)
+                        || Object.keys(options).some(
+                            key => key !== 'presentation'
+                        )
+                        || !['task_center', 'embedded'].includes(
+                            options.presentation || 'task_center'
+                        )
+                    ) {
+                        throw new ModuleSdkError(
+                            'presentation must be task_center or embedded',
+                            'invalid_sdk_argument',
+                            0
+                        );
+                    }
+                    const presentation = (
+                        options.presentation || 'task_center'
+                    );
                     const payload = {
                         module_id: request.module_id,
                         action_id: request.action_id,
@@ -3616,9 +3864,74 @@ function app() {
                         body: JSON.stringify(payload)
                     });
                     appInstance.rememberModuleTask(task.task_id);
-                    appInstance.showModuleTask(task);
-                    subscribe(task.task_id);
+                    appInstance.upsertModuleTask(task, {
+                        select: presentation === 'task_center'
+                    });
+                    if (presentation === 'task_center') {
+                        subscribe(task.task_id);
+                    }
                     return task;
+                },
+                listTasks: async (filters = {}) => {
+                    if (
+                        !filters
+                        || typeof filters !== 'object'
+                        || Array.isArray(filters)
+                        || Object.keys(filters).some(
+                            key => ![
+                                'module_id',
+                                'action_id',
+                                'state',
+                                'chat_id',
+                                'limit'
+                            ].includes(key)
+                        )
+                    ) {
+                        throw new ModuleSdkError(
+                            'Task filters are invalid',
+                            'invalid_sdk_argument',
+                            0
+                        );
+                    }
+                    const query = new URLSearchParams();
+                    for (const key of [
+                        'module_id',
+                        'action_id',
+                        'state',
+                        'chat_id'
+                    ]) {
+                        if (filters[key] === undefined) continue;
+                        if (
+                            typeof filters[key] !== 'string'
+                            || !filters[key]
+                        ) {
+                            throw new ModuleSdkError(
+                                'Task filters are invalid',
+                                'invalid_sdk_argument',
+                                0
+                            );
+                        }
+                        query.set(key, filters[key]);
+                    }
+                    if (filters.limit !== undefined) {
+                        if (
+                            !Number.isInteger(filters.limit)
+                            || filters.limit < 1
+                            || filters.limit > 100
+                        ) {
+                            throw new ModuleSdkError(
+                                'Task limit is invalid',
+                                'invalid_sdk_argument',
+                                0
+                            );
+                        }
+                        query.set('limit', String(filters.limit));
+                    }
+                    const suffix = query.size ? `?${query}` : '';
+                    const result = await moduleRequest(
+                        `/api/module-tasks${suffix}`
+                    );
+                    return result.tasks;
                 },
                 getTask: taskId => moduleRequest(taskPath(taskId)),
                 subscribe,

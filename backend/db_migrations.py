@@ -4,7 +4,7 @@ import struct
 from datetime import datetime, timezone
 
 
-LATEST_SCHEMA_VERSION = 7
+LATEST_SCHEMA_VERSION = 8
 
 
 class UnsupportedSchemaVersion(RuntimeError):
@@ -537,6 +537,53 @@ def _migration_7_module_feature_visibility(
     )
 
 
+def _migration_8_frontend_integrations(
+    connection: sqlite3.Connection,
+) -> None:
+    connection.execute(
+        "ALTER TABLE module_feature_suites "
+        "RENAME TO module_feature_suites_plugin_legacy"
+    )
+    connection.execute(
+        """
+        CREATE TABLE module_feature_suites (
+            registration_id TEXT PRIMARY KEY,
+            integration_mode TEXT NOT NULL
+                CHECK (integration_mode IN ('plugin', 'resident')),
+            integration_id TEXT NOT NULL,
+            integration_version_range TEXT NOT NULL,
+            dependency_status TEXT NOT NULL
+                CHECK (
+                    dependency_status IN (
+                        'unknown',
+                        'plugin_missing',
+                        'plugin_disabled',
+                        'plugin_incompatible',
+                        'resident_missing',
+                        'resident_incompatible',
+                        'ready'
+                    )
+                ),
+            checked_at TEXT,
+            FOREIGN KEY (registration_id)
+                REFERENCES module_registrations(id) ON DELETE CASCADE
+        )
+        """
+    )
+    connection.execute(
+        """
+        INSERT INTO module_feature_suites (
+            registration_id, integration_mode, integration_id,
+            integration_version_range, dependency_status, checked_at
+        )
+        SELECT registration_id, 'plugin', companion_plugin_id,
+               companion_plugin_version_range, dependency_status, checked_at
+        FROM module_feature_suites_plugin_legacy
+        """
+    )
+    connection.execute("DROP TABLE module_feature_suites_plugin_legacy")
+
+
 MIGRATIONS = (
     (1, "server_shared_data", _migration_1_server_shared_data),
     (2, "auth_and_audit", _migration_2_auth_and_audit),
@@ -552,6 +599,11 @@ MIGRATIONS = (
         7,
         "module_feature_visibility",
         _migration_7_module_feature_visibility,
+    ),
+    (
+        8,
+        "frontend_integrations",
+        _migration_8_frontend_integrations,
     ),
 )
 

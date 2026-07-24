@@ -361,14 +361,23 @@ def validate_manifest(
         )
     validate_json_schema(manifest["config_schema"], label="Configuration schema")
     validate_config_schema(manifest["config_schema"])
+    normalized = deepcopy(manifest)
+    companion = normalized.pop("companion_plugin", None)
+    if companion is not None:
+        normalized["frontend_integration"] = {
+            "mode": "plugin",
+            "id": companion["id"],
+            "version_range": companion["version_range"],
+        }
+    integration = normalized["frontend_integration"]
     try:
-        SpecifierSet(manifest["companion_plugin"]["version_range"])
+        SpecifierSet(integration["version_range"])
     except InvalidSpecifier as error:
         raise ModuleProtocolError(
-            "invalid_plugin_version_range",
-            "Companion plugin version range is invalid",
+            "invalid_frontend_integration_version_range",
+            "Frontend integration version range is invalid",
         ) from error
-    return deepcopy(manifest)
+    return normalized
 
 
 def protocol_is_compatible(protocol_version: str) -> bool:
@@ -412,6 +421,17 @@ def permission_projection(manifest: dict[str, Any]) -> dict[str, Any]:
             }
         )
     actions.sort(key=lambda item: item["action_id"])
+    integration = manifest["frontend_integration"]
+    frontend_permission = (
+        {
+            "companion_plugin": {
+                "id": integration["id"],
+                "version_range": integration["version_range"],
+            }
+        }
+        if integration["mode"] == "plugin"
+        else {"frontend_integration": integration}
+    )
     return {
         "permission_digest_version": 2,
         "module_major": module_major(manifest["module_version"]),
@@ -420,7 +440,7 @@ def permission_projection(manifest: dict[str, Any]) -> dict[str, Any]:
             manifest["requested_host_capabilities"]
         ),
         "actions": actions,
-        "companion_plugin": manifest["companion_plugin"],
+        **frontend_permission,
         "supports_data_purge": manifest["administration"][
             "supports_data_purge"
         ],
@@ -431,11 +451,14 @@ def permission_digest(manifest: dict[str, Any]) -> str:
     return digest_json(permission_projection(manifest))
 
 
-def companion_version_matches(version: str, version_range: str) -> bool:
+def integration_version_matches(version: str, version_range: str) -> bool:
     try:
         return Version(version) in SpecifierSet(version_range)
     except (InvalidVersion, InvalidSpecifier):
         return False
+
+
+companion_version_matches = integration_version_matches
 
 
 def _config_properties(

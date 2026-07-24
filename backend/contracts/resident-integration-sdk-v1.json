@@ -1,0 +1,102 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://chatraw.local/contracts/resident-integration-sdk-v1.json",
+  "contract": "ChatRaw Resident Integration Host SDK",
+  "version": "1.0.0",
+  "global": "window.ChatRawResident",
+  "availability": "registration-only while the Server-owned Resident bundle is loading",
+  "runtime_installation": false,
+  "transport": {
+    "module_direct_access": false,
+    "allowed_module_api": "window.ChatRaw.modules",
+    "authentication": "ChatRaw same-origin session"
+  },
+  "methods": {
+    "register": {
+      "arguments": [
+        {
+          "name": "definition",
+          "type": "ResidentDefinition",
+          "required": true
+        }
+      ],
+      "returns": "void",
+      "side_effect": "Registers exactly one source-built integration whose id exists in the generated catalog"
+    }
+  },
+  "$defs": {
+    "ResidentDefinition": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "mount"
+      ],
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "mount": {
+          "x-javascript-type": "function"
+        }
+      }
+    },
+    "MountContext": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "container",
+        "moduleId",
+        "modules",
+        "t",
+        "showToast",
+        "getCurrentChatId"
+      ],
+      "properties": {
+        "container": {
+          "x-javascript-type": "HTMLElement"
+        },
+        "moduleId": {
+          "type": "string"
+        },
+        "modules": {
+          "const": "window.ChatRaw.modules"
+        },
+        "t": {
+          "x-javascript-type": "function"
+        },
+        "showToast": {
+          "x-javascript-type": "function"
+        },
+        "getCurrentChatId": {
+          "x-javascript-type": "function"
+        }
+      }
+    }
+  },
+  "mount_contract": {
+    "supported_placements": [
+      "sidebar",
+      "composer"
+    ],
+    "workspace_owner": "ChatRaw core",
+    "mount_return": "cleanup function | absent",
+    "unavailable_behavior": "entry remains visible and disabled for eligible users",
+    "role_ineligible_behavior": "entry is omitted"
+  },
+  "security": {
+    "forbidden": [
+      "runtime JavaScript supplied by a module process",
+      "direct calls from Resident code to a module address",
+      "reading module credentials",
+      "patching app.js, index.html, or Alpine internal state from an integration package",
+      "injecting HTML received from a module"
+    ],
+    "required": [
+      "source review before Server build",
+      "catalog registration through window.ChatRawResident.register",
+      "module calls through window.ChatRaw.modules",
+      "cleanup of integration-owned listeners and timers"
+    ]
+  }
+}

@@ -2,7 +2,7 @@
   "scripts": {
     "build:frontend": "node scripts/build-frontend.mjs --write",
     "check:frontend": "node scripts/build-frontend.mjs --check",
-    "test:frontend": "node --test frontend-tests/*.test.mjs",
+    "test:frontend": "node --test frontend-tests/*.test.mjs ResidentIntegrations/*/tests/*.test.mjs",
     "build:markmap": "node Plugins/Plugin_market/mindmap-renderer/build-markmap.js"
   },
   "devDependencies": {

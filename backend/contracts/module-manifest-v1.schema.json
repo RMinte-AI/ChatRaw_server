@@ -14,8 +14,29 @@
     "actions",
     "config_schema",
     "requested_host_capabilities",
-    "companion_plugin",
     "administration"
+  ],
+  "oneOf": [
+    {
+      "required": [
+        "companion_plugin"
+      ],
+      "not": {
+        "required": [
+          "frontend_integration"
+        ]
+      }
+    },
+    {
+      "required": [
+        "frontend_integration"
+      ],
+      "not": {
+        "required": [
+          "companion_plugin"
+        ]
+      }
+    }
   ],
   "properties": {
     "schema_version": {
@@ -71,6 +92,33 @@
         "version_range"
       ],
       "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+          "maxLength": 64
+        },
+        "version_range": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 120
+        }
+      }
+    },
+    "frontend_integration": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "mode",
+        "id",
+        "version_range"
+      ],
+      "properties": {
+        "mode": {
+          "enum": [
+            "plugin",
+            "resident"
+          ]
+        },
         "id": {
           "type": "string",
           "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",

@@ -31,7 +31,19 @@ DATA_DIR = Path(
     )
 ).resolve()
 STATE_FILE = DATA_DIR / "state.json"
-MANIFEST_FILE = ROOT / "manifest.example.json"
+FRONTEND_MODE = os.environ.get(
+    "REFERENCE_MODULE_FRONTEND_MODE",
+    "plugin",
+).strip()
+MANIFEST_FILES = {
+    "plugin": ROOT / "manifest.example.json",
+    "resident": ROOT / "manifest.resident.example.json",
+}
+if FRONTEND_MODE not in MANIFEST_FILES:
+    raise RuntimeError(
+        "REFERENCE_MODULE_FRONTEND_MODE must be plugin or resident"
+    )
+MANIFEST_FILE = MANIFEST_FILES[FRONTEND_MODE]
 PAIRING_TTL_SECONDS = int(
     os.environ.get("REFERENCE_MODULE_PAIRING_TTL_SECONDS", "600")
 )

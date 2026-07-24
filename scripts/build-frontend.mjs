@@ -1,5 +1,6 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
+import { createHash } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 
 import cssnano from 'cssnano';
@@ -22,6 +23,11 @@ const securitySourcePath = 'backend/static/content-security.js';
 const securityOutputPath = 'backend/static/content-security.min.js';
 const cssSourcePath = 'backend/static/styles.css';
 const cssOutputPath = 'backend/static/styles.min.css';
+const residentSourceRoot = 'ResidentIntegrations';
+const residentOutputRoot = 'backend/static/resident-integrations';
+const residentCatalogOutputPath = `${residentOutputRoot}/catalog.json`;
+const residentJsOutputPath = `${residentOutputRoot}/resident-integrations.min.js`;
+const residentCssOutputPath = `${residentOutputRoot}/resident-integrations.min.css`;
 const vendorOutputs = [
     ['node_modules/marked/marked.min.js', 'backend/static/vendor/marked.min.js'],
     ['node_modules/dompurify/dist/purify.min.js', 'backend/static/vendor/purify.min.js'],
@@ -35,6 +41,99 @@ const vendorOutputs = [
     ['node_modules/@highlightjs/cdn-assets/languages/json.min.js', 'backend/static/vendor/highlight/languages/json.min.js'],
     ['node_modules/papaparse/papaparse.min.js', 'Plugins/Plugin_market/csv-parser/lib/papaparse.min.js']
 ];
+
+async function loadResidentIntegrations() {
+    const entries = await fs.readdir(residentSourceRoot, {
+        withFileTypes: true
+    });
+    const directories = entries
+        .filter(entry => entry.isDirectory())
+        .map(entry => entry.name)
+        .sort();
+    const integrations = [];
+    const ids = new Set();
+    const javascript = [];
+    const styles = [];
+    for (const directory of directories) {
+        const root = path.join(residentSourceRoot, directory);
+        const descriptorPath = path.join(root, 'integration.json');
+        const descriptor = JSON.parse(
+            await fs.readFile(descriptorPath, 'utf8')
+        );
+        if (
+            descriptor.schema_version !== '1'
+            || typeof descriptor.id !== 'string'
+            || descriptor.id !== directory
+            || ids.has(descriptor.id)
+            || typeof descriptor.main !== 'string'
+            || typeof descriptor.styles !== 'string'
+            || !Array.isArray(descriptor.entrypoints)
+            || !Array.isArray(descriptor.required_actions)
+        ) {
+            throw new Error(
+                `invalid resident integration descriptor: ${descriptorPath}`
+            );
+        }
+        ids.add(descriptor.id);
+        const entrypointIds = new Set();
+        for (const entrypoint of descriptor.entrypoints) {
+            if (
+                !entrypoint
+                || typeof entrypoint.id !== 'string'
+                || entrypointIds.has(entrypoint.id)
+            ) {
+                throw new Error(
+                    `duplicate resident entrypoint in ${descriptorPath}`
+                );
+            }
+            entrypointIds.add(entrypoint.id);
+        }
+        for (const sourceFile of [descriptor.main, descriptor.styles]) {
+            if (
+                path.basename(sourceFile) !== sourceFile
+                || sourceFile.includes('\\')
+            ) {
+                throw new Error(
+                    `resident source must be a root filename: ${descriptorPath}`
+                );
+            }
+        }
+        const mainSource = await fs.readFile(
+            path.join(root, descriptor.main),
+            'utf8'
+        );
+        const styleSource = await fs.readFile(
+            path.join(root, descriptor.styles),
+            'utf8'
+        );
+        integrations.push(descriptor);
+        javascript.push(
+            `/* Resident Integration: ${descriptor.id} */\n${mainSource}`
+        );
+        styles.push(
+            `/* Resident Integration: ${descriptor.id} */\n${styleSource}`
+        );
+    }
+    const javascriptSource = javascript.join('\n');
+    const styleSource = styles.join('\n');
+    const bundleVersion = createHash('sha256')
+        .update(JSON.stringify(integrations))
+        .update('\0')
+        .update(javascriptSource)
+        .update('\0')
+        .update(styleSource)
+        .digest('hex');
+    return {
+        catalog: `${JSON.stringify({
+            schema_version: '1',
+            bundle_version: bundleVersion,
+            integrations
+        }, null, 2)}\n`,
+        bundleVersion,
+        javascript: javascriptSource,
+        styles: styleSource
+    };
+}
 
 const jsSource = await fs.readFile(jsSourcePath, 'utf8');
 const jsResult = await minify(jsSource, {
@@ -59,11 +158,30 @@ const cssResult = await postcss([cssnano]).process(cssSource, {
     to: cssOutputPath,
     map: { inline: true }
 });
+const residentSources = await loadResidentIntegrations();
+const residentJsResult = await minify(residentSources.javascript, {
+    compress: true,
+    mangle: true
+});
+if (!residentJsResult.code) {
+    throw new Error('Terser returned an empty Resident Integration build');
+}
+const residentCssResult = await postcss([cssnano]).process(
+    residentSources.styles,
+    {
+        from: residentSourceRoot,
+        to: residentCssOutputPath,
+        map: { inline: true }
+    }
+);
 
 const outputs = [
     [jsOutputPath, jsResult.code],
     [securityOutputPath, securityResult.code],
-    [cssOutputPath, cssResult.css]
+    [cssOutputPath, cssResult.css],
+    [residentCatalogOutputPath, residentSources.catalog],
+    [residentJsOutputPath, residentJsResult.code],
+    [residentCssOutputPath, residentCssResult.css]
 ];
 for (const [sourcePath, outputPath] of vendorOutputs) {
     outputs.push([outputPath, await fs.readFile(sourcePath, 'utf8')]);

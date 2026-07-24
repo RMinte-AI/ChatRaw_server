@@ -28,7 +28,7 @@ try:
         MAX_MANIFEST_BYTES,
         ModuleProtocolError,
         canonical_json,
-        companion_version_matches,
+        integration_version_matches,
         digest_json,
         permission_digest,
         protocol_is_compatible,
@@ -43,7 +43,7 @@ except ImportError:
         MAX_MANIFEST_BYTES,
         ModuleProtocolError,
         canonical_json,
-        companion_version_matches,
+        integration_version_matches,
         digest_json,
         permission_digest,
         protocol_is_compatible,
@@ -632,6 +632,9 @@ class ModuleRegistry:
         client: ModuleHttpClient,
         plugin_lookup: Callable[[str], dict[str, Any] | None],
         audit: Callable[..., None],
+        resident_integration_lookup: (
+            Callable[[str], dict[str, Any] | None] | None
+        ) = None,
         capability_base_url: str = "http://127.0.0.1:51111",
     ):
         self.db_path = db_path
@@ -639,6 +642,9 @@ class ModuleRegistry:
         self.busy_timeout_ms = busy_timeout_ms
         self.client = client
         self.plugin_lookup = plugin_lookup
+        self.resident_integration_lookup = (
+            resident_integration_lookup or (lambda _integration_id: None)
+        )
         self.audit = audit
         try:
             self.capability_base_url = (
@@ -658,6 +664,10 @@ class ModuleRegistry:
             write=write,
             immediate=immediate,
         )
+
+    @staticmethod
+    def _manifest_from_row(row: Any) -> dict[str, Any]:
+        return validate_manifest(json.loads(row["manifest_json"]))
 
     def _credential_path(self, registration_id: str) -> Path:
         try:
@@ -790,35 +800,85 @@ class ModuleRegistry:
         self,
         manifest: dict[str, Any],
     ) -> dict[str, Any]:
-        companion = manifest["companion_plugin"]
-        plugin = self.plugin_lookup(companion["id"])
-        if plugin is None:
-            status = "plugin_missing"
-            version = None
-            enabled = False
-        else:
-            version = plugin.get("version")
-            enabled = bool(plugin.get("enabled"))
-            if not enabled:
-                status = "plugin_disabled"
-            elif not isinstance(version, str) or not companion_version_matches(
-                version,
-                companion["version_range"],
-            ):
-                status = "plugin_incompatible"
+        integration = manifest["frontend_integration"]
+        mode = integration["mode"]
+        if mode == "plugin":
+            installed = self.plugin_lookup(integration["id"])
+            if installed is None:
+                status = "plugin_missing"
+                version = None
+                enabled = False
             else:
-                status = "ready"
+                version = installed.get("version")
+                enabled = bool(installed.get("enabled"))
+                if not enabled:
+                    status = "plugin_disabled"
+                elif (
+                    not isinstance(version, str)
+                    or not integration_version_matches(
+                        version,
+                        integration["version_range"],
+                    )
+                ):
+                    status = "plugin_incompatible"
+                else:
+                    status = "ready"
+            trust = (
+                installed.get("trust")
+                if installed is not None
+                else None
+            )
+        else:
+            installed = self.resident_integration_lookup(integration["id"])
+            enabled = installed is not None
+            trust = {"kind": "server_source", "label": "Built into Server"}
+            if installed is None:
+                status = "resident_missing"
+                version = None
+            else:
+                version = installed.get("version")
+                actions = {
+                    action["action_id"]: action
+                    for action in manifest["actions"]
+                }
+                role_rank = {"member": 0, "admin": 1}
+                required_actions_compatible = True
+                for required in installed.get("required_actions", []):
+                    action = actions.get(required["action_id"])
+                    if (
+                        action is None
+                        or not integration_version_matches(
+                            action["action_version"],
+                            required["version_range"],
+                        )
+                        or role_rank[installed["minimum_role"]]
+                        < role_rank[action["minimum_role"]]
+                    ):
+                        required_actions_compatible = False
+                        break
+                if (
+                    installed.get("module_id") != manifest["module_id"]
+                    or not isinstance(version, str)
+                    or not integration_version_matches(
+                        version,
+                        integration["version_range"],
+                    )
+                    or not required_actions_compatible
+                ):
+                    status = "resident_incompatible"
+                else:
+                    status = "ready"
         return {
-            "plugin_id": companion["id"],
-            "required_version": companion["version_range"],
+            "mode": mode,
+            "id": integration["id"],
+            "plugin_id": (
+                integration["id"] if mode == "plugin" else None
+            ),
+            "required_version": integration["version_range"],
             "installed_version": version,
             "enabled": enabled,
             "status": status,
-            "trust": (
-                plugin.get("trust")
-                if plugin is not None
-                else None
-            ),
+            "trust": trust,
         }
 
     def _update_feature_status(
@@ -840,7 +900,7 @@ class ModuleRegistry:
         return feature
 
     def _serialize(self, row: Any, *, detail: bool = False) -> dict[str, Any]:
-        manifest = json.loads(row["manifest_json"])
+        manifest = self._manifest_from_row(row)
         feature = self._feature_status(manifest)
         reviewed = (
             row["reviewed_manifest_digest"] == row["manifest_digest"]
@@ -906,6 +966,7 @@ class ModuleRegistry:
             "capability_reviews": capability_reviews,
             "granted_host_capabilities": self._grants(row["id"]),
             "actions": actions,
+            "frontend_integration": feature,
             "feature_suite": feature,
             "supports_data_purge": manifest["administration"][
                 "supports_data_purge"
@@ -952,7 +1013,7 @@ class ModuleRegistry:
         if feature["status"] != "ready":
             return {
                 "code": feature["status"],
-                "message": "The companion plugin requirement is incomplete.",
+                "message": "The frontend integration requirement is incomplete.",
             }
         return None
 
@@ -973,7 +1034,12 @@ class ModuleRegistry:
             summary["lifecycle_state"] == "enabled"
             and summary["can_enable"]
         )
-        visible = available or summary["enabled_once"]
+        integration = summary["frontend_integration"]
+        visible = (
+            integration["mode"] == "resident"
+            or available
+            or summary["enabled_once"]
+        )
         if available:
             state = "available"
             reason = None
@@ -986,8 +1052,12 @@ class ModuleRegistry:
         else:
             state = "hidden"
             reason = None
+        public_integration = {
+            key: integration[key]
+            for key in ("mode", "id", "required_version", "status")
+        }
         return {
-            "sdk_version": "1.0.0",
+            "sdk_version": "1.1.0",
             "module_id": summary["module_id"],
             "name": summary["name"],
             "module_version": summary["module_version"],
@@ -996,9 +1066,12 @@ class ModuleRegistry:
             "available": available,
             "state": state,
             "reason": reason,
-            "companion_plugin": {
-                "status": summary["feature_suite"]["status"],
-            },
+            "frontend_integration": public_integration,
+            "companion_plugin": (
+                {"status": integration["status"]}
+                if integration["mode"] == "plugin"
+                else None
+            ),
             "actions": summary["actions"],
         }
 
@@ -1058,7 +1131,7 @@ class ModuleRegistry:
                 "Module is not ready",
                 status_code=409,
             )
-        manifest = json.loads(row["manifest_json"])
+        manifest = self._manifest_from_row(row)
         reviewed = (
             row["reviewed_manifest_digest"] == row["manifest_digest"]
             and row["reviewed_permission_digest"] == row["permission_digest"]
@@ -1073,7 +1146,7 @@ class ModuleRegistry:
         if require_enabled and feature["status"] != "ready":
             raise ModuleRegistryError(
                 feature["status"],
-                "The companion plugin requirement is incomplete",
+                "The frontend integration requirement is incomplete",
                 status_code=409,
             )
         return {
@@ -1272,20 +1345,21 @@ class ModuleRegistry:
                         now,
                     ),
                 )
-                companion = manifest["companion_plugin"]
+                integration = manifest["frontend_integration"]
                 connection.execute(
                     """
                     INSERT INTO module_feature_suites (
-                        registration_id, companion_plugin_id,
-                        companion_plugin_version_range,
+                        registration_id, integration_mode,
+                        integration_id, integration_version_range,
                         dependency_status, checked_at
                     )
-                    VALUES (?, ?, ?, 'unknown', NULL)
+                    VALUES (?, ?, ?, ?, 'unknown', NULL)
                     """,
                     (
                         registration_id,
-                        companion["id"],
-                        companion["version_range"],
+                        integration["mode"],
+                        integration["id"],
+                        integration["version_range"],
                     ),
                 )
         except BaseException:
@@ -1391,7 +1465,7 @@ class ModuleRegistry:
                 reviewed_manifest_digest = None
 
         now = _utc_now()
-        companion = manifest["companion_plugin"]
+        integration = manifest["frontend_integration"]
         with self._connection(
             write=True,
             immediate=True,
@@ -1429,15 +1503,17 @@ class ModuleRegistry:
             connection.execute(
                 """
                 UPDATE module_feature_suites
-                SET companion_plugin_id = ?,
-                    companion_plugin_version_range = ?,
+                SET integration_mode = ?,
+                    integration_id = ?,
+                    integration_version_range = ?,
                     dependency_status = 'unknown',
                     checked_at = NULL
                 WHERE registration_id = ?
                 """,
                 (
-                    companion["id"],
-                    companion["version_range"],
+                    integration["mode"],
+                    integration["id"],
+                    integration["version_range"],
                     registration_id,
                 ),
             )
@@ -1473,7 +1549,7 @@ class ModuleRegistry:
         actor_user_id: str,
     ) -> dict[str, Any]:
         row = self._row(registration_id)
-        manifest = json.loads(row["manifest_json"])
+        manifest = self._manifest_from_row(row)
         requested = sorted(manifest["requested_host_capabilities"])
         if manifest_digest != row["manifest_digest"]:
             raise ModuleRegistryError(
@@ -1603,7 +1679,7 @@ class ModuleRegistry:
         actor_user_id: str,
     ) -> dict[str, Any]:
         row = self._row(registration_id)
-        manifest = json.loads(row["manifest_json"])
+        manifest = self._manifest_from_row(row)
         if not protocol_is_compatible(row["protocol_version"]):
             with self._connection(write=True) as connection:
                 connection.execute(
@@ -1765,7 +1841,7 @@ class ModuleRegistry:
                 "Module configuration is unavailable",
                 status_code=502,
             )
-        manifest = json.loads(row["manifest_json"])
+        manifest = self._manifest_from_row(row)
         try:
             config = validate_config_view(
                 manifest["config_schema"],
@@ -1808,7 +1884,7 @@ class ModuleRegistry:
         actor_user_id: str,
     ) -> dict[str, Any]:
         row = self._row(registration_id)
-        manifest = json.loads(row["manifest_json"])
+        manifest = self._manifest_from_row(row)
         try:
             update = validate_config_update(
                 manifest["config_schema"],
@@ -2064,7 +2140,7 @@ class ModuleRegistry:
         actor_user_id: str,
     ) -> dict[str, Any]:
         row = self._row(registration_id)
-        manifest = json.loads(row["manifest_json"])
+        manifest = self._manifest_from_row(row)
         if not manifest["administration"]["supports_data_purge"]:
             raise ModuleRegistryError(
                 "module_purge_unsupported",

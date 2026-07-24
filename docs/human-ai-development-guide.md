@@ -1,6 +1,6 @@
 # ChatRaw Human + AI Development Guide
 
-本指南把模块与配套插件开发约束写成同时适合人和 AI 执行的工作协议。它不替代机器可读契约。
+本指南把模块、配套插件与 Resident Integration 的开发约束写成同时适合人和 AI 执行的工作协议。它不替代机器可读契约。
 
 ## 1. 开始前必须回答
 
@@ -23,11 +23,22 @@
   ├─ 是 → 插件
   └─ 否
       需要独立后端、数据库、长任务、原生依赖或高权限？
-        ├─ 是 → 模块 + 配套插件
+        ├─ 是 → 模块
         └─ 否 → 先证明为什么现有插件能力不够
 ```
 
-模块不能直接修改 ChatRaw 前端；插件不能直连模块。两者通过 ChatRaw Module SDK 和 Server 网关连接。
+确定需要模块后，再选择前端交付：
+
+```text
+管理员需要在 WebUI 动态安装、启停或升级入口？
+  ├─ 是 → 配套插件
+  └─ 否
+      入口必须在侧边栏或输入区长期存在？
+        ├─ 是 → 源码级 Resident Integration
+        └─ 否 → 配套插件
+```
+
+模块不能直接修改或注入 ChatRaw 前端；插件和 Resident 都不能直连模块。它们通过 ChatRaw Module SDK 和 Server 网关连接。
 
 ## 3. AI 必读顺序
 
@@ -38,18 +49,19 @@
 3. [module-task-v1.schema.json](../backend/contracts/module-task-v1.schema.json)
 4. [module-conformance-fixture-v1.schema.json](../backend/contracts/module-conformance-fixture-v1.schema.json)
 5. [module-plugin-sdk-v1.json](../backend/contracts/module-plugin-sdk-v1.json)
-6. [manifest.example.json](../examples/reference-module/manifest.example.json)
-7. [conformance-fixture.json](../examples/reference-module/conformance-fixture.json)
-8. [reference module app.py](../examples/reference-module/app.py)
-9. [reference Compose](../examples/reference-module/compose.yml)
-10. [Plugin Developer Guide](plugin-developer-guide.md)
-11. [Module Developer Guide](module-developer-guide.md)
+6. 如果选择 Resident，完整阅读 [Resident descriptor](../backend/contracts/resident-integration-v1.schema.json)、[Resident Host SDK](../backend/contracts/resident-integration-sdk-v1.json) 和 [Resident Guide](resident-module-integration-guide.md)
+7. [plugin manifest example](../examples/reference-module/manifest.example.json) 或 [Resident manifest example](../examples/reference-module/manifest.resident.example.json)
+8. [conformance-fixture.json](../examples/reference-module/conformance-fixture.json)
+9. [reference module app.py](../examples/reference-module/app.py)
+10. [reference Compose](../examples/reference-module/compose.yml)
+11. [Plugin Developer Guide](plugin-developer-guide.md)
+12. [Module Developer Guide](module-developer-guide.md)
 
 不要只阅读示例代码而跳过 Schema。示例证明一种实现，Schema 定义允许的契约。
 
 ## 4. 推荐仓库结构
 
-大型功能使用两个独立交付物：
+大型功能使用独立模块后端，再选择一种前端交付：
 
 ```text
 feature-module/
@@ -79,9 +91,16 @@ feature-companion-plugin/
 ├── tests/
 │   └── plugin-contract.test.mjs
 └── feature-plugin.zip
+
+ChatRaw_server/ResidentIntegrations/feature-workbench/
+├── integration.json
+├── main.js
+├── styles.css
+└── tests/
 ```
 
 模块的私有协议实现放在模块仓库内部，不复制到 Server、插件或公共指南。
+配套插件和 Resident 二选一；不要为同一个 manifest 同时声明两种前端集成。
 
 ## 5. 最小 manifest 模板
 
@@ -148,6 +167,20 @@ feature-companion-plugin/
 
 不要先把所有 capability 和可选能力设为 `true`。只有实现、持久化和验收完成的能力才能声明。
 
+上述 `companion_plugin` 是向后兼容写法。Resident 模式改为：
+
+```json
+{
+  "frontend_integration": {
+    "mode": "resident",
+    "id": "example-feature-workbench",
+    "version_range": ">=1.0.0,<2.0.0"
+  }
+}
+```
+
+然后严格按 [Resident Module Integration Guide](resident-module-integration-guide.md) 创建独立目录。不得让模块进程提供前端代码。
+
 ## 6. 最小配套插件模板
 
 ```js
@@ -168,13 +201,17 @@ feature-companion-plugin/
             );
             return;
         }
-        await window.ChatRaw.modules.startTask({
+        const chatId = ChatRawPlugin.utils.getCurrentChatId();
+        const request = {
             module_id: MODULE_ID,
             action_id: ACTION_ID,
-            input: { text: 'hello' },
-            chat_id:
-                ChatRawPlugin.utils.getCurrentChatId() || undefined
-        });
+            input: { text: 'hello' }
+        };
+        if (chatId) {
+            request.chat_id = chatId;
+            request.user_message = 'hello';
+        }
+        await window.ChatRaw.modules.startTask(request);
     }
 
     ChatRawPlugin.ui.registerToolbarButton(
@@ -217,6 +254,8 @@ Module SDK 本地错误：
 | `plugin_missing` | 提示管理员安装配套插件 |
 | `plugin_disabled` | 提示管理员启用插件 |
 | `plugin_incompatible` | 提示版本不兼容 |
+| `resident_missing` | 提示管理员部署包含该 Resident 的 Server 构建 |
+| `resident_incompatible` | 提示管理员升级匹配的 Server 或模块版本 |
 | `module_action_not_found` | 停止并检查 Action ID/版本 |
 | `module_action_forbidden` | 不重试，不提升用户身份 |
 | `invalid_task_request` | 修正插件或输入 |
@@ -242,7 +281,7 @@ Module SDK 本地错误：
 8. 实现 Host Capability，最小化申请范围。
 9. 完成 Source 部署和重启恢复。
 10. 完成 Compose 网络、卷和健康检查。
-11. 最后写配套插件，只使用公共 SDK。
+11. 最后按已冻结的模式写配套插件或独立 Resident 目录，只使用公共 SDK。
 12. 真实浏览器验证管理员和普通用户。
 13. 完成备份恢复和安全负向检查。
 14. 代码与协议稳定后再更新正式文档。
@@ -281,6 +320,18 @@ npm run check:frontend
 node --check feature-plugin/main.js
 node --test tests/plugin-contract.test.mjs
 unzip -t feature-plugin.zip
+```
+
+Resident：
+
+```bash
+npm run build:frontend
+npm run check:frontend
+npm run test:frontend
+T6_FRONTEND_MODE=resident \
+T6_SOURCE_SERVER_PORT=51122 \
+T6_SOURCE_MODULE_PORT=8766 \
+./scripts/run-t6-source-gate.sh
 ```
 
 项目可以增加自己的命令，但不能删除上述契约层级。
@@ -340,7 +391,10 @@ AI 在报告完成前逐项给出命令、退出码和证据：
 
 - [ ] 管理员能看到管理入口和状态。
 - [ ] member 看不到安装、停用、删除入口。
-- [ ] member 能使用配套插件。
+- [ ] member 能使用已启用的配套插件或 Resident。
+- [ ] Resident 对符合角色但不可用的用户保持可见并置灰。
+- [ ] Resident 对低于 `minimum_role` 的用户隐藏。
+- [ ] Resident 的 `embedded` 任务不自动打开核心任务中心。
 - [ ] 审批、取消、产物按声明展示。
 - [ ] 刷新后任务恢复。
 - [ ] 控制台无错误。
@@ -352,7 +406,9 @@ AI 和人都不得：
 
 - 为单个模块在 ChatRaw Server 中增加专用业务路由。
 - 让模块直接注入或修改 ChatRaw 前端。
+- 让 Resident 在安装时动态改写 ChatRaw Core 文件。
 - 让插件直接连接模块或私有后端。
+- 让 Resident 直接连接模块或私有后端。
 - 在浏览器中保存模块 Token、任务输入、任务输出或秘密配置。
 - 伪造真实浏览器、客户数据、生产网络或硬件证据。
 - 用 mock 通过冒充全链路验收。
@@ -373,7 +429,7 @@ Public contract:
 - module_id, module version, protocol version
 - actions and capability flags
 - requested Host Capabilities
-- companion plugin ID and range
+- frontend integration mode, ID, and range
 
 Persistence and recovery:
 - Source data path
@@ -406,6 +462,6 @@ PENDING_ONSITE:
 
 # English execution summary
 
-Humans and AI must derive behavior from the committed OpenAPI snapshot, JSON Schemas, Module SDK contract, reference module, and conformance commands. Decide the plugin/module boundary before coding. Implement persistent protocol behavior before UI. Request the minimum Host Capabilities. Keep private dependencies private.
+Humans and AI must derive behavior from the committed OpenAPI snapshot, JSON Schemas, Module and Resident SDK contracts, reference module, and conformance commands. Decide the plugin/module boundary and then the companion-plugin/Resident delivery mode before coding. Implement persistent protocol behavior before UI. Request the minimum Host Capabilities. Keep private dependencies private. Resident work stays inside its independent directory and stops when it needs an undocumented Core mount or SDK.
 
 Completion requires exact command output, real Source and Compose runtime evidence, both roles in a real browser, outage behavior, restart recovery, separate Server/module backup restoration, and negative secret checks. Synthetic fixtures are engineering evidence only. Any missing customer environment, credential, network, hardware, upstream, or production-performance evidence remains `PENDING_ONSITE`.

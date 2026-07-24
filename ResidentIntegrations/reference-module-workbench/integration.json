@@ -1,0 +1,35 @@
+{
+  "schema_version": "1",
+  "id": "reference-module-workbench",
+  "version": "1.0.0",
+  "module_id": "chatraw.reference.echo",
+  "name": {
+    "en": "Reference workbench",
+    "zh": "参考模块工作台"
+  },
+  "description": {
+    "en": "A built-in workbench for the reference backend module.",
+    "zh": "随 ChatRaw Server 构建发布的参考后端模块工作台。"
+  },
+  "minimum_role": "member",
+  "entrypoints": [
+    {
+      "id": "open-workbench",
+      "placement": "sidebar",
+      "icon": "ri-layout-grid-line",
+      "label": {
+        "en": "Reference",
+        "zh": "参考模块"
+      },
+      "order": 70
+    }
+  ],
+  "required_actions": [
+    {
+      "action_id": "echo.task",
+      "version_range": ">=1.0.0,<2.0.0"
+    }
+  ],
+  "main": "main.js",
+  "styles": "styles.css"
+}

@@ -135,6 +135,7 @@ try:
     )
     from .module_task_protocol import MAX_TASK_REQUEST_BYTES
     from .module_tasks import ModuleTaskError, ModuleTaskService
+    from .resident_integrations import ResidentIntegrationCatalog
 except ImportError:
     from db_migrations import (
         apply_migrations,
@@ -161,6 +162,7 @@ except ImportError:
     )
     from module_task_protocol import MAX_TASK_REQUEST_BYTES
     from module_tasks import ModuleTaskError, ModuleTaskService
+    from resident_integrations import ResidentIntegrationCatalog
 
 BACKEND_DIR = os.path.dirname(os.path.abspath(__file__))
 FONT_DIR = Path(BACKEND_DIR, "static", "fonts").resolve()
@@ -382,7 +384,7 @@ class ModuleTaskListApiResponse(BaseModel):
 class ModuleFeatureApiResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    sdk_version: Literal["1.0.0"]
+    sdk_version: Literal["1.1.0"]
     module_id: str
     name: str
     module_version: Optional[str]
@@ -391,8 +393,18 @@ class ModuleFeatureApiResponse(BaseModel):
     available: bool
     state: Literal["hidden", "available", "unavailable"]
     reason: Optional[Dict[str, Any]]
+    frontend_integration: Optional[Dict[str, Any]]
     companion_plugin: Optional[Dict[str, Any]]
     actions: List[Dict[str, Any]]
+
+
+class ResidentIntegrationCatalogApiResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    sdk_version: Literal["1.0.0"]
+    bundle_version: str
+    built_integration_ids: List[str]
+    integrations: List[Dict[str, Any]]
 
 
 class ModuleChatCapabilityApiResponse(BaseModel):
@@ -7905,6 +7917,9 @@ def _module_plugin_lookup(plugin_id: str) -> Optional[dict]:
     return None
 
 
+resident_integration_catalog = ResidentIntegrationCatalog()
+
+
 module_address_policy = ModuleAddressPolicy(
     allowed_origins=MODULE_ALLOWED_ORIGINS,
     bridge_cidrs=MODULE_BRIDGE_CIDRS,
@@ -7917,6 +7932,7 @@ module_registry = ModuleRegistry(
     client=ModuleHttpClient(module_address_policy),
     plugin_lookup=_module_plugin_lookup,
     audit=auth_service.audit,
+    resident_integration_lookup=resident_integration_catalog.get,
     capability_base_url=MODULE_CAPABILITY_BASE_URL,
 )
 
@@ -8047,6 +8063,44 @@ MODULE_API_ERROR_RESPONSES = {
 
 
 @app.get(
+    "/api/resident-integrations",
+    response_model=ResidentIntegrationCatalogApiResponse,
+    responses=MODULE_API_ERROR_RESPONSES,
+    openapi_extra={"security": [{"ChatRawSession": []}]},
+)
+async def get_resident_integrations(request: Request):
+    principal = current_principal(request)
+    role_rank = {"member": 0, "admin": 1}
+    built_integrations = resident_integration_catalog.list()
+    integrations = []
+    for integration in built_integrations:
+        if role_rank[principal.role] < role_rank[integration["minimum_role"]]:
+            continue
+        integrations.append(
+            {
+                key: integration[key]
+                for key in (
+                    "id",
+                    "version",
+                    "module_id",
+                    "name",
+                    "description",
+                    "minimum_role",
+                    "entrypoints",
+                )
+            }
+        )
+    return {
+        "sdk_version": "1.0.0",
+        "bundle_version": resident_integration_catalog.bundle_version,
+        "built_integration_ids": sorted(
+            integration["id"] for integration in built_integrations
+        ),
+        "integrations": integrations,
+    }
+
+
+@app.get(
     "/api/module-features/{module_id}",
     response_model=ModuleFeatureApiResponse,
     responses=MODULE_API_ERROR_RESPONSES,
@@ -8059,7 +8113,7 @@ async def get_module_feature_status(module_id: str, request: Request):
     except ModuleRegistryError as error:
         if error.code == "module_not_found":
             return {
-                "sdk_version": "1.0.0",
+                "sdk_version": "1.1.0",
                 "module_id": module_id,
                 "name": module_id,
                 "module_version": None,
@@ -8068,6 +8122,7 @@ async def get_module_feature_status(module_id: str, request: Request):
                 "available": False,
                 "state": "hidden",
                 "reason": None,
+                "frontend_integration": None,
                 "companion_plugin": None,
                 "actions": [],
             }
@@ -8154,6 +8209,8 @@ async def list_module_tasks(
     limit: int = 50,
     state: Optional[str] = None,
     chat_id: Optional[str] = None,
+    module_id: Optional[str] = None,
+    action_id: Optional[str] = None,
 ):
     principal = current_principal(request)
     try:
@@ -8163,6 +8220,8 @@ async def list_module_tasks(
             limit=limit,
             state=state,
             chat_id=chat_id,
+            module_id=module_id,
+            action_id=action_id,
         )
         return {"tasks": tasks}
     except ModuleTaskError as error:

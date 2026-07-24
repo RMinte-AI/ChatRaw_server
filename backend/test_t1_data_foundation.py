@@ -316,6 +316,64 @@ class MigrationTests(unittest.TestCase):
             finally:
                 connection.close()
 
+    def test_v7_plugin_dependency_migrates_without_data_loss(self):
+        with tempfile.TemporaryDirectory(prefix="chatraw-t1-v7-") as temp:
+            database = main.Database(str(Path(temp) / "chatraw.db"))
+            connection = database.get_conn()
+            try:
+                connection.execute("PRAGMA foreign_keys = OFF")
+                connection.execute("DROP TABLE module_feature_suites")
+                connection.execute(
+                    """
+                    CREATE TABLE module_feature_suites (
+                        registration_id TEXT PRIMARY KEY,
+                        companion_plugin_id TEXT NOT NULL,
+                        companion_plugin_version_range TEXT NOT NULL,
+                        dependency_status TEXT NOT NULL,
+                        checked_at TEXT
+                    )
+                    """
+                )
+                connection.execute(
+                    """
+                    INSERT INTO module_feature_suites (
+                        registration_id, companion_plugin_id,
+                        companion_plugin_version_range,
+                        dependency_status, checked_at
+                    )
+                    VALUES ('legacy-registration', 'legacy-plugin',
+                            '>=1.0.0,<2.0.0', 'plugin_disabled',
+                            '2026-07-24T00:00:00Z')
+                    """
+                )
+                connection.execute(
+                    "DELETE FROM schema_migrations WHERE version = 8"
+                )
+                connection.commit()
+
+                self.assertEqual(
+                    db_migrations.apply_migrations(connection),
+                    8,
+                )
+                row = connection.execute(
+                    """
+                    SELECT * FROM module_feature_suites
+                    WHERE registration_id = 'legacy-registration'
+                    """
+                ).fetchone()
+                self.assertEqual(row["integration_mode"], "plugin")
+                self.assertEqual(row["integration_id"], "legacy-plugin")
+                self.assertEqual(
+                    row["integration_version_range"],
+                    ">=1.0.0,<2.0.0",
+                )
+                self.assertEqual(
+                    row["dependency_status"],
+                    "plugin_disabled",
+                )
+            finally:
+                connection.close()
+
     def test_classic_import_preserves_content_and_source(self):
         with tempfile.TemporaryDirectory(prefix="chatraw-t1-import-") as temp:
             root = Path(temp)

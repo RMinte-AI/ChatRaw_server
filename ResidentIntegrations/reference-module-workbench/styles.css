@@ -1,0 +1,16 @@
+.reference-resident-form {
+    display: grid;
+    gap: 16px;
+    margin: 0 auto;
+    max-width: 760px;
+}
+
+.reference-resident-form textarea {
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-md);
+    color: var(--text-primary);
+    min-height: 180px;
+    padding: 14px;
+    resize: vertical;
+}

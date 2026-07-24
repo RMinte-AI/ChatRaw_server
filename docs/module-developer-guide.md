@@ -19,7 +19,12 @@
 - Kubernetes、DeFi 或通用应用编排平台；
 - 绕过 ChatRaw 登录和权限的后门。
 
-模块不能提供 HTML、JavaScript 或可执行 UI。所有前端修改必须由单独的 ChatRaw 配套插件完成。
+模块不能提供 HTML、JavaScript 或可执行 UI。前端接入只能选择：
+
+- 管理员在 WebUI 安装的配套插件；
+- 随 ChatRaw Server 源码审查、构建和发布的 Resident Integration。
+
+两种方式都只能通过 ChatRaw Module SDK 连接模块。需要常驻入口时阅读 [Resident Module Integration Guide](resident-module-integration-guide.md)。
 
 ### 2. 公开与私有边界
 
@@ -42,10 +47,12 @@ Agent–LinkDB 协议是私有实现，不进入本指南、公共 Schema、Open
 2. [module-management-v1.schema.json](../backend/contracts/module-management-v1.schema.json)
 3. [module-task-v1.schema.json](../backend/contracts/module-task-v1.schema.json)
 4. [module-plugin-sdk-v1.json](../backend/contracts/module-plugin-sdk-v1.json)
-5. [Reference manifest](../examples/reference-module/manifest.example.json)
-6. [Reference module implementation](../examples/reference-module/app.py)
-7. `scripts/module-conformance.py`
-8. `scripts/run-t6-source-gate.sh` 与 `scripts/run-t6-compose-gate.sh`
+5. [resident-integration-v1.schema.json](../backend/contracts/resident-integration-v1.schema.json)
+6. [Reference plugin manifest](../examples/reference-module/manifest.example.json)
+7. [Reference Resident manifest](../examples/reference-module/manifest.resident.example.json)
+8. [Reference module implementation](../examples/reference-module/app.py)
+9. `scripts/module-conformance.py`
+10. `scripts/run-t6-source-gate.sh` 与 `scripts/run-t6-compose-gate.sh`
 
 文档不能扩展这些契约中不存在的能力。
 
@@ -105,6 +112,32 @@ my-module/
 }
 ```
 
+以上是兼容的插件写法。新 manifest 也可以使用规范形式：
+
+```json
+{
+  "frontend_integration": {
+    "mode": "plugin",
+    "id": "example-echo-companion",
+    "version_range": ">=1.0.0,<2.0.0"
+  }
+}
+```
+
+常驻源码集成使用：
+
+```json
+{
+  "frontend_integration": {
+    "mode": "resident",
+    "id": "example-echo-workbench",
+    "version_range": ">=1.0.0,<2.0.0"
+  }
+}
+```
+
+`companion_plugin` 和 `frontend_integration` 必须且只能出现一个。旧字段会规范化为 plugin 模式，不要求已有模块修改 manifest。
+
 规则：
 
 - `module_id` 是产品身份，发布后保持稳定。
@@ -127,7 +160,7 @@ my-module/
 - 完整配置 Schema（包括新增秘密字段）；
 - 最低角色；
 - stream/cancel/approval/artifact/chat projection 标志；
-- 配套插件约束；
+- 前端集成模式、ID 和版本约束；
 - data purge 能力。
 
 这些变化会触发管理员重新审批。permission digest 带有独立版本号；开发者不能自行计算一个“兼容摘要”绕过 Server 的复审逻辑。
@@ -590,13 +623,13 @@ fixture 必须符合
 
 ### Scope
 
-A module is an independent backend for durable jobs, databases, privileged operations, private dependencies, or complex runtime requirements. It is not a frontend plugin or a general orchestration platform. Modules never supply executable UI; a separate companion plugin owns the frontend entry point.
+A module is an independent backend for durable jobs, databases, privileged operations, private dependencies, or complex runtime requirements. It is not a frontend plugin or a general orchestration platform. Modules never supply executable UI. The frontend entry is either an administrator-managed companion plugin or a source-reviewed Resident Integration shipped in the Server build.
 
 Module Protocol v1 covers only the ChatRaw-to-module northbound interface. Internal databases and proprietary protocols remain private and must not appear in public manifests, contracts, examples, or conformance output.
 
 ### Authoritative contracts
 
-Use the committed manifest, management, and task JSON Schemas; the Module Plugin SDK contract; the reference manifest and implementation; and the conformance commands listed above. Documentation cannot add behavior absent from those sources.
+Use the committed manifest, management, task, and Resident JSON Schemas; the Module SDK contracts; both reference manifests and the implementation; and the conformance commands listed above. Documentation cannot add behavior absent from those sources. See the [Resident Module Integration Guide](resident-module-integration-guide.md) for persistent Server-owned frontend entries.
 
 ### Required behavior
 

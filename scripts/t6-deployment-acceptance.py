@@ -266,8 +266,9 @@ def bootstrap(arguments) -> None:
             "T6 bootstrap: Compose loopback repair policy verified",
             flush=True,
         )
-    _upload_plugin(client, arguments.plugin_dir)
-    print("T6 bootstrap: plugin installed", flush=True)
+    if arguments.frontend_mode == "plugin":
+        _upload_plugin(client, arguments.plugin_dir)
+        print("T6 bootstrap: plugin installed", flush=True)
     paired = client.request(
         "POST",
         "/api/admin/modules/pair",
@@ -311,6 +312,15 @@ def bootstrap(arguments) -> None:
         or checked["ready_status"] != "ready"
     ):
         raise AcceptanceError("Reference module is not healthy and ready")
+    integration = checked.get("frontend_integration", {})
+    if (
+        integration.get("mode") != arguments.frontend_mode
+        or integration.get("status") != "ready"
+    ):
+        raise AcceptanceError(
+            "Reference frontend integration is not ready: "
+            f"{integration}"
+        )
     client.request(
         "POST",
         f"/api/admin/modules/{registration_id}/enable",
@@ -457,6 +467,11 @@ def main() -> int:
     parser.add_argument("--username", default="t6-admin")
     parser.add_argument("--password", default="T6-acceptance-password-2026")
     parser.add_argument("--state-file", type=Path, required=True)
+    parser.add_argument(
+        "--frontend-mode",
+        choices=("plugin", "resident"),
+        default="plugin",
+    )
     parser.add_argument(
         "--plugin-dir",
         type=Path,

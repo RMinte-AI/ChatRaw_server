@@ -46,6 +46,11 @@ REFERENCE_DIR = ROOT / "examples" / "reference-module"
 REFERENCE_MANIFEST = json.loads(
     (REFERENCE_DIR / "manifest.example.json").read_text(encoding="utf-8")
 )
+REFERENCE_RESIDENT_MANIFEST = json.loads(
+    (
+        REFERENCE_DIR / "manifest.resident.example.json"
+    ).read_text(encoding="utf-8")
+)
 
 
 class FakeAddressPolicy:
@@ -397,6 +402,7 @@ class ModuleRegistryTests(unittest.IsolatedAsyncioTestCase):
             connection.execute("DELETE FROM module_registrations")
         self.fake = FakeModuleClient()
         self.plugin = None
+        self.resident = None
         self.audit_events = []
         self.registry = ModuleRegistry(
             main.db.db_path,
@@ -404,6 +410,7 @@ class ModuleRegistryTests(unittest.IsolatedAsyncioTestCase):
             busy_timeout_ms=main.db.busy_timeout_ms,
             client=self.fake,
             plugin_lookup=lambda _plugin_id: self.plugin,
+            resident_integration_lookup=lambda _integration_id: self.resident,
             audit=lambda *args: self.audit_events.append(args),
         )
         self.actor = self._ensure_actor("t3-registry-admin", "admin")
@@ -623,6 +630,114 @@ class ModuleRegistryTests(unittest.IsolatedAsyncioTestCase):
             actor_user_id=self.actor,
         )
         self.assertEqual(final["lifecycle_state"], "disabled")
+
+    async def test_resident_integration_is_a_build_time_enable_gate(self):
+        self.fake.manifest = copy.deepcopy(REFERENCE_RESIDENT_MANIFEST)
+        paired = await self._pair()
+        self.registry.approve(
+            paired["id"],
+            manifest_digest=paired["manifest_digest"],
+            approved_capabilities=paired["requested_host_capabilities"],
+            actor_user_id=self.actor,
+        )
+        missing = await self.registry.check(
+            paired["id"],
+            actor_user_id=self.actor,
+        )
+        self.assertEqual(
+            missing["frontend_integration"]["status"],
+            "resident_missing",
+        )
+        self.assertFalse(missing["can_enable"])
+
+        self.resident = {
+            "id": "reference-module-workbench",
+            "version": "2.0.0",
+            "module_id": "chatraw.reference.echo",
+            "minimum_role": "member",
+            "required_actions": [
+                {
+                    "action_id": "echo.task",
+                    "version_range": ">=1.0.0,<2.0.0",
+                }
+            ],
+        }
+        incompatible = await self.registry.check(
+            paired["id"],
+            actor_user_id=self.actor,
+        )
+        self.assertEqual(
+            incompatible["frontend_integration"]["status"],
+            "resident_incompatible",
+        )
+
+        self.resident["version"] = "1.0.0"
+        ready = await self.registry.check(
+            paired["id"],
+            actor_user_id=self.actor,
+        )
+        self.assertEqual(
+            ready["frontend_integration"]["status"],
+            "ready",
+        )
+        enabled = await self.registry.enable(
+            paired["id"],
+            actor_user_id=self.actor,
+        )
+        feature = self.registry.feature_status(enabled["module_id"])
+        self.assertTrue(feature["visible"])
+        self.assertTrue(feature["available"])
+        self.assertEqual(feature["frontend_integration"]["mode"], "resident")
+        self.assertIsNone(feature["companion_plugin"])
+
+        self.resident = None
+        unavailable = self.registry.feature_status(enabled["module_id"])
+        self.assertTrue(unavailable["visible"])
+        self.assertFalse(unavailable["available"])
+        self.assertEqual(
+            unavailable["reason"]["code"],
+            "resident_missing",
+        )
+        with self.assertRaises(ModuleRegistryError) as blocked:
+            self.registry.task_target(module_id=enabled["module_id"])
+        self.assertEqual(blocked.exception.code, "resident_missing")
+
+    async def test_resident_required_action_or_role_mismatch_is_incompatible(
+        self,
+    ):
+        self.fake.manifest = copy.deepcopy(REFERENCE_RESIDENT_MANIFEST)
+        self.resident = {
+            "id": "reference-module-workbench",
+            "version": "1.0.0",
+            "module_id": "chatraw.reference.echo",
+            "minimum_role": "member",
+            "required_actions": [
+                {
+                    "action_id": "missing.action",
+                    "version_range": ">=1.0.0,<2.0.0",
+                }
+            ],
+        }
+        paired = await self._pair()
+        checked = await self.registry.check(
+            paired["id"],
+            actor_user_id=self.actor,
+        )
+        self.assertEqual(
+            checked["frontend_integration"]["status"],
+            "resident_incompatible",
+        )
+
+        self.resident["required_actions"][0]["action_id"] = "echo.task"
+        self.fake.manifest["actions"][0]["minimum_role"] = "admin"
+        checked = await self.registry.refresh(
+            paired["id"],
+            actor_user_id=self.actor,
+        )
+        self.assertEqual(
+            checked["frontend_integration"]["status"],
+            "resident_incompatible",
+        )
 
     async def test_product_visibility_and_runtime_plugin_gate(self):
         ready = await self._approved_ready()
@@ -1034,6 +1149,67 @@ class ModuleAdminApiTests(unittest.TestCase):
         )
         self.assertEqual(missing.status_code, 200, missing.text)
         self.assertEqual(missing.json()["state"], "hidden")
+
+    def test_resident_catalog_is_authenticated_and_source_safe(self):
+        anonymous = self.client.get("/api/resident-integrations")
+        self.assertEqual(anonymous.status_code, 401)
+        response = self.client.get(
+            "/api/resident-integrations",
+            headers=self._headers(self.member_cookie),
+        )
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(response.json()["sdk_version"], "1.0.0")
+        self.assertRegex(response.json()["bundle_version"], "^[0-9a-f]{64}$")
+        self.assertEqual(
+            response.json()["built_integration_ids"],
+            ["reference-module-workbench"],
+        )
+        integration = response.json()["integrations"][0]
+        self.assertEqual(
+            integration["id"],
+            "reference-module-workbench",
+        )
+        self.assertNotIn("main", integration)
+        self.assertNotIn("styles", integration)
+        self.assertNotIn("required_actions", integration)
+
+    def test_resident_catalog_hides_admin_metadata_but_keeps_build_integrity_ids(
+        self,
+    ):
+        original_catalog = main.resident_integration_catalog
+        member_descriptor = copy.deepcopy(original_catalog.list()[0])
+
+        class Catalog:
+            bundle_version = "b" * 64
+
+            @staticmethod
+            def list():
+                member = copy.deepcopy(member_descriptor)
+                admin = copy.deepcopy(member)
+                admin["id"] = "admin-only-resident"
+                admin["minimum_role"] = "admin"
+                return [member, admin]
+
+        try:
+            main.resident_integration_catalog = Catalog()
+            response = self.client.get(
+                "/api/resident-integrations",
+                headers=self._headers(self.member_cookie),
+            )
+        finally:
+            main.resident_integration_catalog = original_catalog
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(
+            response.json()["built_integration_ids"],
+            ["admin-only-resident", "reference-module-workbench"],
+        )
+        self.assertEqual(
+            [
+                integration["id"]
+                for integration in response.json()["integrations"]
+            ],
+            ["reference-module-workbench"],
+        )
 
     def test_module_offline_does_not_affect_existing_chat(self):
         self.fake.offline = True

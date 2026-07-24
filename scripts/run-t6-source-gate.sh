@@ -4,6 +4,7 @@ set -eu
 
 server_port=${T6_SOURCE_SERVER_PORT:-51121}
 module_port=${T6_SOURCE_MODULE_PORT:-8765}
+frontend_mode=${T6_FRONTEND_MODE:-plugin}
 server_data=$(mktemp -d "${TMPDIR:-/tmp}/chatraw-t6-source-server.XXXXXX")
 module_data=$(mktemp -d "${TMPDIR:-/tmp}/chatraw-t6-source-module.XXXXXX")
 state_file="$server_data/acceptance-state.json"
@@ -40,6 +41,7 @@ start_module() {
     REFERENCE_MODULE_DATA_DIR="$module_data" \
     REFERENCE_MODULE_PAIRING_CODE="$pairing_code" \
     REFERENCE_MODULE_INSTANCE_ID="chatraw-reference-source" \
+    REFERENCE_MODULE_FRONTEND_MODE="$frontend_mode" \
     "$python_bin" -m uvicorn \
         --app-dir examples/reference-module \
         app:app \
@@ -126,6 +128,7 @@ wait_for_tcp 127.0.0.1 "$module_port"
     --module-probe-base-url "http://127.0.0.1:$module_port" \
     --setup-token "$setup_token" \
     --pairing-code "$pairing_code" \
+    --frontend-mode "$frontend_mode" \
     --state-file "$state_file"
 
 kill "$module_pid"
@@ -146,6 +149,7 @@ wait_for_url "http://127.0.0.1:$server_port/health"
     --server-base-url "http://127.0.0.1:$server_port" \
     --module-base-url "http://127.0.0.1:$module_port" \
     --module-probe-base-url "http://127.0.0.1:$module_port" \
+    --frontend-mode "$frontend_mode" \
     --state-file "$state_file"
 
-echo "T6 source deployment gate passed"
+echo "T6 source deployment gate passed ($frontend_mode frontend)"

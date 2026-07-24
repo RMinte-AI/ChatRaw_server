@@ -1157,6 +1157,8 @@ class ModuleTaskService:
         limit: int = 50,
         state: str | None = None,
         chat_id: str | None = None,
+        module_id: str | None = None,
+        action_id: str | None = None,
     ) -> list[dict[str, Any]]:
         if not 1 <= limit <= MAX_TASK_LIST_LIMIT:
             raise ModuleTaskError(
@@ -1168,6 +1170,19 @@ class ModuleTaskService:
                 "invalid_task_state",
                 "Task state filter is invalid",
             )
+        for name, value in (
+            ("module_id", module_id),
+            ("action_id", action_id),
+        ):
+            if value is not None and (
+                not isinstance(value, str)
+                or not value
+                or len(value) > 128
+            ):
+                raise ModuleTaskError(
+                    "invalid_task_filter",
+                    f"Task {name} filter is invalid",
+                )
         clauses = ["visible = 1"]
         parameters: list[Any] = []
         if state is not None:
@@ -1176,6 +1191,12 @@ class ModuleTaskService:
         if chat_id is not None:
             clauses.append("chat_id = ?")
             parameters.append(chat_id)
+        if module_id is not None:
+            clauses.append("module_id = ?")
+            parameters.append(module_id)
+        if action_id is not None:
+            clauses.append("action_id = ?")
+            parameters.append(action_id)
         parameters.append(limit)
         with self._connection() as connection:
             rows = connection.execute(

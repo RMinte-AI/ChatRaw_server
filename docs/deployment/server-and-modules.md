@@ -12,8 +12,9 @@ do not define two products or two module APIs.
   network, or volume.
 - The WebUI never receives the Docker socket. It shows deployment-aware repair
   guidance, but the administrator performs infrastructure operations.
-- A backend module never injects frontend code. Its companion plugin is the
-  only frontend integration point.
+- A backend module never injects frontend code. The frontend is either an
+  administrator-managed companion plugin or a source-built Resident
+  Integration shipped with the Server.
 
 ## Source deployment
 
@@ -35,6 +36,11 @@ enter it once under **Settings → Modules** when connecting
 `http://127.0.0.1:8765`. The module deliberately does not print the code. It
 must be 16–4096 characters, expires, and is consumed by the first successful
 pair.
+
+To exercise the same module with its source-built Resident entry, set
+`REFERENCE_MODULE_FRONTEND_MODE=resident` before starting it. Resident source
+is compiled into the Server image or source deployment; changing it requires a
+Server rebuild and redeployment, not a WebUI install action.
 
 ## Docker Compose deployment
 
@@ -179,7 +185,8 @@ Server 与 Module Protocol v1 的两种方式，不是两个产品，也不允�
 - ChatRaw 不启动、停止、升级或删除任何进程、容器、网络和数据卷。
 - WebUI 不接触 Docker socket，只显示与部署方式相关的修复提示；基础设施操作
   必须由管理员在系统外执行。
-- 后端模块不能注入前端代码；所有前端连接都由配套插件完成。
+- 后端模块不能注入前端代码；前端连接只能由管理员管理的配套插件，或随
+  Server 源码构建的 Resident Integration 完成。
 
 ## 源码部署
 
@@ -198,6 +205,10 @@ python -m uvicorn --app-dir examples/reference-module app:app \
 部署者必须保管并显式注入一次性配对码，模块不会把它输出到日志。在
 **设置 → Modules** 中使用该配对码连接 `http://127.0.0.1:8765`，
 审核声明、完成配置并启用功能套件。
+
+要让同一参考模块使用源码级常驻入口，启动模块前设置
+`REFERENCE_MODULE_FRONTEND_MODE=resident`。Resident 源码随 Server 镜像或
+源码部署一起构建；修改后需要重新构建和部署 Server，不能在 WebUI 动态安装。
 
 ## Docker Compose 部署
 

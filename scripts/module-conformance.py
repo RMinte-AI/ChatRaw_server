@@ -43,6 +43,12 @@ CONTRACT_DIR = REPOSITORY_ROOT / "backend" / "contracts"
 REFERENCE_MANIFEST = (
     REPOSITORY_ROOT / "examples" / "reference-module" / "manifest.example.json"
 )
+REFERENCE_RESIDENT_MANIFEST = (
+    REPOSITORY_ROOT
+    / "examples"
+    / "reference-module"
+    / "manifest.resident.example.json"
+)
 REFERENCE_FIXTURE = (
     REPOSITORY_ROOT / "examples" / "reference-module" / "conformance-fixture.json"
 )
@@ -327,7 +333,7 @@ def _validate_manifest_file(path: Path) -> dict[str, Any]:
 
 
 def check_contracts(manifests: list[Path]) -> dict[str, Any]:
-    schema_files = sorted(CONTRACT_DIR.glob("module-*.schema.json"))
+    schema_files = sorted(CONTRACT_DIR.glob("*.schema.json"))
     if not schema_files:
         raise ConformanceError("no Module Protocol schemas were found")
     checked_schemas = []
@@ -336,7 +342,11 @@ def check_contracts(manifests: list[Path]) -> dict[str, Any]:
         Draft202012Validator.check_schema(schema)
         checked_schemas.append(path.name)
     checked_manifests = [
-        _validate_manifest_file(path) for path in (manifests or [REFERENCE_MANIFEST])
+        _validate_manifest_file(path)
+        for path in (
+            manifests
+            or [REFERENCE_MANIFEST, REFERENCE_RESIDENT_MANIFEST]
+        )
     ]
     fixture = _load_json(REFERENCE_FIXTURE)
     fixture_errors = list(

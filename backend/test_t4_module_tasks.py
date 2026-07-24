@@ -443,6 +443,37 @@ class ModuleTaskServiceTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual(self.database.get_messages(self.chat.id), [])
 
+    async def test_task_list_filters_by_module_and_action(self):
+        task, _created = await self._create(
+            key="task-list-filters",
+            chat_id=None,
+            user_message=None,
+            resource_ids=[],
+        )
+        matching = await self.service.list(
+            principal_user_id=self.viewer,
+            principal_role="member",
+            module_id=REFERENCE_MANIFEST["module_id"],
+            action_id="echo.task",
+        )
+        self.assertEqual(
+            [item["task_id"] for item in matching],
+            [task["task_id"]],
+        )
+        missing = await self.service.list(
+            principal_user_id=self.viewer,
+            principal_role="member",
+            module_id="chatraw.missing",
+        )
+        self.assertEqual(missing, [])
+        with self.assertRaises(ModuleTaskError) as invalid:
+            await self.service.list(
+                principal_user_id=self.viewer,
+                principal_role="member",
+                action_id="x" * 129,
+            )
+        self.assertEqual(invalid.exception.code, "invalid_task_filter")
+
     async def test_shared_read_but_only_creator_or_admin_controls(self):
         task, _ = await self._create()
         viewed = await self.service.get(

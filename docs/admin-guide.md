@@ -83,15 +83,15 @@ docker compose exec chatraw \
    - Action、最低角色和输入/输出 Schema；
    - 流式、取消、审批、产物和聊天投影能力；
    - 请求的 Host Capability；
-   - 配套插件 ID 与版本范围；
+   - 前端集成模式、ID 与版本范围；
    - 是否支持数据清理。
 5. 批准 manifest。
 6. 配置非秘密字段和秘密字段。已有秘密只显示“已配置”，不会回显。
-7. 安装并启用匹配版本的配套插件。
-8. 执行 Check，确认 Health、Ready、Config 和 Plugin 都通过。
+7. Plugin 模式：安装并启用匹配版本的配套插件。Resident 模式：确认当前 Server 构建包含匹配的 Resident；WebUI 不会动态安装 Resident 源码。
+8. 执行 Check，确认 Health、Ready、Config 和 Frontend Integration 都通过。
 9. 启用模块。
 
-任何影响权限边界的 manifest 变化都会进入 `review required`，原 Capability Grant 被撤销；管理员必须重新检查和批准。权限边界包括模块主版本、Action 契约和能力、Host Capability、配套插件约束、数据清理能力，以及完整的 `config_schema`。因此新增秘密配置字段也一定会重新触发审核。
+任何影响权限边界的 manifest 变化都会进入 `review required`，原 Capability Grant 被撤销；管理员必须重新检查和批准。权限边界包括模块主版本、Action 契约和能力、Host Capability、前端集成模式/ID/版本约束、数据清理能力，以及完整的 `config_schema`。因此新增秘密配置字段也一定会重新触发审核。
 
 ### 6. 模块生命周期
 
@@ -266,7 +266,7 @@ COMPOSE_PROJECT_NAME=chatraw-restored docker compose up -d
 
 #### Review required
 
-比较新旧 manifest、权限摘要和配套插件版本。确认变化后重新批准，不要绕过审批状态。
+比较新旧 manifest、权限摘要和前端集成版本。确认变化后重新批准，不要绕过审批状态。
 
 #### 用户无法登录
 
@@ -308,7 +308,7 @@ Plugins execute in the ChatRaw page JavaScript context. Review their source, man
 
 ### Module onboarding
 
-Pair with a fresh one-time code, review the manifest, approve permissions, configure values and secrets, install the compatible companion plugin, check Health/Ready/Config/Plugin, and then enable the module.
+Pair with a fresh one-time code, review the manifest, approve permissions, and configure values and secrets. For plugin mode, install the compatible companion plugin. For Resident mode, deploy a Server build containing the compatible source package; the WebUI does not install Resident code dynamically. Check Health/Ready/Config/Frontend Integration, and then enable the module.
 
 Permission-relevant manifest changes revoke grants and require a new review.
 

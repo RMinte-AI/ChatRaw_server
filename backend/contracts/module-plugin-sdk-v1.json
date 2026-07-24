@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://chatraw.local/contracts/module-plugin-sdk-v1.json",
   "contract": "ChatRaw Module Plugin SDK",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "global": "window.ChatRaw.modules",
   "transport": {
     "origin": "same-origin",
@@ -28,11 +28,27 @@
           "name": "request",
           "type": "StartTaskRequest",
           "required": true
+        },
+        {
+          "name": "options",
+          "type": "StartTaskOptions",
+          "required": false
         }
       ],
       "returns": "Promise<Task>",
       "endpoint": "POST /api/module-tasks",
-      "side_effect": "opens the ChatRaw core task UI and subscribes to events"
+      "side_effect": "presentation defaults to task_center, which opens the ChatRaw core task UI and subscribes; embedded registers the task without opening the task center and the caller subscribes explicitly"
+    },
+    "listTasks": {
+      "arguments": [
+        {
+          "name": "filters",
+          "type": "TaskFilters",
+          "required": false
+        }
+      ],
+      "returns": "Promise<Task[]>",
+      "endpoint": "GET /api/module-tasks"
     },
     "getTask": {
       "arguments": [
@@ -183,6 +199,8 @@
       "plugin_missing",
       "plugin_disabled",
       "plugin_incompatible",
+      "resident_missing",
+      "resident_incompatible",
       "module_action_not_found",
       "module_action_forbidden",
       "invalid_task_request",
@@ -230,6 +248,46 @@
         }
       }
     },
+    "StartTaskOptions": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "presentation": {
+          "enum": [
+            "task_center",
+            "embedded"
+          ],
+          "default": "task_center"
+        }
+      }
+    },
+    "TaskFilters": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "module_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "action_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "state": {
+          "type": "string",
+          "minLength": 1
+        },
+        "chat_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "limit": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 100
+        }
+      }
+    },
     "FeatureStatus": {
       "type": "object",
       "additionalProperties": false,
@@ -243,12 +301,13 @@
         "available",
         "state",
         "reason",
+        "frontend_integration",
         "companion_plugin",
         "actions"
       ],
       "properties": {
         "sdk_version": {
-          "const": "1.0.0"
+          "const": "1.1.0"
         },
         "module_id": {
           "type": "string"
@@ -291,6 +350,40 @@
           "type": [
             "object",
             "null"
+          ]
+        },
+        "frontend_integration": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "mode",
+                "id",
+                "required_version",
+                "status"
+              ],
+              "properties": {
+                "mode": {
+                  "enum": [
+                    "plugin",
+                    "resident"
+                  ]
+                },
+                "id": {
+                  "type": "string"
+                },
+                "required_version": {
+                  "type": "string"
+                },
+                "status": {
+                  "type": "string"
+                }
+              }
+            }
           ]
         },
         "actions": {

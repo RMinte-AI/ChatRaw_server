@@ -10,6 +10,7 @@ on:
       - 'backend/static/**'
       - 'backend/contracts/**'
       - 'examples/reference-module/**'
+      - 'ResidentIntegrations/**'
       - 'Plugins/Plugin_market/reference-module-companion/**'
       - 'package.json'
       - 'package-lock.json'
@@ -27,6 +28,7 @@ on:
       - 'backend/static/**'
       - 'backend/contracts/**'
       - 'examples/reference-module/**'
+      - 'ResidentIntegrations/**'
       - 'Plugins/Plugin_market/reference-module-companion/**'
       - 'package.json'
       - 'package-lock.json'
@@ -75,6 +77,13 @@ jobs:
       - name: T6 source deployment acceptance
         run: ./scripts/run-t6-source-gate.sh
 
+      - name: T6 Resident source deployment acceptance
+        run: |
+          T6_FRONTEND_MODE=resident \
+          T6_SOURCE_SERVER_PORT=51122 \
+          T6_SOURCE_MODULE_PORT=8766 \
+          ./scripts/run-t6-source-gate.sh
+
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
@@ -86,6 +95,9 @@ jobs:
 
       - name: Audit production frontend dependencies
         run: npm audit --omit=dev --audit-level=moderate
+
+      - name: Frontend regression suite
+        run: npm run test:frontend
 
       - name: Verify frontend build artifacts
         run: npm run check:frontend

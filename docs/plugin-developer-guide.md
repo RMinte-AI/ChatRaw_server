@@ -19,7 +19,7 @@
 - 实现模块安装、启停、审批或删除；
 - 绕过 ChatRaw Server 调用模块私有接口。
 
-模块也不能直接给 ChatRaw 注入前端。大型功能必须由“模块 + 配套插件”组合接入。
+模块也不能直接给 ChatRaw 注入前端。大型功能使用“模块 + 配套插件”；如果入口必须随 Server 常驻，则使用“模块 + 源码级 Resident Integration”。Resident 不是插件包，详见 [Resident Module Integration Guide](resident-module-integration-guide.md)。
 
 ### 2. 可信代码边界
 
@@ -72,7 +72,7 @@ ZIP 中可以有一个顶层目录，也可以直接放文件，但必须满足�
 }
 ```
 
-模块 manifest 中的 `companion_plugin.id` 必须等于插件 `id`，`version` 必须满足模块声明的版本范围。版本使用 SemVer；破坏兼容性的插件 API 改动提升主版本。
+模块 manifest 中的旧 `companion_plugin.id` 或新 `frontend_integration`（`mode: plugin`）ID 必须等于插件 `id`，`version` 必须满足模块声明的版本范围。版本使用 SemVer；破坏兼容性的插件 API 改动提升主版本。
 
 ### 5. 运行配置与管理配置
 
@@ -281,7 +281,7 @@ unzip -t my-plugin.zip
 
 ### Boundary
 
-Plugins are trusted frontend code. They may add UI, hooks, and presentation, but they must not own backend services, durable jobs, module addresses, or secrets. Large features use a companion plugin plus an independent module.
+Plugins are trusted frontend code. They may add UI, hooks, and presentation, but they must not own backend services, durable jobs, module addresses, or secrets. Large features use a companion plugin plus an independent module. A persistent entry shipped with Server source is a Resident Integration, not a dynamically installed plugin; see the [Resident Module Integration Guide](resident-module-integration-guide.md).
 
 Plugins are not sandboxed. Only administrators install, configure, enable, disable, or remove them. Members can use enabled plugins. A locally uploaded ZIP is administrator-trusted code, not automatically verified code.
 

@@ -365,6 +365,18 @@
             ],
             "title": "Companion Plugin"
           },
+          "frontend_integration": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Frontend Integration"
+          },
           "module_id": {
             "title": "Module Id",
             "type": "string"
@@ -408,7 +420,7 @@
             "title": "Reason"
           },
           "sdk_version": {
-            "const": "1.0.0",
+            "const": "1.1.0",
             "title": "Sdk Version",
             "type": "string"
           },
@@ -436,6 +448,7 @@
           "available",
           "state",
           "reason",
+          "frontend_integration",
           "companion_plugin",
           "actions"
         ],
@@ -754,6 +767,43 @@
           }
         },
         "title": "RAGSettings",
+        "type": "object"
+      },
+      "ResidentIntegrationCatalogApiResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "built_integration_ids": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Built Integration Ids",
+            "type": "array"
+          },
+          "bundle_version": {
+            "title": "Bundle Version",
+            "type": "string"
+          },
+          "integrations": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Integrations",
+            "type": "array"
+          },
+          "sdk_version": {
+            "const": "1.0.0",
+            "title": "Sdk Version",
+            "type": "string"
+          }
+        },
+        "required": [
+          "sdk_version",
+          "bundle_version",
+          "built_integration_ids",
+          "integrations"
+        ],
+        "title": "ResidentIntegrationCatalogApiResponse",
         "type": "object"
       },
       "Settings": {
@@ -2661,6 +2711,38 @@
               ],
               "title": "Chat Id"
             }
+          },
+          {
+            "in": "query",
+            "name": "module_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Module Id"
+            }
+          },
+          {
+            "in": "query",
+            "name": "action_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Action Id"
+            }
           }
         ],
         "responses": {
@@ -4170,6 +4252,109 @@
           }
         },
         "summary": "Proxy Upload"
+      }
+    },
+    "/api/resident-integrations": {
+      "get": {
+        "operationId": "get_resident_integrations_api_resident_integrations_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResidentIntegrationCatalogApiResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModuleErrorResponse"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModuleErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModuleErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModuleErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModuleErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModuleErrorResponse"
+                }
+              }
+            },
+            "description": "Content Too Large"
+          },
+          "502": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModuleErrorResponse"
+                }
+              }
+            },
+            "description": "Bad Gateway"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModuleErrorResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "security": [
+          {
+            "ChatRawSession": []
+          }
+        ],
+        "summary": "Get Resident Integrations"
       }
     },
     "/api/settings": {

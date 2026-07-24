@@ -39,9 +39,10 @@ ChatRaw Server 的所有用户使用同一个平台。聊天、文档、模型�
 
 ### 4. 功能套件：插件和模块
 
-一个大型功能通常由两部分组成：
+一个大型功能通常由后端模块和一种前端入口组成：
 
-- **配套插件**：在 ChatRaw 界面中提供按钮、开关或结果展示。
+- **配套插件**：由管理员在 WebUI 安装和启停的按钮、开关或结果展示。
+- **Resident Integration**：随 Server 源码构建的侧边栏或输入区常驻入口。
 - **后端模块**：在独立服务中执行真正的任务。
 
 普通用户不需要分别配置它们。管理员完成安装和连接后，功能入口会自动可用。
@@ -79,6 +80,7 @@ ChatRaw Server 的所有用户使用同一个平台。聊天、文档、模型�
 如果功能入口显示不可用：
 
 - `Plugin missing/disabled/incompatible`：配套插件未安装、未启用或版本不兼容。
+- `Resident missing/incompatible`：当前 Server 构建未包含匹配的常驻入口，或它与模块版本不兼容。入口会保留但置灰。
 - `Module unhealthy/unreachable`：模块未运行或网络不可达。
 - `Module not ready`：模块依赖或配置未就绪。
 - `Review required`：模块版本或权限发生变化，等待管理员重新批准。
@@ -143,9 +145,9 @@ Platform users can see shared chats and documents. You can manage resources you 
 
 ### 4. Feature suites
 
-A large feature normally has two parts:
+A large feature has a backend module and one frontend integration:
 
-- a **companion plugin** that provides a button or presentation in ChatRaw;
+- a **companion plugin** installed and managed by an administrator, or a source-built **Resident Integration** for a persistent entry;
 - a **backend module** that performs the task in an independent service.
 
 Members do not connect these pieces manually. Once the administrator completes installation and pairing, the feature entry point becomes available.
@@ -173,6 +175,7 @@ After a page reload, ChatRaw resumes tasks by task ID. The browser does not reta
 Common reasons include:
 
 - companion plugin missing, disabled, or incompatible;
+- Resident Integration missing or incompatible;
 - module unhealthy or unreachable;
 - module dependency or configuration not ready;
 - changed permissions awaiting administrator review;

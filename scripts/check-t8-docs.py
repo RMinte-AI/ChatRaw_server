@@ -18,6 +18,7 @@ REQUIRED = [
     ROOT / "docs" / "admin-guide.md",
     ROOT / "docs" / "plugin-developer-guide.md",
     ROOT / "docs" / "module-developer-guide.md",
+    ROOT / "docs" / "resident-module-integration-guide.md",
     ROOT / "docs" / "human-ai-development-guide.md",
     ROOT / "docs" / "deployment" / "server-and-modules.md",
     ROOT / "docs" / "release" / "release-process.md",
@@ -28,20 +29,31 @@ REQUIRED = [
     ROOT / "backend" / "contracts" / "module-task-v1.schema.json",
     ROOT / "backend" / "contracts" / "module-conformance-fixture-v1.schema.json",
     ROOT / "backend" / "contracts" / "module-plugin-sdk-v1.json",
+    ROOT / "backend" / "contracts" / "resident-integration-v1.schema.json",
+    ROOT / "backend" / "contracts" / "resident-integration-sdk-v1.json",
     ROOT / "examples" / "reference-module" / "manifest.example.json",
+    ROOT / "examples" / "reference-module" / "manifest.resident.example.json",
     ROOT / "examples" / "reference-module" / "conformance-fixture.json",
+    ROOT / "ResidentIntegrations" / "reference-module-workbench" / "integration.json",
+    ROOT / "ResidentIntegrations" / "reference-module-workbench" / "main.js",
 ]
 PUBLIC_MODULE_FILES = [
     ROOT / "docs" / "module-developer-guide.md",
+    ROOT / "docs" / "resident-module-integration-guide.md",
     ROOT / "docs" / "human-ai-development-guide.md",
     ROOT / "backend" / "contracts" / "module-manifest-v1.schema.json",
     ROOT / "backend" / "contracts" / "module-management-v1.schema.json",
     ROOT / "backend" / "contracts" / "module-task-v1.schema.json",
     ROOT / "backend" / "contracts" / "module-conformance-fixture-v1.schema.json",
     ROOT / "backend" / "contracts" / "module-plugin-sdk-v1.json",
+    ROOT / "backend" / "contracts" / "resident-integration-v1.schema.json",
+    ROOT / "backend" / "contracts" / "resident-integration-sdk-v1.json",
     ROOT / "examples" / "reference-module" / "manifest.example.json",
+    ROOT / "examples" / "reference-module" / "manifest.resident.example.json",
     ROOT / "examples" / "reference-module" / "conformance-fixture.json",
     ROOT / "examples" / "reference-module" / "app.py",
+    ROOT / "ResidentIntegrations" / "reference-module-workbench" / "integration.json",
+    ROOT / "ResidentIntegrations" / "reference-module-workbench" / "main.js",
 ]
 PRIVATE_MARKERS = [
     "/agent/resolve",
@@ -101,7 +113,13 @@ def main() -> int:
             errors.append(f"{path.relative_to(ROOT)} lacks PENDING_ONSITE boundary")
 
     schema_paths = sorted(
-        (ROOT / "backend" / "contracts").glob("module-*.schema.json")
+        (ROOT / "backend" / "contracts").glob("*.schema.json")
+    )
+    schema_paths.extend(
+        [
+            ROOT / "backend" / "contracts" / "module-plugin-sdk-v1.json",
+            ROOT / "backend" / "contracts" / "resident-integration-sdk-v1.json",
+        ]
     )
     for path in schema_paths:
         try:
@@ -119,6 +137,7 @@ def main() -> int:
             "/api/auth/login",
             "/api/module-tasks",
             "/api/admin/modules",
+            "/api/resident-integrations",
         }
         missing_paths = required_paths - set(openapi.get("paths", {}))
         if missing_paths:

@@ -21,13 +21,14 @@ class ModulePluginSdkContractTests(unittest.TestCase):
     def test_contract_is_machine_readable_and_method_set_is_frozen(self):
         contract = json.loads(CONTRACT_PATH.read_text(encoding="utf-8"))
         Draft202012Validator.check_schema(contract)
-        self.assertEqual(contract["version"], "1.0.0")
+        self.assertEqual(contract["version"], "1.1.0")
         self.assertEqual(contract["global"], "window.ChatRaw.modules")
         self.assertEqual(
             set(contract["methods"]),
             {
                 "getFeatureStatus",
                 "startTask",
+                "listTasks",
                 "getTask",
                 "subscribe",
                 "cancelTask",
@@ -57,6 +58,16 @@ class ModulePluginSdkContractTests(unittest.TestCase):
         self.assertIn(
             "invalid_sdk_argument",
             contract["errors"]["local_codes"],
+        )
+        self.assertEqual(
+            contract["$defs"]["StartTaskOptions"]["properties"][
+                "presentation"
+            ]["default"],
+            "task_center",
+        )
+        self.assertIn(
+            "frontend_integration",
+            contract["$defs"]["FeatureStatus"]["required"],
         )
 
     def test_browser_sdk_preserves_legacy_plugin_global(self):
@@ -91,6 +102,16 @@ class ModulePluginSdkContractTests(unittest.TestCase):
         )
         self.assertIn("moduleTasks: {}", source)
         self.assertIn("upsertModuleTask(task", source)
+        self.assertIn("presentation === 'task_center'", source)
+        self.assertIn(
+            "if (presentation === 'task_center')",
+            source,
+        )
+        self.assertIn("listTasks: async (filters = {})", source)
+        self.assertIn(
+            "(left.order ?? 100) - (right.order ?? 100)",
+            source,
+        )
         self.assertNotIn(
             "window.ChatRaw.modules.subscribe(taskId);\n                        return;",
             source,

@@ -2,18 +2,19 @@
 
 ChatRaw Server 是 ChatRaw 的多人共享版本：用户必须登录后才能使用任何业务功能；管理员统一管理用户、模型、插件和后端模块；普通用户可以使用已启用的功能，但不能安装、停用或删除插件与模块。
 
-[English](#english) · [用户指南](docs/user-guide.md) · [管理员指南](docs/admin-guide.md) · [模块开发](docs/module-developer-guide.md)
+[English](#english) · [用户指南](docs/user-guide.md) · [管理员指南](docs/admin-guide.md) · [模块开发](docs/module-developer-guide.md) · [Resident 集成](docs/resident-module-integration-guide.md)
 
 ## 它解决什么问题
 
 ChatRaw Server 只做两件核心事情：
 
 1. **多人共享与权限管理**：所有用户共享同一个 ChatRaw 平台和业务数据，不做租户式数据隔离；管理员与普通用户拥有不同的管理权限。
-2. **大型功能模块化**：需要独立后端、高权限或复杂依赖的功能作为单独模块运行，不把业务代码塞进 ChatRaw 后端。模块的前端入口仍由 ChatRaw 插件提供。
+2. **大型功能模块化**：需要独立后端、高权限或复杂依赖的功能作为单独模块运行，不把业务代码塞进 ChatRaw 后端。前端入口选择可由管理员动态管理的插件，或随 Server 源码构建的 Resident Integration。
 
 插件与模块不是同一种东西：
 
 - **插件**运行在 ChatRaw 前端，用来增加按钮、拦截发送或展示结果。
+- **Resident Integration**也是前端代码，但位于独立源码目录，随 Server 审查、构建和部署，用于常驻入口；它不能由模块动态注入。
 - **模块**是独立后端服务，负责长任务、私有依赖、数据库或高权限能力。
 - **ChatRaw Server**负责登录、授权、模块生命周期、任务转发和安全边界。
 - 模块不能直接修改 ChatRaw 前端，也不能向浏览器下发可执行界面代码。
@@ -21,7 +22,7 @@ ChatRaw Server 只做两件核心事情：
 ```text
 用户
   → ChatRaw 前端
-  → 配套插件
+  → 配套插件或 Resident Integration
   → ChatRaw 通用模块网关
   → 独立模块
   → 模块自己的私有依赖
@@ -104,7 +105,7 @@ DATA_DIR="$PWD/data" CHATRAW_LOOPBACK_DEV=1 \
 3. 安装需要的插件。
 4. 为独立模块设置一次性 Pairing Code，并通过部署系统的环境变量或 Secret 注入后启动模块。Pairing Code 不会输出到日志。
 5. 在“设置 → Modules”中输入模块地址和 Pairing Code。
-6. 检查模块请求的 Host Capability、Action、配套插件版本和数据清理能力。
+6. 检查模块请求的 Host Capability、Action、前端集成模式/版本和数据清理能力。
 7. 批准、配置、检查并启用模块。
 
 断开模块默认保留模块自己的数据。清理模块数据是独立的高风险操作，仅在模块声明支持时出现。
@@ -147,6 +148,7 @@ ChatRaw 备份不包含模块自己的数据库。每个模块必须独立备份
 
 - [Plugin Developer Guide](docs/plugin-developer-guide.md)：前端可信代码边界、插件生命周期和 Module SDK。
 - [Module Developer Guide](docs/module-developer-guide.md)：manifest、任务、SSE、审批、产物、Host Capability 和部署模板。
+- [Resident Module Integration Guide](docs/resident-module-integration-guide.md)：源码级常驻入口、稳定挂载位、Host SDK、AI 修改边界和验收。
 - [Human + AI Development Guide](docs/human-ai-development-guide.md)：面向人和 AI 的最小目录、Schema、命令、验收清单和禁止事项。
 - [Server 与模块部署](docs/deployment/server-and-modules.md)：Source/Compose 网络与持久化。
 - [发布流程](docs/release/release-process.md)与 [T8 验收状态](docs/release/acceptance-status.md)
@@ -155,6 +157,7 @@ ChatRaw 备份不包含模块自己的数据库。每个模块必须独立备份
 - [Module Management Schema](backend/contracts/module-management-v1.schema.json)
 - [Module Task Schema](backend/contracts/module-task-v1.schema.json)
 - [Module Plugin SDK Contract](backend/contracts/module-plugin-sdk-v1.json)
+- [Resident Integration Schema](backend/contracts/resident-integration-v1.schema.json) 与 [Host SDK Contract](backend/contracts/resident-integration-sdk-v1.json)
 - [Reference Module](examples/reference-module/)
 
 常用一致性检查：
@@ -187,22 +190,23 @@ MIT
 
 ChatRaw Server is the shared multi-user edition of ChatRaw. Every user must sign in before accessing product data or functions. Administrators manage users, models, plugins, and backend modules. Members can use enabled features but cannot install, disable, or remove plugins or modules.
 
-[User Guide](docs/user-guide.md) · [Administrator Guide](docs/admin-guide.md) · [Module Development](docs/module-developer-guide.md)
+[User Guide](docs/user-guide.md) · [Administrator Guide](docs/admin-guide.md) · [Module Development](docs/module-developer-guide.md) · [Resident Integration](docs/resident-module-integration-guide.md)
 
 ## Product model
 
 ChatRaw Server has two primary responsibilities:
 
 1. **Shared multi-user access with roles.** Users share one platform and its business data; this is not tenant-level data isolation.
-2. **Large features as independent modules.** A feature that needs a backend, privileged access, a database, or complex dependencies runs outside the ChatRaw backend. Its frontend entry point is still a ChatRaw plugin.
+2. **Large features as independent modules.** A feature that needs a backend, privileged access, a database, or complex dependencies runs outside the ChatRaw backend. Its frontend entry is either an administrator-managed plugin or a source-built Resident Integration.
 
 - A **plugin** is trusted frontend code that adds an entry point or presentation.
+- A **Resident Integration** is trusted frontend source shipped in the Server build for a persistent entry point. It is never injected by a module.
 - A **module** is an independent backend service.
 - **ChatRaw Server** owns authentication, authorization, lifecycle management, task forwarding, and the security boundary.
 - A module cannot modify the ChatRaw frontend or deliver executable UI code.
 
 ```text
-User → ChatRaw UI → companion plugin → generic module gateway
+User → ChatRaw UI → companion plugin or Resident Integration → generic module gateway
      → independent module → module-private dependencies
 ```
 
@@ -262,7 +266,7 @@ An administrator injects a fresh one-time Pairing Code through the deployment en
 
 - requested Host Capabilities;
 - actions and minimum roles;
-- companion plugin ID and version range;
+- frontend integration mode, ID, and version range;
 - health, readiness, and configuration state;
 - whether destructive data purge is supported.
 
@@ -308,6 +312,7 @@ Server backups do not contain module-owned databases. Back up each module separa
 - [Administrator Guide](docs/admin-guide.md)
 - [Plugin Developer Guide](docs/plugin-developer-guide.md)
 - [Module Developer Guide](docs/module-developer-guide.md)
+- [Resident Module Integration Guide](docs/resident-module-integration-guide.md)
 - [Human + AI Development Guide](docs/human-ai-development-guide.md)
 - [Deployment and module operations](docs/deployment/server-and-modules.md)
 - [Release process](docs/release/release-process.md) and [acceptance status](docs/release/acceptance-status.md)

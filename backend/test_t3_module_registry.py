@@ -1,6 +1,7 @@
 import copy
 import hashlib
 import importlib.util
+import io
 import json
 import os
 import shutil
@@ -9,6 +10,7 @@ import tempfile
 import time
 import unittest
 import uuid
+from contextlib import redirect_stdout
 from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
@@ -474,6 +476,19 @@ class ModuleRegistryTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_pair_stores_restricted_connection_and_redacts_response(self):
         paired = await self._pair()
+        reviews = {
+            item["capability"]: item
+            for item in paired["capability_reviews"]
+        }
+        self.assertEqual(reviews["chat.read"]["risk"], "medium")
+        self.assertEqual(reviews["resource.read"]["risk"], "medium")
+        self.assertEqual(reviews["model.invoke"]["risk"], "high")
+        self.assertTrue(
+            all(
+                item["effective_for_tasks"]
+                for item in reviews.values()
+            )
+        )
         serialized = json.dumps(paired)
         self.assertNotIn("127.0.0.1", serialized)
         self.assertNotIn(self.fake.token, serialized)
@@ -665,6 +680,29 @@ class ModuleRegistryTests(unittest.IsolatedAsyncioTestCase):
             ready["id"],
             actor_user_id=self.actor,
         )
+        self.assertEqual(changed["lifecycle_state"], "pending_review")
+        self.assertFalse(changed["reviewed"])
+        self.assertEqual(changed["granted_host_capabilities"], [])
+
+    async def test_config_schema_change_requires_review(self):
+        ready = await self._approved_ready()
+        await self.registry.enable(
+            ready["id"],
+            actor_user_id=self.actor,
+        )
+        self.fake.manifest["module_version"] = "1.0.1"
+        self.fake.manifest["config_schema"]["properties"][
+            "second_service_key"
+        ] = {
+            "type": "string",
+            "x-chatraw-secret": True,
+        }
+
+        changed = await self.registry.refresh(
+            ready["id"],
+            actor_user_id=self.actor,
+        )
+
         self.assertEqual(changed["lifecycle_state"], "pending_review")
         self.assertFalse(changed["reviewed"])
         self.assertEqual(changed["granted_host_capabilities"], [])
@@ -1039,7 +1077,6 @@ def _load_reference_module(data_dir, pairing_code, ttl_seconds):
             "REFERENCE_MODULE_DATA_DIR": str(data_dir),
             "REFERENCE_MODULE_PAIRING_CODE": pairing_code,
             "REFERENCE_MODULE_PAIRING_TTL_SECONDS": str(ttl_seconds),
-            "REFERENCE_MODULE_QUIET": "1",
         },
         clear=False,
     ):
@@ -1051,6 +1088,34 @@ def _load_reference_module(data_dir, pairing_code, ttl_seconds):
 
 
 class ReferenceModuleConformanceTests(unittest.TestCase):
+    def test_reference_module_requires_pairing_code_and_never_prints_it(self):
+        module_path = REFERENCE_DIR / "app.py"
+        module_name = f"chatraw_reference_module_{uuid.uuid4().hex}"
+        with patch.dict(
+            os.environ,
+            {"REFERENCE_MODULE_DATA_DIR": tempfile.gettempdir()},
+            clear=True,
+        ):
+            spec = importlib.util.spec_from_file_location(
+                module_name,
+                module_path,
+            )
+            module = importlib.util.module_from_spec(spec)
+            with self.assertRaisesRegex(
+                RuntimeError,
+                "REFERENCE_MODULE_PAIRING_CODE",
+            ):
+                spec.loader.exec_module(module)
+
+        pairing_code = "reference-pairing-code-" + ("x" * 24)
+        with tempfile.TemporaryDirectory(
+            prefix="chatraw-reference-module-"
+        ) as temp:
+            output = io.StringIO()
+            with redirect_stdout(output):
+                _load_reference_module(temp, pairing_code, 600)
+            self.assertNotIn(pairing_code, output.getvalue())
+
     def test_reference_module_pair_config_disconnect_and_purge(self):
         pairing_code = "reference-pairing-code-" + ("x" * 24)
         with tempfile.TemporaryDirectory(
@@ -1065,6 +1130,7 @@ class ReferenceModuleConformanceTests(unittest.TestCase):
                         "host": {
                             "product": "ChatRaw Server",
                             "module_protocol": "1.0.0",
+                            "capability_base_url": "http://127.0.0.1:51111",
                         },
                     },
                 )
@@ -1078,6 +1144,7 @@ class ReferenceModuleConformanceTests(unittest.TestCase):
                         "host": {
                             "product": "ChatRaw Server",
                             "module_protocol": "1.0.0",
+                            "capability_base_url": "http://127.0.0.1:51111",
                         },
                     },
                 )
@@ -1158,6 +1225,7 @@ class ReferenceModuleConformanceTests(unittest.TestCase):
                         "host": {
                             "product": "ChatRaw Server",
                             "module_protocol": "1.0.0",
+                            "capability_base_url": "http://127.0.0.1:51111",
                         },
                     },
                 )
@@ -1174,6 +1242,7 @@ class ReferenceModuleConformanceTests(unittest.TestCase):
                 "host": {
                     "product": "ChatRaw Server",
                     "module_protocol": "1.0.0",
+                    "capability_base_url": "http://127.0.0.1:51111",
                 },
             }
             with TestClient(first.app) as client:

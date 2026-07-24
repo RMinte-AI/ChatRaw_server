@@ -632,6 +632,7 @@ class ModuleRegistry:
         client: ModuleHttpClient,
         plugin_lookup: Callable[[str], dict[str, Any] | None],
         audit: Callable[..., None],
+        capability_base_url: str = "http://127.0.0.1:51111",
     ):
         self.db_path = db_path
         self.credential_dir = Path(credential_dir).resolve()
@@ -639,6 +640,14 @@ class ModuleRegistry:
         self.client = client
         self.plugin_lookup = plugin_lookup
         self.audit = audit
+        try:
+            self.capability_base_url = (
+                ModuleAddressPolicy._normalize_origin(capability_base_url)
+            )
+        except (TypeError, ValueError):
+            raise ValueError(
+                "Capability callback base URL must be an HTTP(S) origin"
+            ) from None
         self.credential_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
         os.chmod(self.credential_dir, 0o700)
 
@@ -846,15 +855,11 @@ class ModuleRegistry:
         )
         capability_reviews = []
         for capability in manifest["requested_host_capabilities"]:
-            if any(
-                marker in capability
-                for marker in (".write", ".delete", ".purge", ".admin")
-            ):
-                risk = "high"
-            elif ".read" in capability:
-                risk = "medium"
-            else:
-                risk = "unrecognized"
+            risk = {
+                "chat.read": "medium",
+                "resource.read": "medium",
+                "model.invoke": "high",
+            }.get(capability, "unrecognized")
             capability_reviews.append(
                 {
                     "capability": capability,
@@ -1126,6 +1131,7 @@ class ModuleRegistry:
                 "host": {
                     "product": "ChatRaw Server",
                     "module_protocol": "1.0.0",
+                    "capability_base_url": self.capability_base_url,
                 },
             },
             max_bytes=MAX_PAIR_RESPONSE_BYTES,

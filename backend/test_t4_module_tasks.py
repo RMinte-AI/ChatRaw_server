@@ -179,6 +179,12 @@ class FakeTaskClient:
         max_event_bytes,
     ):
         del token, max_event_bytes
+        if self.offline:
+            raise ModuleTransportError(
+                "module_unreachable",
+                "Module is unreachable",
+                status_code=502,
+            )
         task_id = path.removeprefix(f"{TASKS_PATH}/").split("/")[0]
         task = self.tasks[task_id]
         yield None
@@ -709,6 +715,24 @@ class ModuleTaskServiceTests(unittest.IsolatedAsyncioTestCase):
             item["capability"]: item
             for item in remote["host_capabilities"]
         }
+        self.assertEqual(
+            capabilities["chat.read"]["endpoint"],
+            "http://127.0.0.1:51111/api/module-capabilities/v1/chat",
+        )
+        self.assertEqual(
+            capabilities["resource.read"]["endpoint"],
+            (
+                "http://127.0.0.1:51111/api/module-capabilities/v1/"
+                "resources/{resource_id}"
+            ),
+        )
+        self.assertEqual(
+            capabilities["model.invoke"]["endpoint"],
+            (
+                "http://127.0.0.1:51111/api/module-capabilities/v1/"
+                "model/invoke"
+            ),
+        )
         raw_tokens = [item["token"] for item in capabilities.values()]
         with self.database.connection() as connection:
             rows = connection.execute(
@@ -796,7 +820,7 @@ class ModuleTaskServiceTests(unittest.IsolatedAsyncioTestCase):
                 "expired",
             )
 
-    async def test_offline_is_unsynced_not_failed_and_draining_rejects_new(self):
+    async def test_offline_becomes_durable_failure_and_draining_rejects_new(self):
         task, _ = await self._create()
         self.client.offline = True
         current = await self.service.get(
@@ -804,19 +828,80 @@ class ModuleTaskServiceTests(unittest.IsolatedAsyncioTestCase):
             principal_user_id=self.viewer,
             principal_role="member",
         )
-        self.assertEqual(current["state"], "queued")
+        self.assertEqual(current["state"], "failed")
         self.assertEqual(current["status_sync"], "unreachable")
+        self.assertEqual(current["outcome_code"], "module_unreachable")
         self.client.offline = False
         recovered = await self.service.get(
             task["task_id"],
             principal_user_id=self.viewer,
             principal_role="member",
         )
-        self.assertEqual(recovered["status_sync"], "current")
+        self.assertEqual(recovered["state"], "failed")
+        self.assertEqual(recovered["outcome_code"], "module_unreachable")
         self.registry.enabled = False
         with self.assertRaises(ModuleTaskError) as draining:
             await self._create(key="draining")
         self.assertEqual(draining.exception.status_code, 409)
+
+    async def test_stream_transport_failure_emits_and_replays_terminal(self):
+        task, _ = await self._create()
+        self.client.offline = True
+        events = [
+            event
+            async for event in self.service.stream_events(
+                task["task_id"],
+                last_event_id=0,
+            )
+        ]
+        self.assertEqual(len(events), 1)
+        self.assertEqual(events[0]["event"], "task.terminal")
+        self.assertEqual(events[0]["data"]["state"], "failed")
+        self.assertEqual(
+            events[0]["data"]["outcome_code"],
+            "module_unreachable",
+        )
+        replay = [
+            event
+            async for event in self.service.stream_events(
+                task["task_id"],
+                last_event_id=0,
+            )
+        ]
+        self.assertEqual(replay, events)
+        exhausted = [
+            event
+            async for event in self.service.stream_events(
+                task["task_id"],
+                last_event_id=events[0]["id"],
+            )
+        ]
+        self.assertEqual(exhausted, [])
+
+    async def test_stream_failure_is_idempotent_after_concurrent_terminal(self):
+        task, _ = await self._create()
+        with self.database.connection(write=True) as connection:
+            connection.execute(
+                """
+                UPDATE module_tasks
+                SET state = 'failed', outcome_code = 'approval_denied',
+                    last_cursor = 4, terminal_at = updated_at
+                WHERE id = ?
+                """,
+                (task["task_id"],),
+            )
+
+        event = self.service._fail_stream(
+            task["task_id"],
+            outcome_code="module_unreachable",
+        )
+
+        self.assertEqual(event["id"], 4)
+        self.assertEqual(event["data"]["state"], "failed")
+        self.assertEqual(
+            event["data"]["outcome_code"],
+            "approval_denied",
+        )
 
     async def test_running_task_uses_frozen_action_and_config_after_upgrade(self):
         task, _ = await self._create()
@@ -861,7 +946,19 @@ class ModuleTaskMachineContractTests(unittest.TestCase):
         )
         Draft202012Validator.check_schema(contract)
         self.assertEqual(
-            set(contract["$defs"]["event"]["properties"]["event"]["enum"]),
+            {
+                contract["$defs"][name]["properties"]["event"]["const"]
+                for name in (
+                    "statusEvent",
+                    "progressEvent",
+                    "outputDeltaEvent",
+                    "outputSnapshotEvent",
+                    "approvalRequestedEvent",
+                    "approvalResolvedEvent",
+                    "artifactEvent",
+                    "terminalEvent",
+                )
+            },
             {
                 "task.status",
                 "task.progress",
@@ -964,7 +1061,6 @@ def _load_reference_module(data_dir, pairing_code, ttl_seconds=600):
             "REFERENCE_MODULE_DATA_DIR": str(data_dir),
             "REFERENCE_MODULE_PAIRING_CODE": pairing_code,
             "REFERENCE_MODULE_PAIRING_TTL_SECONDS": str(ttl_seconds),
-            "REFERENCE_MODULE_QUIET": "1",
         },
     ):
         spec = importlib.util.spec_from_file_location(module_name, module_path)
@@ -1111,6 +1207,7 @@ class ModuleTaskApiTests(unittest.TestCase):
         self.assertEqual(response.status_code, 202, response.text)
         task = response.json()
         serialized = response.text
+        self.assertNotIn("result", task)
         self.assertNotIn("127.0.0.1", serialized)
         self.assertNotIn("private-module-credential", serialized)
         self.assertNotIn("host_capabilities", serialized)
@@ -1323,7 +1420,11 @@ class ReferenceTaskConformanceTests(unittest.TestCase):
             "/chatraw-module/v1/pair",
             json={
                 "pairing_code": self.pairing_code,
-                "host": {"module_protocol": "1.0.0"},
+                "host": {
+                    "product": "ChatRaw Server",
+                    "module_protocol": "1.0.0",
+                    "capability_base_url": "http://127.0.0.1:51111",
+                },
             },
         )
         self.assertEqual(paired.status_code, 200, paired.text)

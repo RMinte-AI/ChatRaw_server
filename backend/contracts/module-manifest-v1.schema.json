@@ -133,7 +133,15 @@
           ]
         },
         "input_schema": {
-          "type": "object"
+          "type": "object",
+          "required": [
+            "type"
+          ],
+          "properties": {
+            "type": {
+              "const": "object"
+            }
+          }
         },
         "output_schema": {
           "type": "object"

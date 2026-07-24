@@ -102,7 +102,7 @@ DATA_DIR="$PWD/data" CHATRAW_LOOPBACK_DEV=1 \
 1. 在设置中创建普通用户或其他管理员。
 2. 配置并验证模型。
 3. 安装需要的插件。
-4. 启动独立模块，由模块生成一次性 Pairing Code。
+4. 为独立模块设置一次性 Pairing Code，并通过部署系统的环境变量或 Secret 注入后启动模块。Pairing Code 不会输出到日志。
 5. 在“设置 → Modules”中输入模块地址和 Pairing Code。
 6. 检查模块请求的 Host Capability、Action、配套插件版本和数据清理能力。
 7. 批准、配置、检查并启用模块。
@@ -162,6 +162,10 @@ ChatRaw 备份不包含模块自己的数据库。每个模块必须独立备份
 ```bash
 .venv/bin/python scripts/export-openapi.py --check
 .venv/bin/python scripts/module-conformance.py contracts
+.venv/bin/python scripts/module-conformance.py task-probe \
+  --base-url http://127.0.0.1:8765 \
+  --pairing-code A_FRESH_ONE_TIME_CODE \
+  --fixture examples/reference-module/conformance-fixture.json
 ./scripts/run-t6-source-gate.sh
 ```
 
@@ -254,7 +258,7 @@ The loopback development flag is only for local HTTP use.
 
 ## Module onboarding
 
-An administrator starts a module, obtains its one-time Pairing Code, and pairs it under **Settings → Modules**. Before enabling it, review:
+An administrator injects a fresh one-time Pairing Code through the deployment environment, starts the module, and pairs it under **Settings → Modules**. The code is never printed to logs. Before enabling the module, review:
 
 - requested Host Capabilities;
 - actions and minimum roles;
@@ -314,6 +318,10 @@ Server backups do not contain module-owned databases. Back up each module separa
 ```bash
 .venv/bin/python scripts/export-openapi.py --check
 .venv/bin/python scripts/module-conformance.py contracts
+.venv/bin/python scripts/module-conformance.py task-probe \
+  --base-url http://127.0.0.1:8765 \
+  --pairing-code A_FRESH_ONE_TIME_CODE \
+  --fixture examples/reference-module/conformance-fixture.json
 ./scripts/run-t6-source-gate.sh
 ```
 

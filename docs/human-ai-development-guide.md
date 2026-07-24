@@ -36,12 +36,14 @@
 1. [module-manifest-v1.schema.json](../backend/contracts/module-manifest-v1.schema.json)
 2. [module-management-v1.schema.json](../backend/contracts/module-management-v1.schema.json)
 3. [module-task-v1.schema.json](../backend/contracts/module-task-v1.schema.json)
-4. [module-plugin-sdk-v1.json](../backend/contracts/module-plugin-sdk-v1.json)
-5. [manifest.example.json](../examples/reference-module/manifest.example.json)
-6. [reference module app.py](../examples/reference-module/app.py)
-7. [reference Compose](../examples/reference-module/compose.yml)
-8. [Plugin Developer Guide](plugin-developer-guide.md)
-9. [Module Developer Guide](module-developer-guide.md)
+4. [module-conformance-fixture-v1.schema.json](../backend/contracts/module-conformance-fixture-v1.schema.json)
+5. [module-plugin-sdk-v1.json](../backend/contracts/module-plugin-sdk-v1.json)
+6. [manifest.example.json](../examples/reference-module/manifest.example.json)
+7. [conformance-fixture.json](../examples/reference-module/conformance-fixture.json)
+8. [reference module app.py](../examples/reference-module/app.py)
+9. [reference Compose](../examples/reference-module/compose.yml)
+10. [Plugin Developer Guide](plugin-developer-guide.md)
+11. [Module Developer Guide](module-developer-guide.md)
 
 不要只阅读示例代码而跳过 Schema。示例证明一种实现，Schema 定义允许的契约。
 
@@ -201,6 +203,7 @@ Module SDK 本地错误：
 | `invalid_sdk_argument` | 插件传给 SDK 的参数错误 |
 | `module_request_failed` | Server 请求失败且没有更具体代码 |
 | `module_event_stream_failed` | SSE 连接恢复失败 |
+| `module_event_stream_incomplete` | SSE 在 task 终态前结束；保留 task 并等待 SDK 重连 |
 | `artifact_download_failed` | 产物下载失败 |
 | `invalid_event_cursor` | 模块事件 ID 无效 |
 
@@ -249,6 +252,7 @@ Module SDK 本地错误：
 Server 仓库：
 
 ```bash
+.venv/bin/pip install -r backend/requirements-dev.txt
 .venv/bin/python scripts/export-openapi.py --check
 .venv/bin/python scripts/module-conformance.py contracts
 .venv/bin/python scripts/module-conformance.py manifest \
@@ -265,6 +269,10 @@ npm run check:frontend
 .venv/bin/python scripts/module-conformance.py probe \
   --base-url http://127.0.0.1:8765 \
   --pairing-code A_FRESH_ONE_TIME_CODE
+.venv/bin/python scripts/module-conformance.py task-probe \
+  --base-url http://127.0.0.1:8765 \
+  --pairing-code A_FRESH_ONE_TIME_CODE \
+  --fixture /path/to/conformance-fixture.json
 ```
 
 配套插件：
@@ -285,6 +293,7 @@ AI 在报告完成前逐项给出命令、退出码和证据：
 
 - [ ] Schema 验证通过。
 - [ ] Pairing Code 有效期和单次消费通过。
+- [ ] Pairing Code 必须显式注入，缺失时启动失败，且不出现在日志。
 - [ ] Access Token 只返回一次，持久化摘要。
 - [ ] 错误 Token 返回 401。
 - [ ] Health 与 Ready 能区分。
@@ -309,6 +318,8 @@ AI 在报告完成前逐项给出命令、退出码和证据：
 - [ ] member 不能管理插件和模块。
 - [ ] member 能使用启用后的功能。
 - [ ] Host Capability 与 task/scope/用户绑定。
+- [ ] conformance fixture 覆盖 manifest 请求的全部 Host Capability，并证明每项发生真实回调。
+- [ ] `config_schema` 变化会改变权限摘要并触发管理员复审。
 - [ ] 浏览器、插件、manifest、OpenAPI、日志没有模块 Token。
 - [ ] 公共文件没有私有协议、私有 URL 或客户秘密。
 

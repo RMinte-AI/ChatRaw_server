@@ -26,8 +26,10 @@ REQUIRED = [
     ROOT / "backend" / "contracts" / "module-manifest-v1.schema.json",
     ROOT / "backend" / "contracts" / "module-management-v1.schema.json",
     ROOT / "backend" / "contracts" / "module-task-v1.schema.json",
+    ROOT / "backend" / "contracts" / "module-conformance-fixture-v1.schema.json",
     ROOT / "backend" / "contracts" / "module-plugin-sdk-v1.json",
     ROOT / "examples" / "reference-module" / "manifest.example.json",
+    ROOT / "examples" / "reference-module" / "conformance-fixture.json",
 ]
 PUBLIC_MODULE_FILES = [
     ROOT / "docs" / "module-developer-guide.md",
@@ -35,8 +37,10 @@ PUBLIC_MODULE_FILES = [
     ROOT / "backend" / "contracts" / "module-manifest-v1.schema.json",
     ROOT / "backend" / "contracts" / "module-management-v1.schema.json",
     ROOT / "backend" / "contracts" / "module-task-v1.schema.json",
+    ROOT / "backend" / "contracts" / "module-conformance-fixture-v1.schema.json",
     ROOT / "backend" / "contracts" / "module-plugin-sdk-v1.json",
     ROOT / "examples" / "reference-module" / "manifest.example.json",
+    ROOT / "examples" / "reference-module" / "conformance-fixture.json",
     ROOT / "examples" / "reference-module" / "app.py",
 ]
 PRIVATE_MARKERS = [

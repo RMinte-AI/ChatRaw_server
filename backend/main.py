@@ -29,7 +29,7 @@ import hashlib
 from yarl import URL as YarlURL
 from datetime import datetime, timezone
 from pathlib import Path, PurePosixPath
-from typing import Optional, List, AsyncGenerator, Dict, Any, Tuple
+from typing import Optional, List, AsyncGenerator, Dict, Any, Tuple, Literal
 from contextlib import asynccontextmanager
 from urllib.parse import quote, urlparse
 
@@ -103,7 +103,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.middleware.gzip import GZipMiddleware
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict, Field
 import sqlite3
 import math
 from collections import defaultdict
@@ -258,6 +258,8 @@ class Settings(BaseModel):
     ui_settings: UISettings = UISettings()
 
 class ChatRequest(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
     chat_id: Optional[str] = ""
     message: str = ""
     use_rag: Optional[bool] = False
@@ -266,9 +268,6 @@ class ChatRequest(BaseModel):
     web_content: Optional[str] = ""  # Parsed web page content
     web_url: Optional[str] = ""  # Source URL for reference
     active_skills: Optional[List[str]] = None  # Explicit skills activated for this request
-    
-    class Config:
-        extra = "ignore"  # Ignore extra fields
 
 class Chat(BaseModel):
     id: str
@@ -282,6 +281,142 @@ class Message(BaseModel):
     role: str
     content: str
     created_at: str
+
+
+class ModuleErrorResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    detail: str
+    code: Optional[str] = None
+
+
+class ModuleTaskCreateApiRequest(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+        json_schema_extra={
+            "allOf": [
+                {
+                    "if": {"required": ["chat_id"]},
+                    "then": {"required": ["user_message"]},
+                },
+                {
+                    "if": {"required": ["user_message"]},
+                    "then": {"required": ["chat_id"]},
+                },
+            ]
+        },
+    )
+
+    module_id: str = Field(min_length=1, max_length=128)
+    action_id: str = Field(min_length=1, max_length=128)
+    input: Dict[str, Any]
+    chat_id: Optional[str] = Field(default=None, min_length=1)
+    user_message: Optional[str] = Field(default=None, min_length=1)
+    resource_ids: List[str] = Field(
+        default_factory=list,
+        max_length=64,
+    )
+
+
+class ModuleTaskApprovalApiRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    decision: Literal["approve", "deny"]
+
+
+class ModuleModelInvokeApiRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    prompt: str = Field(min_length=1, max_length=65536)
+
+
+class ModuleArtifactApiView(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    artifact_ref: str
+    filename: str
+    media_type: str
+    size: int
+    expires_at: Optional[str]
+    created_at: str
+
+
+class ModuleTaskApiView(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    task_id: str
+    module_id: str
+    module_version: str
+    action_id: str
+    action_version: str
+    config_revision: str
+    chat_id: Optional[str]
+    state: Literal[
+        "queued",
+        "running",
+        "waiting_approval",
+        "cancel_requested",
+        "succeeded",
+        "failed",
+        "cancelled",
+    ]
+    status_sync: str
+    outcome_code: Optional[str]
+    last_event_id: int
+    created_at: str
+    accepted_at: Optional[str]
+    updated_at: str
+    terminal_at: Optional[str]
+    is_creator: bool
+    can_control: bool
+    artifacts: List[ModuleArtifactApiView]
+    result: Any = None
+
+
+class ModuleTaskListApiResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    tasks: List[ModuleTaskApiView]
+
+
+class ModuleFeatureApiResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    sdk_version: Literal["1.0.0"]
+    module_id: str
+    name: str
+    module_version: Optional[str]
+    protocol_version: Optional[str]
+    visible: bool
+    available: bool
+    state: Literal["hidden", "available", "unavailable"]
+    reason: Optional[Dict[str, Any]]
+    companion_plugin: Optional[Dict[str, Any]]
+    actions: List[Dict[str, Any]]
+
+
+class ModuleChatCapabilityApiResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    task_id: str
+    chat_id: str
+    conversation_ref: str
+    actor_ref: str
+    messages: List[Dict[str, Any]]
+
+
+class ModuleResourceCapabilityApiResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    task_id: str
+    resource: Dict[str, Any]
+
+
+class ModuleModelCapabilityApiResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    task_id: str
+    content: str
 
 
 def encode_chat_cursor(updated_at: str, chat_id: str) -> str:
@@ -1868,6 +2003,7 @@ os.makedirs(DATA_DIR, exist_ok=True)
 TEST_MODE = os.environ.get("CHATRAW_TEST_MODE", "0") == "1"
 DEV_MODE = os.environ.get("CHATRAW_DEV_MODE", "0") == "1" or TEST_MODE
 CONTAINERIZED = os.environ.get("CHATRAW_CONTAINERIZED", "0") == "1"
+SERVER_PORT = int(os.environ.get("PORT", "51111"))
 MODULE_NETWORK_NAME = os.environ.get(
     "CHATRAW_MODULE_NETWORK",
     "chatraw-modules",
@@ -1907,6 +2043,14 @@ MODULE_BRIDGE_CIDRS = [
     ).split(",")
     if item.strip()
 ]
+MODULE_CAPABILITY_BASE_URL = os.environ.get(
+    "CHATRAW_MODULE_CAPABILITY_BASE_URL",
+    (
+        f"http://chatraw-server:{SERVER_PORT}"
+        if CONTAINERIZED
+        else f"http://127.0.0.1:{SERVER_PORT}"
+    ),
+)
 if TEST_MODE:
     ensure_setup_secret(SETUP_SECRET_FILE)
 
@@ -2031,6 +2175,33 @@ app = FastAPI(
     openapi_url="/openapi.json" if DEV_MODE else None,
 )
 
+_fastapi_openapi = app.openapi
+
+
+def _chatraw_openapi() -> dict[str, Any]:
+    if app.openapi_schema is not None:
+        return app.openapi_schema
+    schema = _fastapi_openapi()
+    security_schemes = schema.setdefault(
+        "components",
+        {},
+    ).setdefault("securitySchemes", {})
+    security_schemes["ChatRawSession"] = {
+        "type": "apiKey",
+        "in": "cookie",
+        "name": SESSION_COOKIE,
+    }
+    security_schemes["ModuleCapabilityBearer"] = {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "opaque task capability",
+    }
+    app.openapi_schema = schema
+    return schema
+
+
+app.openapi = _chatraw_openapi
+
 # Add GZip compression middleware for static assets
 app.add_middleware(GZipMiddleware, minimum_size=500)
 
@@ -2049,6 +2220,19 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+DEFAULT_CONTENT_SECURITY_POLICY = (
+    "default-src 'self'; "
+    "base-uri 'self'; "
+    "connect-src 'self'; "
+    "font-src 'self' data:; "
+    "frame-ancestors 'self'; "
+    "img-src 'self' data: blob: https:; "
+    "object-src 'none'; "
+    "script-src 'self' 'unsafe-eval'; "
+    "style-src 'self' 'unsafe-inline'; "
+    "worker-src 'self' blob:"
+)
+
 # Security headers middleware
 class SecurityHeadersMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
@@ -2058,12 +2242,11 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         response.headers["X-Frame-Options"] = "SAMEORIGIN"
         response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
         response.headers["Permissions-Policy"] = "geolocation=(), microphone=(), camera=()"
-        # Note: CSP with strict script-src is not compatible with Alpine.js (requires unsafe-eval)
-        # If you need CSP, consider using Alpine.js CSP build: https://alpinejs.dev/advanced/csp
+        if "Content-Security-Policy" not in response.headers:
+            response.headers[
+                "Content-Security-Policy"
+            ] = DEFAULT_CONTENT_SECURITY_POLICY
         return response
-
-app.add_middleware(SecurityHeadersMiddleware)
-
 
 PUBLIC_EXACT_PATHS = {
     "/health",
@@ -2236,6 +2419,7 @@ class AuthenticationMiddleware(BaseHTTPMiddleware):
 
 
 app.add_middleware(AuthenticationMiddleware)
+app.add_middleware(SecurityHeadersMiddleware)
 
 
 def current_principal(request: Request) -> Principal:
@@ -7733,6 +7917,7 @@ module_registry = ModuleRegistry(
     client=ModuleHttpClient(module_address_policy),
     plugin_lookup=_module_plugin_lookup,
     audit=auth_service.audit,
+    capability_base_url=MODULE_CAPABILITY_BASE_URL,
 )
 
 
@@ -7759,6 +7944,7 @@ module_task_service = ModuleTaskService(
     audit=auth_service.audit,
     chat_generation_active=_chat_generation_active,
     model_invoke=_module_host_model_invoke,
+    capability_base_url=MODULE_CAPABILITY_BASE_URL,
 )
 
 
@@ -7837,7 +8023,35 @@ def _module_task_error_response(error: ModuleTaskError) -> JSONResponse:
     )
 
 
-@app.get("/api/module-features/{module_id}")
+def _module_json_body(model: type[BaseModel]) -> dict[str, Any]:
+    return {
+        "required": True,
+        "content": {
+            "application/json": {
+                "schema": model.model_json_schema(),
+            }
+        },
+    }
+
+
+MODULE_API_ERROR_RESPONSES = {
+    400: {"model": ModuleErrorResponse},
+    401: {"model": ModuleErrorResponse},
+    403: {"model": ModuleErrorResponse},
+    404: {"model": ModuleErrorResponse},
+    409: {"model": ModuleErrorResponse},
+    413: {"model": ModuleErrorResponse},
+    502: {"model": ModuleErrorResponse},
+    503: {"model": ModuleErrorResponse},
+}
+
+
+@app.get(
+    "/api/module-features/{module_id}",
+    response_model=ModuleFeatureApiResponse,
+    responses=MODULE_API_ERROR_RESPONSES,
+    openapi_extra={"security": [{"ChatRawSession": []}]},
+)
 async def get_module_feature_status(module_id: str, request: Request):
     current_principal(request)
     try:
@@ -7874,7 +8088,34 @@ def _module_capability_bearer(request: Request) -> str:
     return authorization[7:]
 
 
-@app.post("/api/module-tasks")
+@app.post(
+    "/api/module-tasks",
+    response_model=ModuleTaskApiView,
+    response_model_exclude_unset=True,
+    status_code=202,
+    responses={
+        200: {"model": ModuleTaskApiView},
+        **MODULE_API_ERROR_RESPONSES,
+    },
+    openapi_extra={
+        "security": [{"ChatRawSession": []}],
+        "requestBody": _module_json_body(
+            ModuleTaskCreateApiRequest
+        ),
+        "parameters": [
+            {
+                "name": "Idempotency-Key",
+                "in": "header",
+                "required": True,
+                "schema": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 200,
+                },
+            }
+        ],
+    },
+)
 async def create_module_task(request: Request):
     principal = current_principal(request)
     try:
@@ -7901,7 +8142,13 @@ async def create_module_task(request: Request):
         return _module_task_error_response(error)
 
 
-@app.get("/api/module-tasks")
+@app.get(
+    "/api/module-tasks",
+    response_model=ModuleTaskListApiResponse,
+    response_model_exclude_unset=True,
+    responses=MODULE_API_ERROR_RESPONSES,
+    openapi_extra={"security": [{"ChatRawSession": []}]},
+)
 async def list_module_tasks(
     request: Request,
     limit: int = 50,
@@ -7922,7 +8169,13 @@ async def list_module_tasks(
         return _module_task_error_response(error)
 
 
-@app.get("/api/module-tasks/{task_id}")
+@app.get(
+    "/api/module-tasks/{task_id}",
+    response_model=ModuleTaskApiView,
+    response_model_exclude_unset=True,
+    responses=MODULE_API_ERROR_RESPONSES,
+    openapi_extra={"security": [{"ChatRawSession": []}]},
+)
 async def get_module_task(task_id: str, request: Request):
     principal = current_principal(request)
     try:
@@ -7935,7 +8188,27 @@ async def get_module_task(task_id: str, request: Request):
         return _module_task_error_response(error)
 
 
-@app.get("/api/module-tasks/{task_id}/events")
+@app.get(
+    "/api/module-tasks/{task_id}/events",
+    responses={
+        200: {
+            "description": "Persisted Module Protocol v1 event stream",
+            "content": {"text/event-stream": {}},
+        },
+        **MODULE_API_ERROR_RESPONSES,
+    },
+    openapi_extra={
+        "security": [{"ChatRawSession": []}],
+        "parameters": [
+            {
+                "name": "Last-Event-ID",
+                "in": "header",
+                "required": False,
+                "schema": {"type": "integer", "minimum": 0},
+            }
+        ],
+    },
+)
 async def get_module_task_events(task_id: str, request: Request):
     current_principal(request)
     raw_cursor = request.headers.get("last-event-id", "0")
@@ -7956,21 +8229,18 @@ async def get_module_task_events(task_id: str, request: Request):
         return _module_task_error_response(error)
 
     async def generate():
-        try:
-            async for event in module_task_service.stream_events(
-                task_id,
-                last_event_id=last_event_id,
-            ):
-                if event is None:
-                    yield ": heartbeat\n\n"
-                    continue
-                yield (
-                    f"id: {event['id']}\n"
-                    f"event: {event['event']}\n"
-                    f"data: {json.dumps(event['data'], ensure_ascii=False, separators=(',', ':'))}\n\n"
-                )
-        except ModuleTaskError:
-            return
+        async for event in module_task_service.stream_events(
+            task_id,
+            last_event_id=last_event_id,
+        ):
+            if event is None:
+                yield ": heartbeat\n\n"
+                continue
+            yield (
+                f"id: {event['id']}\n"
+                f"event: {event['event']}\n"
+                f"data: {json.dumps(event['data'], ensure_ascii=False, separators=(',', ':'))}\n\n"
+            )
 
     return StreamingResponse(
         generate(),
@@ -7983,7 +8253,28 @@ async def get_module_task_events(task_id: str, request: Request):
     )
 
 
-@app.post("/api/module-tasks/{task_id}/cancel")
+@app.post(
+    "/api/module-tasks/{task_id}/cancel",
+    response_model=ModuleTaskApiView,
+    response_model_exclude_unset=True,
+    status_code=202,
+    responses=MODULE_API_ERROR_RESPONSES,
+    openapi_extra={
+        "security": [{"ChatRawSession": []}],
+        "requestBody": {
+            "required": True,
+            "content": {
+                "application/json": {
+                    "schema": {
+                        "type": "object",
+                        "additionalProperties": False,
+                        "maxProperties": 0,
+                    }
+                }
+            },
+        },
+    },
+)
 async def cancel_module_task(task_id: str, request: Request):
     principal = current_principal(request)
     try:
@@ -8012,7 +8303,16 @@ async def cancel_module_task(task_id: str, request: Request):
 
 
 @app.post(
-    "/api/module-tasks/{task_id}/approvals/{approval_id}"
+    "/api/module-tasks/{task_id}/approvals/{approval_id}",
+    response_model=ModuleTaskApiView,
+    response_model_exclude_unset=True,
+    responses=MODULE_API_ERROR_RESPONSES,
+    openapi_extra={
+        "security": [{"ChatRawSession": []}],
+        "requestBody": _module_json_body(
+            ModuleTaskApprovalApiRequest
+        ),
+    },
 )
 async def approve_module_task(
     task_id: str,
@@ -8086,7 +8386,12 @@ async def get_module_task_artifact(
         return _module_task_error_response(error)
 
 
-@app.get("/api/module-capabilities/v1/chat")
+@app.get(
+    "/api/module-capabilities/v1/chat",
+    response_model=ModuleChatCapabilityApiResponse,
+    responses=MODULE_API_ERROR_RESPONSES,
+    openapi_extra={"security": [{"ModuleCapabilityBearer": []}]},
+)
 async def module_capability_chat(request: Request):
     try:
         return await module_task_service.capability_chat_read(
@@ -8096,7 +8401,12 @@ async def module_capability_chat(request: Request):
         return _module_task_error_response(error)
 
 
-@app.get("/api/module-capabilities/v1/resources/{resource_id}")
+@app.get(
+    "/api/module-capabilities/v1/resources/{resource_id}",
+    response_model=ModuleResourceCapabilityApiResponse,
+    responses=MODULE_API_ERROR_RESPONSES,
+    openapi_extra={"security": [{"ModuleCapabilityBearer": []}]},
+)
 async def module_capability_resource(resource_id: str, request: Request):
     try:
         return await module_task_service.capability_resource_read(
@@ -8107,7 +8417,17 @@ async def module_capability_resource(resource_id: str, request: Request):
         return _module_task_error_response(error)
 
 
-@app.post("/api/module-capabilities/v1/model/invoke")
+@app.post(
+    "/api/module-capabilities/v1/model/invoke",
+    response_model=ModuleModelCapabilityApiResponse,
+    responses=MODULE_API_ERROR_RESPONSES,
+    openapi_extra={
+        "security": [{"ModuleCapabilityBearer": []}],
+        "requestBody": _module_json_body(
+            ModuleModelInvokeApiRequest
+        ),
+    },
+)
 async def module_capability_model(request: Request):
     try:
         token = _module_capability_bearer(request)
@@ -8460,6 +8780,15 @@ async def purge_module_data(registration_id: str, request: Request):
 class CachedStaticFiles(StaticFiles):
     async def get_response(self, path: str, scope):
         response = await super().get_response(path, scope)
+        response.headers["X-Content-Type-Options"] = "nosniff"
+        response.headers["X-Frame-Options"] = "SAMEORIGIN"
+        response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+        response.headers["Permissions-Policy"] = (
+            "geolocation=(), microphone=(), camera=()"
+        )
+        response.headers[
+            "Content-Security-Policy"
+        ] = DEFAULT_CONTENT_SECURITY_POLICY
         # Add cache headers for versioned static files (js, css with ?v=)
         if path.endswith(('.js', '.css', '.woff2', '.png', '.jpg', '.ico')):
             # Long cache for static assets (1 year)
@@ -8479,6 +8808,10 @@ app.mount("/", gzipped_static_app, name="static")
 
 if __name__ == "__main__":
     import uvicorn
-    port = int(os.environ.get("PORT", 51111))
-    logger.info(f"ChatRaw starting on http://0.0.0.0:{port}")
-    uvicorn.run(app, host="0.0.0.0", port=port, log_level="info")
+    logger.info(f"ChatRaw starting on http://0.0.0.0:{SERVER_PORT}")
+    uvicorn.run(
+        app,
+        host="0.0.0.0",
+        port=SERVER_PORT,
+        log_level="info",
+    )

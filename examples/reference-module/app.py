@@ -17,6 +17,7 @@ from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
+from urllib.parse import quote, urlsplit
 
 from fastapi import FastAPI, Header, HTTPException, Request
 from fastapi.responses import JSONResponse, Response, StreamingResponse
@@ -52,6 +53,10 @@ PRIVATE_HEALTH_URL = os.environ.get(
 ).strip()
 
 
+class HostCapabilityError(RuntimeError):
+    """A declared ChatRaw host callback could not be used safely."""
+
+
 def _utc_now() -> str:
     return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
 
@@ -72,6 +77,142 @@ def _private_dependency_healthy() -> bool:
         )
     except (OSError, ValueError, json.JSONDecodeError):
         return False
+
+
+def _read_capability_json(
+    endpoint: str,
+    token: str,
+    *,
+    method: str = "GET",
+    payload: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    data = None
+    headers = {
+        "Accept": "application/json",
+        "Authorization": f"Bearer {token}",
+    }
+    if payload is not None:
+        data = json.dumps(payload, separators=(",", ":")).encode("utf-8")
+        headers["Content-Type"] = "application/json"
+    request = urllib.request.Request(
+        endpoint,
+        data=data,
+        headers=headers,
+        method=method,
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=5) as response:
+            body = response.read(512 * 1024 + 1)
+            if response.status != 200 or len(body) > 512 * 1024:
+                raise HostCapabilityError("Host capability response is invalid")
+            result = json.loads(body)
+    except (OSError, ValueError, json.JSONDecodeError):
+        raise HostCapabilityError(
+            "Host capability request failed"
+        ) from None
+    if not isinstance(result, dict):
+        raise HostCapabilityError("Host capability response is invalid")
+    return result
+
+
+def _exercise_host_capabilities(
+    task_id: str,
+    capabilities: list[dict[str, Any]],
+) -> None:
+    if not capabilities:
+        raise HostCapabilityError("No Host Capability was provided")
+    seen: set[str] = set()
+    required_fields = {
+        "capability",
+        "endpoint",
+        "token",
+        "scope",
+        "expires_at",
+    }
+    for envelope in capabilities:
+        if (
+            not isinstance(envelope, dict)
+            or set(envelope) != required_fields
+            or not isinstance(envelope.get("capability"), str)
+            or envelope["capability"] in seen
+            or not isinstance(envelope.get("endpoint"), str)
+            or not isinstance(envelope.get("token"), str)
+            or len(envelope["token"]) < 32
+            or not isinstance(envelope.get("scope"), dict)
+            or not isinstance(envelope.get("expires_at"), str)
+        ):
+            raise HostCapabilityError("Host capability envelope is invalid")
+        capability = envelope["capability"]
+        seen.add(capability)
+        endpoint = envelope["endpoint"]
+        parsed = urlsplit(endpoint)
+        if (
+            parsed.scheme not in {"http", "https"}
+            or not parsed.hostname
+            or parsed.username is not None
+            or parsed.password is not None
+            or parsed.fragment
+        ):
+            raise HostCapabilityError("Host capability endpoint is invalid")
+        if capability == "chat.read":
+            response = _read_capability_json(endpoint, envelope["token"])
+            if (
+                response.get("task_id") != task_id
+                or not isinstance(response.get("conversation_ref"), str)
+                or not isinstance(response.get("actor_ref"), str)
+                or not isinstance(response.get("messages"), list)
+            ):
+                raise HostCapabilityError(
+                    "chat.read response is invalid"
+                )
+        elif capability == "resource.read":
+            resource_ids = envelope["scope"].get("resource_ids")
+            if (
+                not isinstance(resource_ids, list)
+                or not resource_ids
+                or not all(
+                    isinstance(resource_id, str) and resource_id
+                    for resource_id in resource_ids
+                )
+                or "{resource_id}" not in endpoint
+            ):
+                raise HostCapabilityError(
+                    "resource.read scope is invalid"
+                )
+            resource_id = resource_ids[0]
+            response = _read_capability_json(
+                endpoint.replace(
+                    "{resource_id}",
+                    quote(resource_id, safe=""),
+                ),
+                envelope["token"],
+            )
+            resource = response.get("resource")
+            if (
+                response.get("task_id") != task_id
+                or not isinstance(resource, dict)
+                or resource.get("id") != resource_id
+                or not isinstance(resource.get("content"), str)
+            ):
+                raise HostCapabilityError(
+                    "resource.read response is invalid"
+                )
+        elif capability == "model.invoke":
+            response = _read_capability_json(
+                endpoint,
+                envelope["token"],
+                method="POST",
+                payload={"prompt": "Reference module capability check"},
+            )
+            if (
+                response.get("task_id") != task_id
+                or not isinstance(response.get("content"), str)
+            ):
+                raise HostCapabilityError(
+                    "model.invoke response is invalid"
+                )
+        else:
+            raise HostCapabilityError("Host capability is unsupported")
 
 
 def _default_state() -> dict[str, Any]:
@@ -166,19 +307,13 @@ def _config_view(state: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-PAIRING_CODE = os.environ.get(
-    "REFERENCE_MODULE_PAIRING_CODE",
-    "",
-) or secrets.token_urlsafe(32)
+PAIRING_CODE = os.environ.get("REFERENCE_MODULE_PAIRING_CODE", "")
+if not 16 <= len(PAIRING_CODE) <= 4096:
+    raise RuntimeError(
+        "REFERENCE_MODULE_PAIRING_CODE must contain 16 to 4096 characters"
+    )
 PAIRING_CODE_DIGEST = _digest(PAIRING_CODE)
 PAIRING_EXPIRES_AT = time.time() + PAIRING_TTL_SECONDS
-
-if os.environ.get("REFERENCE_MODULE_QUIET", "0") != "1":
-    print(
-        "Reference Module pairing code "
-        f"(valid {PAIRING_TTL_SECONDS}s): {PAIRING_CODE}",
-        flush=True,
-    )
 
 DATA_DIR.mkdir(mode=0o700, parents=True, exist_ok=True)
 os.chmod(DATA_DIR, 0o700)
@@ -344,6 +479,22 @@ async def _run_task(task_id: str) -> None:
             persisted = _task_or_404(_read_state_unlocked(), task_id)
             task_input = dict(persisted["input"])
             start_step = persisted.get("next_step", 0)
+            host_capabilities = list(persisted["host_capabilities"])
+        if task_input.get("exercise_capabilities"):
+            try:
+                await asyncio.to_thread(
+                    _exercise_host_capabilities,
+                    task_id,
+                    host_capabilities,
+                )
+            except HostCapabilityError:
+                await _set_state(
+                    task_id,
+                    "failed",
+                    outcome_code="host_capability_failed",
+                    terminal=True,
+                )
+                return
         text = task_input["text"]
         steps = task_input.get("steps", 8)
         delay = task_input.get("delay_ms", 15) / 1000
@@ -623,8 +774,29 @@ async def pair(request: Request):
     if (
         not isinstance(code, str)
         or not isinstance(host, dict)
+        or set(host) != {
+            "product",
+            "module_protocol",
+            "capability_base_url",
+        }
+        or host.get("product") != "ChatRaw Server"
         or host.get("module_protocol") != "1.0.0"
     ):
+        raise HTTPException(status_code=400, detail="Pairing rejected")
+    try:
+        callback = urlsplit(host["capability_base_url"])
+        callback_valid = (
+            callback.scheme in {"http", "https"}
+            and bool(callback.hostname)
+            and callback.username is None
+            and callback.password is None
+            and callback.query == ""
+            and callback.fragment == ""
+            and callback.path in {"", "/"}
+        )
+    except (TypeError, ValueError):
+        callback_valid = False
+    if not callback_valid:
         raise HTTPException(status_code=400, detail="Pairing rejected")
     with STATE_LOCK:
         state = _read_state_unlocked()
@@ -796,6 +968,7 @@ async def create_task(
         "cancel_race_succeeds",
         "cancel_rejected",
         "artifact_ttl_seconds",
+        "exercise_capabilities",
     }
     if (
         not isinstance(task_input, dict)

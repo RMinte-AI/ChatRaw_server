@@ -2,6 +2,17 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://chatraw.local/contracts/module-management-v1.schema.json",
   "title": "ChatRaw Module Protocol v1 Management Contracts",
+  "oneOf": [
+    {"$ref": "#/$defs/pairRequest"},
+    {"$ref": "#/$defs/pairResponse"},
+    {"$ref": "#/$defs/health"},
+    {"$ref": "#/$defs/ready"},
+    {"$ref": "#/$defs/configView"},
+    {"$ref": "#/$defs/configUpdate"},
+    {"$ref": "#/$defs/disconnectRequest"},
+    {"$ref": "#/$defs/purgeRequest"},
+    {"$ref": "#/$defs/error"}
+  ],
   "$defs": {
     "pairRequest": {
       "type": "object",
@@ -21,7 +32,8 @@
           "additionalProperties": false,
           "required": [
             "product",
-            "module_protocol"
+            "module_protocol",
+            "capability_base_url"
           ],
           "properties": {
             "product": {
@@ -29,6 +41,12 @@
             },
             "module_protocol": {
               "const": "1.0.0"
+            },
+            "capability_base_url": {
+              "type": "string",
+              "format": "uri",
+              "minLength": 8,
+              "maxLength": 2048
             }
           }
         }
@@ -214,6 +232,25 @@
           "type": "string",
           "minLength": 1,
           "maxLength": 512
+        }
+      }
+    },
+    "error": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "code",
+        "detail"
+      ],
+      "properties": {
+        "code": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,159}$"
+        },
+        "detail": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1000
         }
       }
     }

@@ -350,6 +350,11 @@ def validate_manifest(
             action["input_schema"],
             label=f"Input schema for {action_id}",
         )
+        if action["input_schema"].get("type") != "object":
+            raise ModuleProtocolError(
+                "unsupported_input_schema",
+                f"Input schema for {action_id} must describe an object",
+            )
         validate_json_schema(
             action["output_schema"],
             label=f"Output schema for {action_id}",
@@ -408,7 +413,9 @@ def permission_projection(manifest: dict[str, Any]) -> dict[str, Any]:
         )
     actions.sort(key=lambda item: item["action_id"])
     return {
+        "permission_digest_version": 2,
         "module_major": module_major(manifest["module_version"]),
+        "config_schema_digest": digest_json(manifest["config_schema"]),
         "requested_host_capabilities": sorted(
             manifest["requested_host_capabilities"]
         ),

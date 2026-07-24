@@ -222,6 +222,8 @@ async function run() {
 
 SDK 只在浏览器保存可恢复的 `task_id`，并使用当前 ChatRaw Session 访问同源 Server。
 
+ChatRaw 的任务中心归 Server 所有。每次 `startTask` 都会登记一个独立任务；刷新页面后恢复全部已登记任务，后台任务继续订阅，用户可以在任务间切换。插件不要自己复制任务列表、审批弹窗或产物凭证。
+
 ### 9. 错误处理
 
 SDK 错误为：
@@ -236,6 +238,8 @@ SDK 错误为：
 ```
 
 插件应根据 `code` 决定 UI，不要解析自然语言 `message`。常见代码以 [Module SDK contract](../backend/contracts/module-plugin-sdk-v1.json) 的 `errors` 为准。
+
+`module_event_stream_incomplete` 表示 SSE 在出现终态之前结束。SDK 会带 `Last-Event-ID` 有界重连；插件可以显示暂时失联，但不能把它当作任务成功、清除任务，或绕过 Server 直连模块。最终失败会由 Server 持久化，并在重连时以 `task.terminal` 重放。
 
 无论发生何种模块错误，配套插件都应释放 loading 状态，并允许用户回到普通 ChatRaw 功能。
 

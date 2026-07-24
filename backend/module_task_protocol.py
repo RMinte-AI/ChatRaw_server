@@ -6,6 +6,7 @@ import hashlib
 import json
 import re
 from datetime import datetime
+from pathlib import Path
 from typing import Any
 
 from jsonschema import Draft202012Validator
@@ -49,6 +50,27 @@ MAX_TASK_LIST_LIMIT = 100
 MAX_INPUT_RESOURCES = 64
 CAPABILITY_TOKEN_TTL_SECONDS = 15 * 60
 _IDENTIFIER = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,159}$")
+_TASK_SCHEMA_PATH = (
+    Path(__file__).resolve().parent
+    / "contracts"
+    / "module-task-v1.schema.json"
+)
+with _TASK_SCHEMA_PATH.open("r", encoding="utf-8") as _schema_file:
+    MODULE_TASK_SCHEMA = json.load(_schema_file)
+
+
+def _contract_validator(definition: str) -> Draft202012Validator:
+    return Draft202012Validator(
+        {
+            "$ref": f"#/$defs/{definition}",
+            "$defs": MODULE_TASK_SCHEMA["$defs"],
+        }
+    )
+
+
+_SUMMARY_VALIDATOR = _contract_validator("moduleSummary")
+_EVENT_VALIDATOR = _contract_validator("event")
+_ARTIFACT_VALIDATOR = _contract_validator("artifact")
 
 
 class ModuleTaskProtocolError(ValueError):
@@ -175,6 +197,12 @@ def validate_task_summary(
             "Module returned an invalid task response",
             status_code=502,
         )
+    if list(_SUMMARY_VALIDATOR.iter_errors(value)):
+        raise ModuleTaskProtocolError(
+            "invalid_task_response",
+            "Module returned an invalid task response",
+            status_code=502,
+        )
     allowed = {
         "task_id",
         "action_id",
@@ -275,6 +303,12 @@ def validate_task_event(
     previous_event_id: int,
 ) -> dict[str, Any]:
     _inspect_task_json(value)
+    if list(_EVENT_VALIDATOR.iter_errors(value)):
+        raise ModuleTaskProtocolError(
+            "invalid_task_event",
+            "Module returned an invalid task event stream",
+            status_code=502,
+        )
     if (
         not isinstance(value, dict)
         or set(value) != {"id", "event", "data"}
@@ -424,6 +458,7 @@ def validate_artifact_metadata(value: Any) -> dict[str, Any]:
     required = {"artifact_id", "filename", "media_type", "size", "expires_at"}
     if (
         not isinstance(value, dict)
+        or list(_ARTIFACT_VALIDATOR.iter_errors(value))
         or set(value) != required
         or not isinstance(value["artifact_id"], str)
         or not _IDENTIFIER.fullmatch(value["artifact_id"])

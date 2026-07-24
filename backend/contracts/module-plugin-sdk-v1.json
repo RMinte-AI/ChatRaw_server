@@ -172,6 +172,7 @@
       "invalid_sdk_argument",
       "module_request_failed",
       "module_event_stream_failed",
+      "module_event_stream_incomplete",
       "artifact_download_failed",
       "invalid_event_cursor"
     ],

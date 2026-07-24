@@ -12,18 +12,18 @@ async function loadHighlightJS() {
         // Load CSS
         const link = document.createElement('link');
         link.rel = 'stylesheet';
-        link.href = 'https://unpkg.com/@highlightjs/cdn-assets@11.9.0/styles/github-dark.min.css';
+        link.href = '/vendor/highlight/github-dark.min.css';
         document.head.appendChild(link);
         
         // Load core
-        await loadScript('https://unpkg.com/@highlightjs/cdn-assets@11.9.0/highlight.min.js');
+        await loadScript('/vendor/highlight/highlight.min.js');
         
         // Load common languages in parallel
         await Promise.all([
-            loadScript('https://unpkg.com/@highlightjs/cdn-assets@11.9.0/languages/python.min.js'),
-            loadScript('https://unpkg.com/@highlightjs/cdn-assets@11.9.0/languages/javascript.min.js'),
-            loadScript('https://unpkg.com/@highlightjs/cdn-assets@11.9.0/languages/bash.min.js'),
-            loadScript('https://unpkg.com/@highlightjs/cdn-assets@11.9.0/languages/json.min.js')
+            loadScript('/vendor/highlight/languages/python.min.js'),
+            loadScript('/vendor/highlight/languages/javascript.min.js'),
+            loadScript('/vendor/highlight/languages/bash.min.js'),
+            loadScript('/vendor/highlight/languages/json.min.js')
         ]);
         
         hljsLoaded = true;
@@ -465,6 +465,8 @@ function app() {
             artifacts: [],
             error: null
         },
+        moduleTasks: {},
+        moduleTaskOrder: [],
         moduleTaskSubscriptions: {},
         showSystemPrompt: false,
         currentChatId: null,
@@ -774,9 +776,9 @@ function app() {
             );
         },
 
-        showModuleTask(task) {
-            this.moduleTaskUi = {
-                show: true,
+        createModuleTaskView(task) {
+            return {
+                show: false,
                 task,
                 events: [],
                 output: task?.result?.text || task?.chat_projection || '',
@@ -790,13 +792,65 @@ function app() {
             };
         },
 
+        upsertModuleTask(task, { select = false } = {}) {
+            const taskId = task?.task_id;
+            if (!taskId) return null;
+            let view = this.moduleTasks[taskId];
+            if (!view) {
+                view = this.createModuleTaskView(task);
+                this.moduleTasks[taskId] = view;
+                this.moduleTaskOrder = [
+                    taskId,
+                    ...this.moduleTaskOrder.filter(item => item !== taskId)
+                ].slice(0, 20);
+            } else {
+                view.task = task;
+                view.artifacts = Array.isArray(task.artifacts)
+                    ? task.artifacts
+                    : view.artifacts;
+                if (MODULE_TERMINAL_STATES.has(task.state)) {
+                    view.progress = 1;
+                    view.approval = null;
+                    view.error = task.state === 'failed'
+                        ? (task.outcome_code || 'Task failed')
+                        : null;
+                }
+            }
+            if (select) this.selectModuleTask(taskId);
+            return view;
+        },
+
+        moduleTaskViews() {
+            return this.moduleTaskOrder
+                .map(taskId => this.moduleTasks[taskId])
+                .filter(Boolean);
+        },
+
+        selectModuleTask(taskId) {
+            const view = this.moduleTasks[taskId];
+            if (!view) return;
+            this.moduleTaskUi.show = false;
+            view.show = true;
+            this.moduleTaskUi = view;
+        },
+
+        showModuleTask(task) {
+            this.upsertModuleTask(task, { select: true });
+        },
+
+        openModuleTaskCenter() {
+            const first = this.moduleTaskUi.task?.task_id
+                || this.moduleTaskOrder[0];
+            if (first) this.selectModuleTask(first);
+        },
+
         closeModuleTask() {
             this.moduleTaskUi.show = false;
         },
 
         applyModuleTaskEvent(taskId, event) {
-            if (this.moduleTaskUi.task?.task_id !== taskId) return;
-            const ui = this.moduleTaskUi;
+            const ui = this.moduleTasks[taskId];
+            if (!ui) return;
             ui.events.push(event);
             if (ui.events.length > 200) ui.events.shift();
             if (event.event === 'task.status' || event.event === 'task.terminal') {
@@ -845,7 +899,7 @@ function app() {
             if (!taskId) return;
             try {
                 const task = await window.ChatRaw.modules.cancelTask(taskId);
-                this.moduleTaskUi.task = task;
+                this.upsertModuleTask(task);
             } catch (error) {
                 this.moduleTaskUi.error = error.message;
             }
@@ -866,18 +920,20 @@ function app() {
 
         async resumeModuleTasks() {
             if (!window.ChatRaw?.modules) return;
+            let firstActive = null;
             for (const taskId of this.moduleTaskIds()) {
                 try {
                     const task = await window.ChatRaw.modules.getTask(taskId);
+                    this.upsertModuleTask(task);
                     if (!MODULE_TERMINAL_STATES.has(task.state)) {
-                        this.showModuleTask(task);
+                        if (!firstActive) firstActive = taskId;
                         window.ChatRaw.modules.subscribe(taskId);
-                        return;
                     }
                 } catch (error) {
                     if (error?.status === 404) this.forgetModuleTask(taskId);
                 }
             }
+            if (firstActive) this.selectModuleTask(firstActive);
         },
 
         async loadModules() {
@@ -3232,8 +3288,7 @@ function app() {
         
         // Render Markdown
         renderMarkdown(content) {
-            if (!content) return '';
-            return marked.parse(content);
+            return window.ChatRawContentSecurity.renderMarkdown(content);
         },
         
         // Scroll to bottom
@@ -3438,7 +3493,6 @@ function app() {
                                     response.status
                                 );
                             }
-                            failures = 0;
                             const reader = response.body
                                 .pipeThrough(new TextDecoderStream())
                                 .getReader();
@@ -3452,6 +3506,7 @@ function app() {
                                 for (const block of blocks) {
                                     const event = parseSseBlock(block);
                                     if (!event || event.id <= cursor) continue;
+                                    failures = 0;
                                     cursor = event.id;
                                     appInstance.applyModuleTaskEvent(taskId, event);
                                     if (
@@ -3461,16 +3516,7 @@ function app() {
                                         const task = await moduleRequest(
                                             taskPath(taskId)
                                         );
-                                        if (
-                                            appInstance.moduleTaskUi.task?.task_id
-                                            === taskId
-                                        ) {
-                                            appInstance.moduleTaskUi.task = task;
-                                            appInstance.moduleTaskUi.artifacts =
-                                                Array.isArray(task.artifacts)
-                                                    ? task.artifacts
-                                                    : [];
-                                        }
+                                        appInstance.upsertModuleTask(task);
                                         if (
                                             event.event === 'task.terminal'
                                             && task.chat_id
@@ -3494,14 +3540,22 @@ function app() {
                                     }
                                 }
                             }
+                            if (!controller.signal.aborted) {
+                                throw new ModuleSdkError(
+                                    'Module event stream ended before a terminal event',
+                                    'module_event_stream_incomplete',
+                                    0
+                                );
+                            }
                         } catch (error) {
                             if (controller.signal.aborted) break;
                             failures += 1;
                             handlers.onError?.(error);
                             if (failures >= 5) {
-                                if (appInstance.moduleTaskUi.task?.task_id === taskId) {
-                                    appInstance.moduleTaskUi.error =
-                                        error.message || 'Task updates unavailable';
+                                const taskView = appInstance.moduleTasks[taskId];
+                                if (taskView) {
+                                    taskView.error = error.message
+                                        || 'Task updates unavailable';
                                 }
                                 break;
                             }

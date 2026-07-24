@@ -2,7 +2,23 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://chatraw.local/contracts/module-task-v1.schema.json",
   "title": "ChatRaw Module Protocol v1 Task Contracts",
+  "oneOf": [
+    {"$ref": "#/$defs/moduleCreate"},
+    {"$ref": "#/$defs/moduleSummary"},
+    {"$ref": "#/$defs/cancelRequest"},
+    {"$ref": "#/$defs/approvalRequest"},
+    {"$ref": "#/$defs/event"},
+    {"$ref": "#/$defs/error"}
+  ],
   "$defs": {
+    "identifier": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,159}$"
+    },
+    "timestamp": {
+      "type": "string",
+      "format": "date-time"
+    },
     "publicState": {
       "enum": [
         "queued",
@@ -13,6 +29,9 @@
         "failed",
         "cancelled"
       ]
+    },
+    "terminalState": {
+      "enum": ["succeeded", "failed", "cancelled"]
     },
     "artifact": {
       "type": "object",
@@ -25,15 +44,12 @@
         "expires_at"
       ],
       "properties": {
-        "artifact_id": {
-          "type": "string",
-          "minLength": 1,
-          "maxLength": 160
-        },
+        "artifact_id": {"$ref": "#/$defs/identifier"},
         "filename": {
           "type": "string",
           "minLength": 1,
-          "maxLength": 255
+          "maxLength": 255,
+          "not": {"pattern": "[/\\\\\\u0000-\\u001f\\u007f]"}
         },
         "media_type": {
           "type": "string",
@@ -46,11 +62,40 @@
           "maximum": 16777216
         },
         "expires_at": {
-          "type": [
-            "string",
-            "null"
+          "oneOf": [
+            {"$ref": "#/$defs/timestamp"},
+            {"type": "null"}
           ]
         }
+      }
+    },
+    "hostCapability": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "capability",
+        "endpoint",
+        "token",
+        "scope",
+        "expires_at"
+      ],
+      "properties": {
+        "capability": {
+          "enum": ["chat.read", "resource.read", "model.invoke"]
+        },
+        "endpoint": {
+          "type": "string",
+          "format": "uri",
+          "minLength": 8,
+          "maxLength": 2048
+        },
+        "token": {
+          "type": "string",
+          "minLength": 32,
+          "maxLength": 4096
+        },
+        "scope": {"type": "object"},
+        "expires_at": {"$ref": "#/$defs/timestamp"}
       }
     },
     "moduleCreate": {
@@ -74,48 +119,22 @@
           "type": "string",
           "pattern": "^[0-9a-f]{64}$"
         },
-        "action_id": {
-          "type": "string"
-        },
+        "action_id": {"$ref": "#/$defs/identifier"},
         "action_version": {
-          "type": "string"
+          "type": "string",
+          "minLength": 5,
+          "maxLength": 64
         },
         "config_revision": {
-          "type": "string"
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
         },
-        "input": {
-          "type": "object"
-        },
+        "input": {"type": "object"},
         "host_capabilities": {
           "type": "array",
-          "items": {
-            "type": "object",
-            "additionalProperties": false,
-            "required": [
-              "capability",
-              "token",
-              "scope",
-              "expires_at"
-            ],
-            "properties": {
-              "capability": {
-                "enum": [
-                  "chat.read",
-                  "resource.read",
-                  "model.invoke"
-                ]
-              },
-              "token": {
-                "type": "string"
-              },
-              "scope": {
-                "type": "object"
-              },
-              "expires_at": {
-                "type": "string"
-              }
-            }
-          }
+          "maxItems": 3,
+          "items": {"$ref": "#/$defs/hostCapability"}
         }
       }
     },
@@ -132,67 +151,251 @@
       ],
       "properties": {
         "task_id": {
-          "type": "string"
+          "type": "string",
+          "format": "uuid"
         },
-        "action_id": {
-          "type": "string"
-        },
+        "action_id": {"$ref": "#/$defs/identifier"},
         "action_version": {
-          "type": "string"
+          "type": "string",
+          "minLength": 5,
+          "maxLength": 64
         },
         "config_revision": {
-          "type": "string"
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
         },
-        "state": {
-          "$ref": "#/$defs/publicState"
-        },
+        "state": {"$ref": "#/$defs/publicState"},
         "last_event_id": {
           "type": "integer",
           "minimum": 0
         },
-        "outcome_code": {
-          "type": "string"
-        },
+        "outcome_code": {"$ref": "#/$defs/identifier"},
         "result": {},
         "chat_projection": {
-          "type": "string"
+          "type": "string",
+          "maxLength": 524288
         },
         "artifacts": {
           "type": "array",
           "maxItems": 128,
-          "items": {
-            "$ref": "#/$defs/artifact"
+          "items": {"$ref": "#/$defs/artifact"}
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {"state": {"const": "failed"}},
+            "required": ["state"]
+          },
+          "then": {"required": ["outcome_code"]}
+        },
+        {
+          "if": {"required": ["result"]},
+          "then": {
+            "properties": {"state": {"const": "succeeded"}}
+          }
+        },
+        {
+          "if": {"required": ["chat_projection"]},
+          "then": {
+            "properties": {"state": {"const": "succeeded"}}
+          }
+        }
+      ]
+    },
+    "cancelRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "maxProperties": 0
+    },
+    "approvalRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["decision"],
+      "properties": {
+        "decision": {"enum": ["approve", "deny"]}
+      }
+    },
+    "statusEvent": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "event", "data"],
+      "properties": {
+        "id": {"type": "integer", "minimum": 1},
+        "event": {"const": "task.status"},
+        "data": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["state"],
+          "properties": {
+            "state": {"$ref": "#/$defs/publicState"},
+            "outcome_code": {"$ref": "#/$defs/identifier"}
           }
         }
       }
     },
-    "event": {
+    "terminalEvent": {
       "type": "object",
       "additionalProperties": false,
-      "required": [
-        "id",
-        "event",
-        "data"
-      ],
+      "required": ["id", "event", "data"],
       "properties": {
-        "id": {
-          "type": "integer",
-          "minimum": 1
-        },
-        "event": {
-          "enum": [
-            "task.status",
-            "task.progress",
-            "output.delta",
-            "output.snapshot",
-            "approval.requested",
-            "approval.resolved",
-            "artifact.added",
-            "task.terminal"
-          ]
-        },
+        "id": {"type": "integer", "minimum": 1},
+        "event": {"const": "task.terminal"},
         "data": {
-          "type": "object"
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["state"],
+          "properties": {
+            "state": {"$ref": "#/$defs/terminalState"},
+            "outcome_code": {"$ref": "#/$defs/identifier"}
+          },
+          "allOf": [
+            {
+              "if": {
+                "properties": {"state": {"const": "failed"}},
+                "required": ["state"]
+              },
+              "then": {"required": ["outcome_code"]}
+            }
+          ]
+        }
+      }
+    },
+    "progressEvent": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "event", "data"],
+      "properties": {
+        "id": {"type": "integer", "minimum": 1},
+        "event": {"const": "task.progress"},
+        "data": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["progress"],
+          "properties": {
+            "progress": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1
+            },
+            "message": {
+              "type": "string",
+              "maxLength": 1000
+            }
+          }
+        }
+      }
+    },
+    "outputDeltaEvent": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "event", "data"],
+      "properties": {
+        "id": {"type": "integer", "minimum": 1},
+        "event": {"const": "output.delta"},
+        "data": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["text"],
+          "properties": {"text": {"type": "string", "maxLength": 65536}}
+        }
+      }
+    },
+    "outputSnapshotEvent": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "event", "data"],
+      "properties": {
+        "id": {"type": "integer", "minimum": 1},
+        "event": {"const": "output.snapshot"},
+        "data": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["text"],
+          "properties": {
+            "text": {"type": "string", "maxLength": 65536},
+            "compacted_through": {
+              "type": "integer",
+              "minimum": 0
+            }
+          }
+        }
+      }
+    },
+    "approvalRequestedEvent": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "event", "data"],
+      "properties": {
+        "id": {"type": "integer", "minimum": 1},
+        "event": {"const": "approval.requested"},
+        "data": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["approval_id", "prompt", "expires_at"],
+          "properties": {
+            "approval_id": {"$ref": "#/$defs/identifier"},
+            "prompt": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 4000
+            },
+            "expires_at": {"$ref": "#/$defs/timestamp"}
+          }
+        }
+      }
+    },
+    "approvalResolvedEvent": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "event", "data"],
+      "properties": {
+        "id": {"type": "integer", "minimum": 1},
+        "event": {"const": "approval.resolved"},
+        "data": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["approval_id", "decision"],
+          "properties": {
+            "approval_id": {"$ref": "#/$defs/identifier"},
+            "decision": {"enum": ["approve", "deny"]}
+          }
+        }
+      }
+    },
+    "artifactEvent": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "event", "data"],
+      "properties": {
+        "id": {"type": "integer", "minimum": 1},
+        "event": {"const": "artifact.added"},
+        "data": {"$ref": "#/$defs/artifact"}
+      }
+    },
+    "event": {
+      "oneOf": [
+        {"$ref": "#/$defs/statusEvent"},
+        {"$ref": "#/$defs/terminalEvent"},
+        {"$ref": "#/$defs/progressEvent"},
+        {"$ref": "#/$defs/outputDeltaEvent"},
+        {"$ref": "#/$defs/outputSnapshotEvent"},
+        {"$ref": "#/$defs/approvalRequestedEvent"},
+        {"$ref": "#/$defs/approvalResolvedEvent"},
+        {"$ref": "#/$defs/artifactEvent"}
+      ]
+    },
+    "error": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["code", "detail"],
+      "properties": {
+        "code": {"$ref": "#/$defs/identifier"},
+        "detail": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1000
         }
       }
     }

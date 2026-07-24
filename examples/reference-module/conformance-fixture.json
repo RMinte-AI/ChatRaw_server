@@ -1,0 +1,78 @@
+{
+  "schema_version": "1",
+  "cases": [
+    {
+      "name": "stream_success",
+      "action_id": "echo.task",
+      "input": {
+        "text": "conformance stream",
+        "steps": 2,
+        "delay_ms": 5,
+        "exercise_capabilities": true
+      },
+      "host_capabilities": [
+        "chat.read",
+        "resource.read",
+        "model.invoke"
+      ],
+      "control": "none",
+      "expected_terminal_state": "succeeded",
+      "expected_events": [
+        "task.status",
+        "task.progress",
+        "output.delta",
+        "task.terminal"
+      ]
+    },
+    {
+      "name": "approval_success",
+      "action_id": "echo.task",
+      "input": {
+        "text": "conformance approval",
+        "steps": 2,
+        "delay_ms": 5,
+        "require_approval": true
+      },
+      "control": "approve",
+      "expected_terminal_state": "succeeded",
+      "expected_events": [
+        "task.status",
+        "approval.requested",
+        "approval.resolved",
+        "task.terminal"
+      ]
+    },
+    {
+      "name": "cancellation",
+      "action_id": "echo.task",
+      "input": {
+        "text": "conformance cancel",
+        "steps": 20,
+        "delay_ms": 50
+      },
+      "control": "cancel",
+      "expected_terminal_state": "cancelled",
+      "expected_events": [
+        "task.status",
+        "task.terminal"
+      ]
+    },
+    {
+      "name": "artifact",
+      "action_id": "echo.task",
+      "input": {
+        "text": "conformance artifact",
+        "steps": 1,
+        "delay_ms": 5,
+        "create_artifact": true
+      },
+      "control": "none",
+      "expected_terminal_state": "succeeded",
+      "expected_events": [
+        "artifact.added",
+        "task.terminal"
+      ],
+      "expect_artifact": true
+    }
+  ]
+}

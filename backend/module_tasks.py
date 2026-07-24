@@ -114,6 +114,7 @@ class ModuleTaskService:
         audit: Callable[..., None],
         chat_generation_active: Callable[[str], bool] | None = None,
         model_invoke: Callable[[str], Awaitable[str]] | None = None,
+        capability_base_url: str | None = None,
     ):
         self.db_path = db_path
         self.busy_timeout_ms = busy_timeout_ms
@@ -121,6 +122,14 @@ class ModuleTaskService:
         self.audit = audit
         self.chat_generation_active = chat_generation_active or (lambda _chat_id: False)
         self.model_invoke = model_invoke
+        self.capability_base_url = (
+            capability_base_url
+            or getattr(
+                registry,
+                "capability_base_url",
+                "http://127.0.0.1:51111",
+            )
+        ).rstrip("/")
 
     def _connection(self, *, write: bool = False, immediate: bool = False):
         return database_connection(
@@ -536,12 +545,23 @@ class ModuleTaskService:
                 issued.append(
                     {
                         "capability": capability,
+                        "endpoint": self._capability_endpoint(capability),
                         "token": token,
                         "scope": scope,
                         "expires_at": expires_at,
                     }
                 )
         return issued
+
+    def _capability_endpoint(self, capability: str) -> str:
+        paths = {
+            "chat.read": "/api/module-capabilities/v1/chat",
+            "resource.read": (
+                "/api/module-capabilities/v1/resources/{resource_id}"
+            ),
+            "model.invoke": "/api/module-capabilities/v1/model/invoke",
+        }
+        return f"{self.capability_base_url}{paths[capability]}"
 
     @staticmethod
     def _module_error(error: Exception) -> ModuleTaskError:
@@ -1074,6 +1094,11 @@ class ModuleTaskService:
 
     async def reconcile(self, task_id: str) -> dict[str, Any] | None:
         row = self._task_row(task_id)
+        if (
+            row["state"] in TERMINAL_TASK_STATES
+            and row["status_sync"] == "unreachable"
+        ):
+            return None
         try:
             target, action = self._target_and_action_for_row(row)
             status, payload = await self.registry.client.request_json(
@@ -1093,16 +1118,18 @@ class ModuleTaskService:
             self._register_artifacts(task_id, summary.get("artifacts", []))
             self._apply_projection(task_id, action, summary)
             return summary
-        except (ModuleTransportError, ModuleRegistryError) as error:
-            with self._connection(write=True) as connection:
-                connection.execute(
-                    """
-                    UPDATE module_tasks
-                    SET status_sync = 'unreachable', updated_at = ?
-                    WHERE id = ? AND state NOT IN ('succeeded','failed','cancelled')
-                    """,
-                    (_utc_now(), task_id),
-                )
+        except ModuleTransportError:
+            self._fail_stream(
+                task_id,
+                outcome_code="module_unreachable",
+            )
+            return None
+        except (ModuleRegistryError, ModuleTaskError) as error:
+            converted = self._module_error(error)
+            self._fail_stream(
+                task_id,
+                outcome_code=converted.code,
+            )
             return None
 
     async def get(
@@ -1198,7 +1225,10 @@ class ModuleTaskService:
         now = _utc_now()
         with self._connection(write=True, immediate=True) as connection:
             row = connection.execute(
-                "SELECT state, last_cursor FROM module_tasks WHERE id = ?",
+                """
+                SELECT state, last_cursor, outcome_code
+                FROM module_tasks WHERE id = ?
+                """,
                 (task_id,),
             ).fetchone()
             if row is None:
@@ -1256,6 +1286,70 @@ class ModuleTaskService:
         if next_state in TERMINAL_TASK_STATES:
             self.revoke_task_capabilities(task_id)
 
+    def _fail_stream(
+        self,
+        task_id: str,
+        *,
+        outcome_code: str,
+    ) -> dict[str, Any]:
+        now = _utc_now()
+        with self._connection(write=True, immediate=True) as connection:
+            row = connection.execute(
+                """
+                SELECT state, last_cursor, outcome_code
+                FROM module_tasks WHERE id = ?
+                """,
+                (task_id,),
+            ).fetchone()
+            if row is None:
+                raise ModuleTaskError(
+                    "task_not_found",
+                    "Task was not found",
+                    status_code=404,
+                )
+            if row["state"] in TERMINAL_TASK_STATES:
+                event_id = max(1, row["last_cursor"])
+                final_state = row["state"]
+                final_code = (
+                    row["outcome_code"]
+                    if row["outcome_code"] is not None
+                    else outcome_code
+                )
+            else:
+                event_id = max(1, row["last_cursor"] + 1)
+                final_state = "failed"
+                final_code = outcome_code
+                connection.execute(
+                    """
+                    UPDATE module_tasks
+                    SET state = 'failed', status_sync = 'unreachable',
+                        outcome_code = ?, last_cursor = ?,
+                        updated_at = ?, terminal_at = ?,
+                        projection_state = 'suppressed'
+                    WHERE id = ?
+                    """,
+                    (
+                        final_code,
+                        event_id,
+                        now,
+                        now,
+                        task_id,
+                    ),
+                )
+        self.revoke_task_capabilities(task_id)
+        return {
+            "id": event_id,
+            "event": "task.terminal",
+            "data": {
+                "state": final_state,
+                **(
+                    {"outcome_code": final_code}
+                    if final_state == "failed"
+                    else {}
+                ),
+            },
+        }
+
     async def stream_events(self, task_id: str, *, last_event_id: int):
         if not isinstance(last_event_id, int) or last_event_id < 0:
             raise ModuleTaskError(
@@ -1263,6 +1357,17 @@ class ModuleTaskService:
                 "Last-Event-ID is invalid",
             )
         row = self._task_row(task_id)
+        if row["state"] in TERMINAL_TASK_STATES:
+            if last_event_id < max(1, row["last_cursor"]):
+                data = {"state": row["state"]}
+                if row["outcome_code"] is not None:
+                    data["outcome_code"] = row["outcome_code"]
+                yield {
+                    "id": max(1, row["last_cursor"]),
+                    "event": "task.terminal",
+                    "data": data,
+                }
+            return
         target, _action = self._target_and_action_for_row(row)
         stream_cursor = last_event_id
         try:
@@ -1301,18 +1406,24 @@ class ModuleTaskService:
                         self._apply_projection(task_id, action, summary)
                 yield event
         except ModuleTransportError as error:
-            with self._connection(write=True) as connection:
-                connection.execute(
-                    """
-                    UPDATE module_tasks
-                    SET status_sync = 'unreachable', updated_at = ?
-                    WHERE id = ? AND state NOT IN ('succeeded','failed','cancelled')
-                    """,
-                    (_utc_now(), task_id),
-                )
-            raise self._module_error(error) from error
+            yield self._fail_stream(
+                task_id,
+                outcome_code="module_unreachable",
+            )
+            return
         except (ModuleRegistryError, ModuleTaskProtocolError) as error:
-            raise self._module_error(error) from error
+            converted = self._module_error(error)
+            yield self._fail_stream(
+                task_id,
+                outcome_code=converted.code,
+            )
+            return
+        except ModuleTaskError as error:
+            yield self._fail_stream(
+                task_id,
+                outcome_code=error.code,
+            )
+            return
 
     def _require_control(
         self,

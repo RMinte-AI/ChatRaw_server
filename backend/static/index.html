@@ -10,16 +10,13 @@
     <title>ChatRaw</title>
     <link rel="icon" id="favicon" href="data:,">
     
-    <!-- Performance: DNS Prefetch & Preconnect for CDN -->
-    <link rel="dns-prefetch" href="https://unpkg.com">
-    <link rel="preconnect" href="https://unpkg.com" crossorigin="anonymous">
-    
     <!-- Performance: Preload Critical Resources -->
     <link rel="preload" href="fonts/remixicon/remixicon.woff2?t=1769685282643" as="font" type="font/woff2" crossorigin>
     <link rel="preload" href="styles.min.css?v=7.6" as="style">
     <link rel="preload" href="app.min.js?v=7.10" as="script">
-    <link rel="preload" href="https://unpkg.com/alpinejs@3.13.3/dist/cdn.min.js" as="script" crossorigin="anonymous">
-    <link rel="preload" href="https://unpkg.com/marked@9.1.6/marked.min.js" as="script" crossorigin="anonymous">
+    <link rel="preload" href="vendor/alpine.min.js" as="script">
+    <link rel="preload" href="vendor/marked.min.js" as="script">
+    <link rel="preload" href="vendor/purify.min.js" as="script">
     
     <!-- Critical CSS: Inline for faster first paint -->
     <style>
@@ -141,10 +138,12 @@
         }
     </style>
     
-    <!-- External Scripts -->
-    <script src="https://unpkg.com/marked@9.1.6/marked.min.js" crossorigin="anonymous"></script>
-    <script defer src="https://unpkg.com/@alpinejs/collapse@3.13.3/dist/cdn.min.js" crossorigin="anonymous"></script>
-    <script defer src="https://unpkg.com/alpinejs@3.13.3/dist/cdn.min.js" crossorigin="anonymous"></script>
+    <!-- Locally pinned frontend runtime -->
+    <script src="vendor/marked.min.js"></script>
+    <script src="vendor/purify.min.js"></script>
+    <script src="content-security.min.js?v=1"></script>
+    <script defer src="vendor/alpine-collapse.min.js"></script>
+    <script defer src="vendor/alpine.min.js"></script>
     <!-- highlight.js is lazy-loaded in app.min.js when needed -->
     <link rel="stylesheet" href="fonts/remixicon/remixicon.css">
     <link rel="stylesheet" href="styles.min.css?v=7.6">
@@ -953,7 +952,7 @@
                                     <label class="form-label">Requested host capabilities</label>
                                     <p class="section-desc" x-show="module.requested_host_capabilities.length === 0">None.</p>
                                     <template x-for="review in module.capability_reviews" :key="review.capability">
-                                        <span class="model-badge" x-text="review.capability + ' · risk ' + review.risk + ' · declaration only'"></span>
+                                        <span class="model-badge" x-text="review.capability + ' · risk ' + review.risk + ' · ' + (review.effective_for_tasks ? 'task-scoped' : 'declaration only')"></span>
                                     </template>
                                 </div>
 
@@ -1383,7 +1382,17 @@
         </div>
     </div>
 
-    <!-- Core module task UI. Modules never supply or inject this markup. -->
+    <!-- Core module task center. Modules never supply or inject this markup. -->
+    <button class="module-task-center-trigger"
+            type="button"
+            x-show="moduleTaskOrder.length > 0 && !moduleTaskUi.show"
+            x-cloak
+            @click="openModuleTaskCenter()">
+        <i class="ri-stack-line"></i>
+        <span>Tasks</span>
+        <strong x-text="moduleTaskOrder.length"></strong>
+    </button>
+
     <div class="modal-overlay module-task-modal"
          x-show="moduleTaskUi.show"
          x-cloak
@@ -1411,6 +1420,22 @@
                     </button>
                 </div>
             </header>
+
+            <nav class="module-task-switcher"
+                 aria-label="Module tasks">
+                <template x-for="view in moduleTaskViews()"
+                          :key="view.task.task_id">
+                    <button type="button"
+                            :class="{ 'active': moduleTaskUi.task?.task_id === view.task.task_id }"
+                            @click="selectModuleTask(view.task.task_id)">
+                        <span x-text="view.task.action_id"></span>
+                        <small x-text="view.task.state"></small>
+                        <i class="module-task-attention"
+                           x-show="view.approval"
+                           aria-label="Approval required"></i>
+                    </button>
+                </template>
+            </nav>
 
             <div class="module-task-body">
                 <div class="module-task-progress"

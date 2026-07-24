@@ -75,7 +75,7 @@ docker compose exec chatraw \
 
 ### 5. 连接和启用模块
 
-1. 启动模块，由模块生成有效期有限、只能使用一次的 Pairing Code。
+1. 生成至少 16 个字符的一次性 Pairing Code，通过部署系统的环境变量或 Secret 注入模块后启动。模块不能把它输出到日志。
 2. 在“设置 → Modules”输入模块在模块网桥中的地址和 Pairing Code。
 3. ChatRaw 获取 manifest，但不会立即启用模块。
 4. 审查：
@@ -91,7 +91,7 @@ docker compose exec chatraw \
 8. 执行 Check，确认 Health、Ready、Config 和 Plugin 都通过。
 9. 启用模块。
 
-任何影响权限边界的 manifest 变化都会进入 `review required`，原 Capability Grant 被撤销；管理员必须重新检查和批准。
+任何影响权限边界的 manifest 变化都会进入 `review required`，原 Capability Grant 被撤销；管理员必须重新检查和批准。权限边界包括模块主版本、Action 契约和能力、Host Capability、配套插件约束、数据清理能力，以及完整的 `config_schema`。因此新增秘密配置字段也一定会重新触发审核。
 
 ### 6. 模块生命周期
 

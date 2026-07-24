@@ -65,6 +65,7 @@ class ModulePluginSdkContractTests(unittest.TestCase):
         self.assertIn("window.ChatRawPlugin = {", source)
         self.assertIn("'Last-Event-ID': String(cursor)", source)
         self.assertIn("credentials: 'same-origin'", source)
+        self.assertIn("module_event_stream_incomplete", source)
         for method in json.loads(
             CONTRACT_PATH.read_text(encoding="utf-8")
         )["methods"]:
@@ -73,7 +74,9 @@ class ModulePluginSdkContractTests(unittest.TestCase):
     def test_core_owns_task_ui_and_persistence_is_identifier_only(self):
         source = APP_PATH.read_text(encoding="utf-8")
         markup = INDEX_PATH.read_text(encoding="utf-8")
-        self.assertIn("Core module task UI", markup)
+        self.assertIn("Core module task center", markup)
+        self.assertIn("moduleTaskViews()", markup)
+        self.assertIn("selectModuleTask(view.task.task_id)", markup)
         self.assertIn("moduleTaskUi.approval", markup)
         self.assertIn("downloadVisibleModuleArtifact", markup)
         self.assertIn("artifact.artifact_ref", source)
@@ -84,6 +87,12 @@ class ModulePluginSdkContractTests(unittest.TestCase):
         )
         self.assertIn(
             "JSON.stringify(taskIds)",
+            source,
+        )
+        self.assertIn("moduleTasks: {}", source)
+        self.assertIn("upsertModuleTask(task", source)
+        self.assertNotIn(
+            "window.ChatRaw.modules.subscribe(taskId);\n                        return;",
             source,
         )
         self.assertNotIn("module_address", source)

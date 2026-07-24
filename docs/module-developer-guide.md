@@ -124,12 +124,13 @@ my-module/
 - Host Capability；
 - Action 主版本；
 - 输入/输出 Schema；
+- 完整配置 Schema（包括新增秘密字段）；
 - 最低角色；
 - stream/cancel/approval/artifact/chat projection 标志；
 - 配套插件约束；
 - data purge 能力。
 
-这些变化会触发管理员重新审批。
+这些变化会触发管理员重新审批。permission digest 带有独立版本号；开发者不能自行计算一个“兼容摘要”绕过 Server 的复审逻辑。
 
 ### 6. 管理接口
 
@@ -157,7 +158,8 @@ Pair 请求：
   "pairing_code": "one-time-code",
   "host": {
     "product": "ChatRaw Server",
-    "module_protocol": "1.0.0"
+    "module_protocol": "1.0.0",
+    "capability_base_url": "https://chatraw.example.com"
   }
 }
 ```
@@ -179,6 +181,8 @@ Pairing Code 必须：
 - 只能成功消费一次；
 - 不写入日志和公共响应；
 - 成功后不能再次换取 Token。
+
+模块必须要求部署者显式注入 Pairing Code；没有有效 Code 时启动失败。不要自动生成一个无法安全取回的 Code，也不要通过标准输出、健康接口或容器日志交付它。
 
 访问 Token 保护 `/pair` 之外的所有接口。错误 Token 返回 401，响应和日志不能泄露正确 Token。
 
@@ -416,6 +420,7 @@ Host Capability 是 Server 为某个 task 签发的最小、短期、可撤销�
 ```json
 {
   "capability": "chat.read",
+  "endpoint": "https://chatraw.example.com/api/module-capabilities/v1/chat",
   "token": "task-scoped-bearer",
   "scope": {
     "chat_id": "..."
@@ -434,6 +439,27 @@ Host Capability 是 Server 为某个 task 签发的最小、短期、可撤销�
 - 401/403 必须视为权限失败，不能改用其他身份重试。
 
 `chat.read` 返回可信的 `conversation_ref` 和 `actor_ref`。模块不得接受浏览器自行传入的用户、角色或 Principal 作为替代。
+
+模块必须使用 envelope 自带的完整 `endpoint`，不能根据模块地址猜测 ChatRaw 地址。`resource.read` 的 endpoint 包含 `{resource_id}` 占位符，只能替换为 scope 中授权的资源 ID。
+
+当前 Server 硬限制：
+
+| 项目 | 限制 |
+|---|---:|
+| manifest | 256 KiB |
+| config 请求或响应 | 128 KiB |
+| task 创建请求 | 256 KiB |
+| task 摘要响应 | 512 KiB |
+| 单个 SSE event | 128 KiB |
+| 单个 artifact | 16 MiB |
+| task 关联资源 | 64 个 |
+| task 列表单页 | 100 条 |
+| Host Capability 有效期 | 15 分钟 |
+| `model.invoke` | 每个 task 最多 8 次 |
+| `model.invoke` prompt | 64 KiB |
+| `resource.read` 内容 | 2 MiB |
+
+允许的 artifact MIME 类型以 Server 的 `SAFE_ARTIFACT_MEDIA_TYPES` 为准；不要把 HTML、脚本或可执行文件伪装成下载产物。
 
 ### 13. Source 部署
 
@@ -507,6 +533,19 @@ networks:
 ```
 
 `probe` 会消费 Pairing Code，只用于一次性测试实例。
+
+完整任务与 Host Capability 验收：
+
+```bash
+.venv/bin/python scripts/module-conformance.py task-probe \
+  --base-url http://127.0.0.1:8765 \
+  --pairing-code YOUR_FRESH_CODE \
+  --fixture /path/to/conformance-fixture.json
+```
+
+fixture 必须符合
+[`module-conformance-fixture-v1.schema.json`](../backend/contracts/module-conformance-fixture-v1.schema.json)。
+`task-probe` 默认在随机回环端口启动受控 Host Capability 回调桩；fixture 对 Capability 的覆盖必须与 manifest 的申请完全一致，并且声明的每一项都必须被模块真正调用。它还验证流式任务、终态、审批、取消和产物。
 
 完整参考实现：
 
@@ -583,6 +622,10 @@ Management uses `/chatraw-module/v1`; tasks use `/chatraw-module/v1/tasks`. All 
 .venv/bin/python scripts/module-conformance.py probe \
   --base-url http://127.0.0.1:8765 \
   --pairing-code A_FRESH_ONE_TIME_CODE
+.venv/bin/python scripts/module-conformance.py task-probe \
+  --base-url http://127.0.0.1:8765 \
+  --pairing-code A_FRESH_ONE_TIME_CODE \
+  --fixture /path/to/conformance-fixture.json
 ./scripts/run-t6-source-gate.sh
 ./scripts/run-t6-compose-gate.sh
 ```

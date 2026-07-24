@@ -6,6 +6,7 @@ on:
     paths:
       - 'backend/**/*.py'
       - 'backend/requirements.txt'
+      - 'backend/requirements-dev.txt'
       - 'backend/static/**'
       - 'backend/contracts/**'
       - 'examples/reference-module/**'
@@ -22,6 +23,7 @@ on:
     paths:
       - 'backend/**/*.py'
       - 'backend/requirements.txt'
+      - 'backend/requirements-dev.txt'
       - 'backend/static/**'
       - 'backend/contracts/**'
       - 'examples/reference-module/**'
@@ -54,8 +56,7 @@ jobs:
           cache: 'pip'
 
       - name: Install dependencies
-        run: |
-          pip install -r backend/requirements.txt pytest flake8
+        run: pip install -r backend/requirements-dev.txt
 
       - name: Syntax check
         run: python -m compileall -q backend
@@ -82,6 +83,9 @@ jobs:
 
       - name: Install locked frontend build dependencies
         run: npm ci --ignore-scripts
+
+      - name: Audit production frontend dependencies
+        run: npm audit --omit=dev --audit-level=moderate
 
       - name: Verify frontend build artifacts
         run: npm run check:frontend

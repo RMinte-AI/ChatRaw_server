@@ -59,6 +59,10 @@
             "minimum": 0,
             "maximum": 3600,
             "default": 600
+          },
+          "exercise_capabilities": {
+            "type": "boolean",
+            "default": false
           }
         }
       },

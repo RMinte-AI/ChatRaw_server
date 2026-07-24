@@ -40,7 +40,6 @@ start_module() {
     REFERENCE_MODULE_DATA_DIR="$module_data" \
     REFERENCE_MODULE_PAIRING_CODE="$pairing_code" \
     REFERENCE_MODULE_INSTANCE_ID="chatraw-reference-source" \
-    REFERENCE_MODULE_QUIET=1 \
     "$python_bin" -m uvicorn \
         --app-dir examples/reference-module \
         app:app \

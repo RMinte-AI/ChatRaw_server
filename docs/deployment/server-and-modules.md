@@ -25,13 +25,16 @@ python scripts/prepare-server-secrets.py --data-dir ./data
 DATA_DIR=./data PORT=51111 python backend/main.py
 
 REFERENCE_MODULE_DATA_DIR=./reference-data \
+REFERENCE_MODULE_PAIRING_CODE="$(openssl rand -hex 24)" \
 python -m uvicorn --app-dir examples/reference-module app:app \
   --host 127.0.0.1 --port 8765
 ```
 
-The module prints a one-time pairing code. In **Settings → Modules**, connect
-`http://127.0.0.1:8765`, review its declaration, configure it, and enable the
-feature suite.
+Keep the generated code in the administrator's terminal or secret manager and
+enter it once under **Settings → Modules** when connecting
+`http://127.0.0.1:8765`. The module deliberately does not print the code. It
+must be 16–4096 characters, expires, and is consumed by the first successful
+pair.
 
 ## Docker Compose deployment
 
@@ -187,12 +190,14 @@ python scripts/prepare-server-secrets.py --data-dir ./data
 DATA_DIR=./data PORT=51111 python backend/main.py
 
 REFERENCE_MODULE_DATA_DIR=./reference-data \
+REFERENCE_MODULE_PAIRING_CODE="$(openssl rand -hex 24)" \
 python -m uvicorn --app-dir examples/reference-module app:app \
   --host 127.0.0.1 --port 8765
 ```
 
-模块启动时会输出一次性配对码。在 **设置 → Modules** 中连接
-`http://127.0.0.1:8765`，审核声明、完成配置并启用功能套件。
+部署者必须保管并显式注入一次性配对码，模块不会把它输出到日志。在
+**设置 → Modules** 中使用该配对码连接 `http://127.0.0.1:8765`，
+审核声明、完成配置并启用功能套件。
 
 ## Docker Compose 部署
 

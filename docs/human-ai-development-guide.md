@@ -38,7 +38,7 @@
         └─ 否 → 配套插件
 ```
 
-模块不能直接修改或注入 ChatRaw 前端；插件和 Resident 都不能直连模块。它们通过 ChatRaw Module SDK 和 Server 网关连接。
+模块功能可以通过配套插件或 Resident 扩展 ChatRaw 前端；独立运行的模块进程不能在运行时注入或改写 ChatRaw Core。插件和 Resident 都不能直连模块，只能通过 ChatRaw Module SDK 和 Server 网关连接。
 
 ## 3. AI 必读顺序
 
@@ -405,7 +405,7 @@ AI 在报告完成前逐项给出命令、退出码和证据：
 AI 和人都不得：
 
 - 为单个模块在 ChatRaw Server 中增加专用业务路由。
-- 让模块直接注入或修改 ChatRaw 前端。
+- 让模块进程在运行时注入代码、改写 ChatRaw Core 或向浏览器提供可执行 UI。
 - 让 Resident 在安装时动态改写 ChatRaw Core 文件。
 - 让插件直接连接模块或私有后端。
 - 让 Resident 直接连接模块或私有后端。

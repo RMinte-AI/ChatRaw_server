@@ -19,7 +19,7 @@
 - 实现模块安装、启停、审批或删除；
 - 绕过 ChatRaw Server 调用模块私有接口。
 
-模块也不能直接给 ChatRaw 注入前端。大型功能使用“模块 + 配套插件”；如果入口必须随 Server 常驻，则使用“模块 + 源码级 Resident Integration”。Resident 不是插件包，详见 [Resident Module Integration Guide](resident-module-integration-guide.md)。
+独立运行的模块进程不能在运行时向 ChatRaw 注入前端代码。大型功能可以使用“模块 + 配套插件”扩展界面；如果入口必须随 Server 常驻，则使用“模块 + 源码级 Resident Integration”。Resident 不是插件包，详见 [Resident Module Integration Guide](resident-module-integration-guide.md)。
 
 ### 2. 可信代码边界
 

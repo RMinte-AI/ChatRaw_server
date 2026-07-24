@@ -13,6 +13,7 @@ from jsonschema import Draft202012Validator
 
 ROOT = Path(__file__).resolve().parents[1]
 REQUIRED = [
+    ROOT / "AGENTS.md",
     ROOT / "README.md",
     ROOT / "docs" / "user-guide.md",
     ROOT / "docs" / "admin-guide.md",

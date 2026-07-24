@@ -12,14 +12,14 @@
 - 不应进入 ChatRaw 后端的复杂业务；
 - 需要 Source 和 Docker Compose 两种部署方式的功能。
 
-模块不是：
+独立运行的模块进程不是：
 
 - ChatRaw 前端插件；
 - 任意代码注入机制；
 - Kubernetes、DeFi 或通用应用编排平台；
 - 绕过 ChatRaw 登录和权限的后门。
 
-模块不能提供 HTML、JavaScript 或可执行 UI。前端接入只能选择：
+模块进程不能在运行时提供 HTML、JavaScript 或可执行 UI。模块功能的前端接入只能选择：
 
 - 管理员在 WebUI 安装的配套插件；
 - 随 ChatRaw Server 源码审查、构建和发布的 Resident Integration。
@@ -606,7 +606,7 @@ fixture 必须符合
 ### 16. 禁止事项
 
 - 修改 ChatRaw 后端来接入单个模块。
-- 让模块直接修改 ChatRaw 前端。
+- 让模块进程在运行时注入代码、改写 ChatRaw Core 或向浏览器提供可执行 UI。
 - 让插件直连模块。
 - 把 Pairing Code、access token 或 Capability Token 写进 manifest、浏览器或日志。
 - 让 Server 加入模块私有网络。

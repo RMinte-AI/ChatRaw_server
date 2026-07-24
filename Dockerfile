@@ -23,6 +23,7 @@ COPY backend/module_protocol.py .
 COPY backend/module_registry.py .
 COPY backend/module_task_protocol.py .
 COPY backend/module_tasks.py .
+COPY backend/resident_integrations.py .
 COPY backend/server_data.py .
 COPY backend/contracts ./contracts
 COPY backend/static ./static

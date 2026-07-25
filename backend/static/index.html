@@ -12,8 +12,8 @@
     
     <!-- Performance: Preload Critical Resources -->
     <link rel="preload" href="fonts/remixicon/remixicon.woff2?t=1769685282643" as="font" type="font/woff2" crossorigin>
-    <link rel="preload" href="styles.min.css?v=7.7" as="style">
-    <link rel="preload" href="app.min.js?v=7.13" as="script">
+    <link rel="preload" href="styles.min.css?v=7.9" as="style">
+    <link rel="preload" href="app.min.js?v=7.16" as="script">
     <link rel="preload" href="vendor/alpine.min.js" as="script">
     <link rel="preload" href="vendor/marked.min.js" as="script">
     <link rel="preload" href="vendor/purify.min.js" as="script">
@@ -146,7 +146,7 @@
     <script defer src="vendor/alpine.min.js"></script>
     <!-- highlight.js is lazy-loaded in app.min.js when needed -->
     <link rel="stylesheet" href="fonts/remixicon/remixicon.css">
-    <link rel="stylesheet" href="styles.min.css?v=7.7">
+    <link rel="stylesheet" href="styles.min.css?v=7.9">
 </head>
 <body x-data="app()" :data-theme="settings.ui_settings.theme_mode">
     <!-- Sidebar Overlay for Mobile -->
@@ -176,7 +176,7 @@
 
         <!-- Stable sidebar mount for source-built Resident Integrations. -->
         <div class="resident-sidebar-entries"
-             x-show="!sidebarCollapsed && residentEntries('sidebar').length > 0"
+             x-show="!sidebarCollapsed && (residentEntries('sidebar').length > 0 || sidebarPluginButtons.length > 0)"
              x-cloak>
             <template x-for="entry in residentEntries('sidebar')"
                       :key="entry.integration.id + ':' + entry.id">
@@ -192,9 +192,21 @@
                     <small x-show="!entry.integration.feature?.available" x-text="t('unavailable')"></small>
                 </button>
             </template>
+            <template x-for="btn in sidebarPluginButtons" :key="btn.fullId">
+                <button class="plugin-sidebar-entry"
+                        type="button"
+                        :disabled="btn.loading || btn.disabled"
+                        :title="getPluginButtonLabel(btn)"
+                        :class="{ 'active': btn.active, 'loading': btn.loading }"
+                        @click="handlePluginButtonClick(btn)">
+                    <i :class="btn.loading ? 'ri-loader-4-line spin' : btn.icon"></i>
+                    <span x-text="getPluginButtonLabel(btn)"></span>
+                    <small x-show="getPluginButtonStatus(btn)" x-text="getPluginButtonStatus(btn)"></small>
+                </button>
+            </template>
         </div>
         <div class="resident-sidebar-collapsed"
-             x-show="sidebarCollapsed && residentEntries('sidebar').length > 0"
+             x-show="sidebarCollapsed && (residentEntries('sidebar').length > 0 || sidebarPluginButtons.length > 0)"
              x-cloak>
             <template x-for="entry in residentEntries('sidebar')"
                       :key="entry.integration.id + ':' + entry.id">
@@ -204,6 +216,16 @@
                         :title="residentText(entry.label)"
                         @click="openResidentIntegration(entry.integration)">
                     <i :class="entry.icon"></i>
+                </button>
+            </template>
+            <template x-for="btn in sidebarPluginButtons" :key="btn.fullId">
+                <button class="btn-icon plugin-sidebar-entry-collapsed"
+                        type="button"
+                        :disabled="btn.loading || btn.disabled"
+                        :title="getPluginButtonLabel(btn)"
+                        :class="{ 'active': btn.active, 'loading': btn.loading }"
+                        @click="handlePluginButtonClick(btn)">
+                    <i :class="btn.loading ? 'ri-loader-4-line spin' : btn.icon"></i>
                 </button>
             </template>
         </div>
@@ -575,7 +597,7 @@
                             </template>
                             
                             <!-- Plugin Toolbar Buttons Extension Area -->
-                            <div class="plugin-toolbar-area" x-show="pluginToolbarButtons.length > 0" x-cloak>
+                            <div class="plugin-toolbar-area" x-show="getSortedPluginButtons('toolbar').length > 0" x-cloak>
                                 <div class="plugin-toolbar-divider"></div>
                                 
                                 <!-- Visible buttons (max 5) -->
@@ -585,7 +607,7 @@
                                         :class="{ 'active': btn.active, 'loading': btn.loading }"
                                         :title="getPluginButtonLabel(btn)"
                                         @click="handlePluginButtonClick(btn)"
-                                        :disabled="btn.loading">
+                                        :disabled="btn.loading || btn.disabled">
                                         <i :class="btn.loading ? 'ri-loader-4-line spin' : btn.icon"></i>
                                     </button>
                                 </template>
@@ -602,8 +624,9 @@
                                          @click.outside="showPluginMoreMenu = false">
                                         <template x-for="btn in hiddenPluginButtons" :key="btn.fullId">
                                             <div class="plugin-more-item" 
-                                                 :class="{ 'active': btn.active, 'loading': btn.loading }"
-                                                 @click="handlePluginButtonClick(btn); showPluginMoreMenu = false">
+                                                 :class="{ 'active': btn.active, 'loading': btn.loading, 'disabled': btn.disabled }"
+                                                 :aria-disabled="btn.disabled ? 'true' : 'false'"
+                                                 @click="handlePluginMoreButtonClick(btn)">
                                                 <i :class="btn.loading ? 'ri-loader-4-line spin' : btn.icon"></i>
                                                 <span x-text="getPluginButtonLabel(btn)"></span>
                                             </div>
@@ -1689,6 +1712,6 @@
         <div class="plugin-fullscreen-content" x-html="pluginFullscreenModal.content"></div>
     </div>
 
-    <script src="app.min.js?v=7.13"></script>
+    <script src="app.min.js?v=7.16"></script>
 </body>
 </html>

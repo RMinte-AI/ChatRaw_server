@@ -98,7 +98,7 @@ API 会同时返回稳定的错误 `code` 与英文诊断 `detail`；前端按 `
 5. 批准 manifest。
 6. 配置非秘密字段和秘密字段。已有秘密只显示“已配置”，不会回显。
 7. Plugin 模式：安装并启用匹配版本的配套插件。Resident 模式：确认当前 Server 构建包含匹配的 Resident；WebUI 不会动态安装 Resident 源码。
-8. 执行 Check，确认 Health、Ready、Config 和 Frontend Integration 都通过。
+8. 保存配置后，ChatRaw 会自动执行一次 Check，并在 WebUI 中对异步依赖进行有界复核；如果依赖仍未就绪，管理员应再次执行 Check，确认 Health、Ready、Config 和 Frontend Integration 都通过。
 9. 启用模块。
 
 任何影响权限边界的 manifest 变化都会进入 `review required`，原 Capability Grant 被撤销；管理员必须重新检查和批准。权限边界包括模块主版本、Action 契约和能力、Host Capability、前端集成模式/ID/版本约束、数据清理能力，以及完整的 `config_schema`。因此新增秘密配置字段也一定会重新触发审核。
@@ -348,7 +348,7 @@ Plugins execute in the ChatRaw page JavaScript context. Review their source, man
 
 ### Module onboarding
 
-Pair with a fresh one-time code, review the manifest, approve permissions, and configure values and secrets. For plugin mode, install the compatible companion plugin. For Resident mode, deploy a Server build containing the compatible source package; the WebUI does not install Resident code dynamically. Check Health/Ready/Config/Frontend Integration, and then enable the module.
+Pair with a fresh one-time code, review the manifest, approve permissions, and configure values and secrets. For plugin mode, install the compatible companion plugin. For Resident mode, deploy a Server build containing the compatible source package; the WebUI does not install Resident code dynamically. After a configuration save, ChatRaw runs one automatic Check and the WebUI performs bounded follow-up checks for asynchronous dependencies. If a dependency is still not ready, run Check again. Confirm Health/Ready/Config/Frontend Integration, and then enable the module.
 
 Permission-relevant manifest changes revoke grants and require a new review.
 

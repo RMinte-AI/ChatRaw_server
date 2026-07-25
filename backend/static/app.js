@@ -454,7 +454,7 @@ Object.assign(i18n.en, {
     dataOwnership: 'Data ownership and retention',
     requestedCapabilities: 'Requested host capabilities',
     none: 'None.',
-    recentFault: 'Recent fault',
+    recentFault: 'Current availability issue',
     declaredActions: 'Declared actions',
     noActions: 'No actions declared.',
     minimumRole: 'minimum role',
@@ -673,7 +673,7 @@ Object.assign(i18n.zh, {
     dataOwnership: '数据所有权与保留',
     requestedCapabilities: '申请的主机能力',
     none: '无。',
-    recentFault: '最近故障',
+    recentFault: '当前不可用原因',
     declaredActions: '声明的操作',
     noActions: '未声明操作。',
     minimumRole: '最低角色',
@@ -984,7 +984,7 @@ function app() {
         pluginApiKeyActions: {},
         
         // Plugin toolbar extension state
-        pluginToolbarButtons: [],  // [{fullId, pluginId, id, icon, label, onClick, order, active, loading}]
+        pluginToolbarButtons: [],  // Generic plugin entries for toolbar or sidebar placement.
         showPluginMoreMenu: false,
         pluginFullscreenModal: {
             show: false,
@@ -1706,6 +1706,7 @@ function app() {
 
         residentEntries(placement) {
             return this.residentIntegrations
+                .filter(integration => integration.feature?.visible === true)
                 .flatMap(integration => (
                     (integration.entrypoints || [])
                         .filter(entrypoint => entrypoint.placement === placement)
@@ -1727,9 +1728,9 @@ function app() {
                         .getFeatureStatus(integration.module_id);
                 } catch (error) {
                     integration.feature = {
-                        visible: true,
+                        visible: false,
                         available: false,
-                        state: 'unavailable',
+                        state: 'hidden',
                         reason: {
                             code: error?.code || 'module_not_found',
                             message: 'This feature is currently unavailable.'
@@ -1789,9 +1790,9 @@ function app() {
                 ? payload.integrations.map(integration => ({
                     ...integration,
                     feature: {
-                        visible: true,
+                        visible: false,
                         available: false,
-                        state: 'unavailable',
+                        state: 'hidden',
                         reason: {
                             code: 'module_not_found',
                             message: 'This feature is currently unavailable.'
@@ -2021,6 +2022,7 @@ function app() {
         async saveModuleConfig() {
             if (!this.isAdmin() || !this.moduleConfig || this.moduleBusy) return;
             this.moduleBusy = this.moduleConfig.moduleId;
+            const moduleId = this.moduleConfig.moduleId;
             const secrets = {};
             for (const [name, update] of Object.entries(this.moduleSecretActions)) {
                 secrets[name] = update.action === 'replace'
@@ -2038,6 +2040,16 @@ function app() {
                     })
                 });
                 this.moduleConfig = null;
+                if (config.configured) {
+                    try {
+                        await this.recheckModuleAfterConfig(moduleId);
+                    } catch (error) {
+                        console.warn(
+                            '[Module configuration recheck]',
+                            error?.code || error?.name || 'failed'
+                        );
+                    }
+                }
                 await this.loadModules();
                 await this.refreshResidentIntegrationStatuses();
                 this.showToast(this.t('configurationSavedRevision', {
@@ -2048,6 +2060,28 @@ function app() {
             } finally {
                 this.moduleBusy = null;
             }
+        },
+
+        async recheckModuleAfterConfig(moduleId) {
+            const maxAttempts = 6;
+            let module = null;
+            for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+                if (attempt > 0) {
+                    await new Promise(resolve => setTimeout(resolve, 750));
+                }
+                module = await this.moduleApi(
+                    `/api/admin/modules/${encodeURIComponent(moduleId)}/check`,
+                    { method: 'POST' }
+                );
+                if (module.ready_status === 'ready') return module;
+                if (
+                    module.health_status === 'incompatible'
+                    || module.config_status === 'missing'
+                ) {
+                    return module;
+                }
+            }
+            return module;
         },
 
         async disconnectModule(module) {
@@ -4331,24 +4365,28 @@ function app() {
         // ============ Plugin Toolbar Extension ============
         
         // Get sorted plugin buttons (only from enabled plugins)
-        getSortedPluginButtons() {
+        getSortedPluginButtons(placement = 'toolbar') {
             return [...this.pluginToolbarButtons]
                 .filter(btn => {
                     // Only show buttons from enabled plugins
                     const plugin = this.installedPlugins?.find(p => p.id === btn.pluginId);
-                    return plugin?.enabled !== false;
+                    return plugin?.enabled !== false && btn.placement === placement;
                 })
                 .sort((a, b) => (a.order || 100) - (b.order || 100));
         },
         
         // Computed: Visible plugin buttons (max 5)
         get visiblePluginButtons() {
-            return this.getSortedPluginButtons().slice(0, 5);
+            return this.getSortedPluginButtons('toolbar').slice(0, 5);
         },
         
         // Computed: Hidden plugin buttons (overflow into "More" menu)
         get hiddenPluginButtons() {
-            return this.getSortedPluginButtons().slice(5);
+            return this.getSortedPluginButtons('toolbar').slice(5);
+        },
+
+        get sidebarPluginButtons() {
+            return this.getSortedPluginButtons('sidebar');
         },
         
         // Get localized button label
@@ -4356,16 +4394,30 @@ function app() {
             const lang = this.lang || 'en';
             return btn.label?.[lang] || btn.label?.en || btn.id;
         },
+
+        getPluginButtonStatus(btn) {
+            const lang = this.lang || 'en';
+            if (typeof btn.status === 'string') return btn.status;
+            return btn.status?.[lang] || btn.status?.en || '';
+        },
         
         // Handle plugin button click
         async handlePluginButtonClick(btn) {
-            if (btn.loading) return;
+            if (btn.loading || btn.disabled) return false;
             try {
                 await btn.onClick?.(btn);
+                return true;
             } catch (error) {
                 console.error(`[Plugin ${btn.pluginId}] Button click error:`, error);
                 // Reset loading state on error
                 btn.loading = false;
+                return false;
+            }
+        },
+
+        async handlePluginMoreButtonClick(btn) {
+            if (await this.handlePluginButtonClick(btn)) {
+                this.showPluginMoreMenu = false;
             }
         },
         
@@ -5256,6 +5308,9 @@ function app() {
                             label: config.label || { en: config.id },
                             onClick: config.onClick,
                             order: config.order ?? 100,
+                            placement: config.placement === 'sidebar' ? 'sidebar' : 'toolbar',
+                            status: config.status || null,
+                            disabled: config.disabled === true,
                             active: false,
                             loading: false
                         };
@@ -5295,6 +5350,8 @@ function app() {
                         if (button) {
                             if (state.active !== undefined) button.active = state.active;
                             if (state.loading !== undefined) button.loading = state.loading;
+                            if (state.disabled !== undefined) button.disabled = state.disabled === true;
+                            if (state.status !== undefined) button.status = state.status;
                             return true;
                         }
                         return false;

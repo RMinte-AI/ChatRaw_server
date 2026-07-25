@@ -3580,6 +3580,11 @@ input[type=range]::-webkit-slider-thumb:hover {
     pointer-events: none;
 }
 
+.plugin-more-item.disabled {
+    cursor: not-allowed;
+    opacity: 0.45;
+}
+
 .plugin-more-item i {
     font-size: 16px;
     width: 20px;
@@ -3634,6 +3639,41 @@ input[type=range]::-webkit-slider-thumb:hover {
 }
 
 .resident-entry small {
+    color: var(--text-secondary);
+    font-size: 11px;
+}
+
+.plugin-sidebar-entry {
+    align-items: center;
+    background: transparent;
+    border: 0;
+    border-radius: var(--radius-sm);
+    color: var(--text-primary);
+    cursor: pointer;
+    display: grid;
+    gap: 8px;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    padding: 9px 10px;
+    text-align: left;
+}
+
+.plugin-sidebar-entry:hover:not(:disabled) {
+    background: var(--bg-hover);
+}
+
+.plugin-sidebar-entry:disabled,
+.plugin-sidebar-entry-collapsed:disabled {
+    cursor: not-allowed;
+    opacity: .48;
+}
+
+.plugin-sidebar-entry span {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.plugin-sidebar-entry small {
     color: var(--text-secondary);
     font-size: 11px;
 }

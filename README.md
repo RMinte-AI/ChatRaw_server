@@ -14,6 +14,7 @@ ChatRaw Server 只做两件核心事情：
 插件与模块不是同一种东西：
 
 - **插件**运行在 ChatRaw 前端，用来增加按钮、拦截发送或展示结果。
+- 插件可以通过 Server 管理的 Workspace Host，在主内容区右侧、上侧、下侧或主区域挂载可交互界面，无需依赖 ChatRaw 私有 DOM。
 - **Resident Integration**也是前端代码，但位于独立源码目录，随 Server 审查、构建和部署，用于常驻入口；它不能由模块动态注入。
 - **模块**是独立后端服务，负责长任务、私有依赖、数据库或高权限能力。
 - **ChatRaw Server**负责登录、授权、模块生命周期、任务转发和安全边界。
@@ -145,6 +146,7 @@ ChatRaw 备份不包含模块自己的数据库。每个模块必须独立备份
 
 - [AI 文档导航](AGENTS.md)：告诉 AI 在不同任务中必须阅读和同步哪些文档。
 - [Plugin Developer Guide](docs/plugin-developer-guide.md)：前端可信代码边界、插件生命周期和 Module SDK。
+- [Plugin Workspace UI Implementation Guide](docs/plugin-workspace-ui-guide.md)：主内容区交互界面的完整实现与清理方式。
 - [Module Developer Guide](docs/module-developer-guide.md)：manifest、任务、SSE、审批、产物、Host Capability 和部署模板。
 - [Resident Module Integration Guide](docs/resident-module-integration-guide.md)：源码级常驻入口、稳定挂载位、Host SDK、AI 修改边界和验收。
 - [Human + AI Development Guide](docs/human-ai-development-guide.md)：面向人和 AI 的最小目录、Schema、命令、验收清单和禁止事项。
@@ -155,6 +157,7 @@ ChatRaw 备份不包含模块自己的数据库。每个模块必须独立备份
 - [Module Management Schema](backend/contracts/module-management-v1.schema.json)
 - [Module Task Schema](backend/contracts/module-task-v1.schema.json)
 - [Module Plugin SDK Contract](backend/contracts/module-plugin-sdk-v1.json)
+- [Plugin UI SDK Contract](backend/contracts/plugin-ui-sdk-v1.json)
 - [Resident Integration Schema](backend/contracts/resident-integration-v1.schema.json) 与 [Host SDK Contract](backend/contracts/resident-integration-sdk-v1.json)
 - [Reference Module](examples/reference-module/)
 
@@ -208,6 +211,7 @@ ChatRaw Server has two primary responsibilities:
 2. **Large features as independent modules.** A feature that needs a backend, privileged access, a database, or complex dependencies runs outside the ChatRaw backend. Its frontend entry is either an administrator-managed plugin or a source-built Resident Integration.
 
 - A **plugin** is trusted frontend code that adds an entry point or presentation.
+- A plugin can mount an interactive Server-owned workspace at the right, top, bottom, or main content area without depending on private ChatRaw DOM.
 - A **Resident Integration** is trusted frontend source shipped in the Server build for a persistent entry point. It is never injected by a module.
 - A **module** is an independent backend service.
 - **ChatRaw Server** owns authentication, authorization, lifecycle management, task forwarding, and the security boundary.
@@ -321,12 +325,14 @@ Server backups do not contain module-owned databases. Back up each module separa
 - [User Guide](docs/user-guide.md)
 - [Administrator Guide](docs/admin-guide.md)
 - [Plugin Developer Guide](docs/plugin-developer-guide.md)
+- [Plugin Workspace UI Implementation Guide](docs/plugin-workspace-ui-guide.md)
 - [Module Developer Guide](docs/module-developer-guide.md)
 - [Resident Module Integration Guide](docs/resident-module-integration-guide.md)
 - [Human + AI Development Guide](docs/human-ai-development-guide.md)
 - [Deployment and module operations](docs/deployment/server-and-modules.md)
 - [Release process](docs/release/release-process.md) and [acceptance status](docs/release/acceptance-status.md)
 - [OpenAPI snapshot](docs/api/openapi.json)
+- [Plugin UI SDK Contract](backend/contracts/plugin-ui-sdk-v1.json)
 - [Module JSON Schemas](backend/contracts/)
 - [Reference module](examples/reference-module/)
 

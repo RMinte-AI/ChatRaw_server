@@ -146,6 +146,67 @@ const mode = settings.display_mode || 'compact';
 - `ChatRawPlugin.ui.openFullscreenModal(options, pluginId)`
 - `ChatRawPlugin.ui.closeFullscreenModal()`
 
+公共主内容区 API：
+
+- `ChatRawPlugin.ui.registerWorkspacePanel(definition, pluginId)`
+- `ChatRawPlugin.ui.unregisterWorkspacePanel(panelId, pluginId)`
+- `ChatRawPlugin.ui.openWorkspacePanel(panelId, options, pluginId)`
+- `ChatRawPlugin.ui.closeWorkspacePanel(panelId, pluginId)`
+
+Workspace 是 Server 主内容区中的非模态交互区域，支持 `right`、`top`、`bottom` 和
+`main`。右、上、下位置不会阻止用户继续操作聊天；`main` 只隐藏聊天的视觉区域，不销毁
+聊天 DOM 和状态。屏幕宽度不超过 1024px 时，所有位置按 `main` 呈现。
+
+```js
+const PLUGIN_ID = 'example-companion';
+
+ChatRawPlugin.ui.registerWorkspacePanel(
+    {
+        id: 'workbench',
+        title: { en: 'Example workbench', zh: '示例工作台' },
+        icon: 'ri-dashboard-line',
+        placements: ['right', 'main'],
+        defaultPlacement: 'right',
+        mount({ container, placement }) {
+            const button = document.createElement('button');
+            button.type = 'button';
+            button.textContent = `Run in ${placement}`;
+            const onClick = () => {
+                ChatRawPlugin.utils.showToast('Ready', 'success');
+            };
+            button.addEventListener('click', onClick);
+            container.append(button);
+            return () => {
+                button.removeEventListener('click', onClick);
+            };
+        }
+    },
+    PLUGIN_ID
+);
+
+ChatRawPlugin.ui.openWorkspacePanel(
+    'workbench',
+    { placement: 'right' },
+    PLUGIN_ID
+);
+```
+
+Workspace 规则：
+
+- `pluginId` 必须显式提供；它是生命周期归属命名空间，不是浏览器安全沙箱。
+- `mount` 必须同步返回一个 `dispose()` 函数。异步请求可以在 mount 内启动，但关闭时必须取消
+  订阅、事件监听和仍可取消的请求。
+- Plugin 只能修改传入的 `container`，不能查找 ChatRaw 私有 DOM、读取 Alpine 内部状态或向
+  Server 挂载点写入模块返回的 HTML。
+- 同一时刻只有一个 Workspace。打开另一面板或切换位置时，旧面板先执行一次 `dispose()`。
+- 同一面板以同一位置重复打开不会重复 mount。页面刷新后 Workspace 保持关闭。
+- 非法定义、未声明的位置、挂载异常或缺失 `dispose()` 会直接抛错；不得改用全屏弹窗兜底。
+- Plugin CSS 必须限定在自己的根节点内。不要使用影响 `body`、`.main-content` 或其他核心元素的
+  全局选择器。
+
+机器契约见 [Plugin UI SDK Contract](../backend/contracts/plugin-ui-sdk-v1.json)，完整可运行示例见
+[Plugin Workspace UI Implementation Guide](plugin-workspace-ui-guide.md)。
+
 `registerToolbarButton` 默认把入口放在输入框工具栏。独立业务工作台可以在 definition 中声明
 `placement: 'sidebar'`，由 Server 使用稳定的左侧业务入口样式呈现；未声明或使用未知值时仍按
 `toolbar` 处理，保证旧插件兼容。侧栏入口可以提供本地化 `status`，并通过
@@ -356,6 +417,15 @@ Management settings are admin-only by default. Declare only safe non-secret valu
 ### Public APIs
 
 Use `ChatRawPlugin.hooks`, `ChatRawPlugin.ui`, `ChatRawPlugin.utils`, and documented input/storage helpers. Do not depend on internal DOM or framework fields.
+
+`ChatRawPlugin.ui` also provides the Server-owned, non-modal Workspace API:
+`registerWorkspacePanel`, `unregisterWorkspacePanel`, `openWorkspacePanel`, and
+`closeWorkspacePanel`. A workspace can request `right`, `top`, `bottom`, or `main`; at
+1024px or narrower the host renders every placement as `main`. The plugin receives a real
+DOM container and must synchronously return one cleanup function from `mount`. It must not
+fall back to the legacy fullscreen modal when registration or mounting fails. See the
+[Plugin UI SDK Contract](../backend/contracts/plugin-ui-sdk-v1.json) and the
+[complete implementation guide](plugin-workspace-ui-guide.md).
 
 Before `send_intercept` runs, ChatRaw ensures that the current chat exists, so `context.currentChatId` is a non-empty chat ID suitable for same-origin task binding. Plugins must not create chats themselves or invent this value.
 

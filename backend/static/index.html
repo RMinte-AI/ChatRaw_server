@@ -12,8 +12,8 @@
     
     <!-- Performance: Preload Critical Resources -->
     <link rel="preload" href="fonts/remixicon/remixicon.woff2?t=1769685282643" as="font" type="font/woff2" crossorigin>
-    <link rel="preload" href="styles.min.css?v=7.9" as="style">
-    <link rel="preload" href="app.min.js?v=7.16" as="script">
+    <link rel="preload" href="styles.min.css?v=7.10" as="style">
+    <link rel="preload" href="app.min.js?v=7.17" as="script">
     <link rel="preload" href="vendor/alpine.min.js" as="script">
     <link rel="preload" href="vendor/marked.min.js" as="script">
     <link rel="preload" href="vendor/purify.min.js" as="script">
@@ -146,7 +146,7 @@
     <script defer src="vendor/alpine.min.js"></script>
     <!-- highlight.js is lazy-loaded in app.min.js when needed -->
     <link rel="stylesheet" href="fonts/remixicon/remixicon.css">
-    <link rel="stylesheet" href="styles.min.css?v=7.9">
+    <link rel="stylesheet" href="styles.min.css?v=7.10">
 </head>
 <body x-data="app()" :data-theme="settings.ui_settings.theme_mode">
     <!-- Sidebar Overlay for Mobile -->
@@ -283,6 +283,8 @@
             <span class="mobile-title">ChatRaw</span>
         </div>
 
+        <div class="plugin-workspace-layout"
+             :class="pluginWorkspace.show ? 'workspace-' + pluginWorkspace.placement : ''">
         <div class="chat-container">
             <!-- Welcome - Pre-rendered for LCP optimization -->
             <div class="welcome" x-show="messages.length === 0">
@@ -647,6 +649,32 @@
                     </div>
                 </div>
             </div>
+        </div>
+
+        <section class="plugin-workspace-panel"
+                 x-show="pluginWorkspace.show"
+                 x-cloak
+                 role="region"
+                 aria-labelledby="plugin-workspace-title"
+                 @keydown.escape.stop="closeActivePluginWorkspace()">
+            <header class="plugin-workspace-header">
+                <div class="plugin-workspace-heading">
+                    <i :class="pluginWorkspace.icon" aria-hidden="true"></i>
+                    <h2 id="plugin-workspace-title"
+                        x-text="getLocalizedText(pluginWorkspace.title, pluginWorkspace.panelId || '')"></h2>
+                </div>
+                <button id="plugin-workspace-close"
+                        class="btn-icon"
+                        type="button"
+                        :aria-label="t('close')"
+                        @click="closeActivePluginWorkspace()">
+                    <i class="ri-close-line"></i>
+                </button>
+            </header>
+            <div id="plugin-workspace-mount"
+                 class="plugin-workspace-mount"
+                 x-ignore></div>
+        </section>
         </div>
 
         <!-- Toast -->
@@ -1712,6 +1740,6 @@
         <div class="plugin-fullscreen-content" x-html="pluginFullscreenModal.content"></div>
     </div>
 
-    <script src="app.min.js?v=7.16"></script>
+    <script src="app.min.js?v=7.17"></script>
 </body>
 </html>

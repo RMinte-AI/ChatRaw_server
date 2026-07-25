@@ -54,6 +54,11 @@ ChatRaw Server 的所有用户使用同一个平台。聊天、文档、模型�
 
 普通用户不需要分别配置它们。管理员完成安装和连接后，功能入口会自动可用。
 
+配套插件可以在主内容区打开交互工作台。工作台可能出现在聊天右侧、上侧、下侧，或占据整个
+主区域；右、上、下模式不会阻止继续操作聊天。窄屏设备会统一显示为主区域。工作台关闭后，
+当前聊天和消息不会丢失；刷新页面后工作台保持关闭。标题栏和关闭按钮由 ChatRaw 提供，
+工作台内的表单、列表和业务状态由对应插件提供。
+
 以 Agent 为例：
 
 1. 聊天工具栏显示 Agent 图标。
@@ -163,6 +168,11 @@ A large feature has a backend module and one frontend integration:
 - a **backend module** that performs the task in an independent service.
 
 Members do not connect these pieces manually. Once the administrator completes installation and pairing, the feature entry point becomes available.
+
+A companion plugin may open an interactive workspace in the main content area. It can appear to
+the right, above, below, or in place of the visible chat surface. Right, top, and bottom workspaces
+leave chat interactive. Narrow screens use the main presentation. Closing a workspace preserves
+the current chat and messages; reloading the page starts with the workspace closed.
 
 For Agent, the plugin uses the ChatRaw Module SDK. It never connects directly to Agent or receives Agent, LinkDB, or other private module credentials.
 

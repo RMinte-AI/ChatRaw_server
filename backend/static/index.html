@@ -12,8 +12,8 @@
     
     <!-- Performance: Preload Critical Resources -->
     <link rel="preload" href="fonts/remixicon/remixicon.woff2?t=1769685282643" as="font" type="font/woff2" crossorigin>
-    <link rel="preload" href="styles.min.css?v=7.6" as="style">
-    <link rel="preload" href="app.min.js?v=7.10" as="script">
+    <link rel="preload" href="styles.min.css?v=7.7" as="style">
+    <link rel="preload" href="app.min.js?v=7.13" as="script">
     <link rel="preload" href="vendor/alpine.min.js" as="script">
     <link rel="preload" href="vendor/marked.min.js" as="script">
     <link rel="preload" href="vendor/purify.min.js" as="script">
@@ -146,7 +146,7 @@
     <script defer src="vendor/alpine.min.js"></script>
     <!-- highlight.js is lazy-loaded in app.min.js when needed -->
     <link rel="stylesheet" href="fonts/remixicon/remixicon.css">
-    <link rel="stylesheet" href="styles.min.css?v=7.6">
+    <link rel="stylesheet" href="styles.min.css?v=7.7">
 </head>
 <body x-data="app()" :data-theme="settings.ui_settings.theme_mode">
     <!-- Sidebar Overlay for Mobile -->
@@ -156,10 +156,10 @@
     <aside class="sidebar" :class="{ 'collapsed': sidebarCollapsed }">
         <div class="sidebar-header">
             <div class="logo" x-show="!sidebarCollapsed">
-                <img x-show="settings.ui_settings.logo_data" :src="settings.ui_settings.logo_data" alt="Logo" class="logo-img" width="32" height="32">
+                <img x-show="settings.ui_settings.logo_data" :src="settings.ui_settings.logo_data" :alt="t('logoAlt')" class="logo-img" width="32" height="32">
                 <span class="logo-text" x-text="settings.ui_settings.logo_text || 'JustChat'"></span>
             </div>
-            <button class="btn-icon" @click="toggleSidebar()" :title="sidebarCollapsed ? t('expand') : t('collapse')" :aria-expanded="String(!sidebarCollapsed)" aria-label="Toggle sidebar">
+            <button class="btn-icon" @click="toggleSidebar()" :title="sidebarCollapsed ? t('expand') : t('collapse')" :aria-expanded="String(!sidebarCollapsed)" :aria-label="t('toggleSidebar')">
                 <i class="ri-arrow-left-s-line" x-show="!sidebarCollapsed"></i>
                 <i class="ri-arrow-right-s-line" x-show="sidebarCollapsed"></i>
             </button>
@@ -185,13 +185,11 @@
                         :disabled="!entry.integration.feature?.available"
                         :title="entry.integration.feature?.available
                             ? residentText(entry.label)
-                            : (entry.integration.feature?.reason?.message || 'Unavailable')"
+                            : t('unavailable')"
                         @click="openResidentIntegration(entry.integration)">
                     <i :class="entry.icon"></i>
                     <span x-text="residentText(entry.label)"></span>
-                    <small x-show="!entry.integration.feature?.available">
-                        Unavailable
-                    </small>
+                    <small x-show="!entry.integration.feature?.available" x-text="t('unavailable')"></small>
                 </button>
             </template>
         </div>
@@ -215,7 +213,7 @@
                 <div class="chat-item" :class="{ 'active': currentChatId === chat.id }" @click="selectChat(chat.id)">
                     <i class="ri-message-3-line"></i>
                     <span class="chat-title" x-text="chat.title"></span>
-                    <button class="btn-delete" @click.stop="renameChat(chat)" title="Rename">
+                    <button class="btn-delete" @click.stop="renameChat(chat)" :title="t('rename')">
                         <i class="ri-edit-line"></i>
                     </button>
                     <button class="btn-delete" @click.stop="deleteChat(chat.id)" :title="t('delete')">
@@ -241,7 +239,7 @@
             </button>
             <button class="btn-settings" @click="logout()">
                 <i class="ri-logout-box-r-line"></i>
-                <span x-text="me ? me.username : 'Account'"></span>
+                <span x-text="me ? me.username : t('account')"></span>
             </button>
         </div>
         
@@ -267,7 +265,7 @@
             <!-- Welcome - Pre-rendered for LCP optimization -->
             <div class="welcome" x-show="messages.length === 0">
                 <div class="welcome-logo">
-                    <img x-show="settings.ui_settings.logo_data" :src="settings.ui_settings.logo_data" alt="Logo" class="welcome-logo-img" width="80" height="80">
+                    <img x-show="settings.ui_settings.logo_data" :src="settings.ui_settings.logo_data" :alt="t('logoAlt')" class="welcome-logo-img" width="80" height="80">
                 </div>
                 <h1 x-text="settings.ui_settings.logo_text || 'ChatRaw'">ChatRaw</h1>
                 <p class="welcome-subtitle" x-text="settings.ui_settings.subtitle || t('defaultSubtitle')">Your minimalist AI assistant</p>
@@ -294,10 +292,10 @@
                     <div class="message" :class="msg.role">
                         <div class="message-avatar" :class="msg.role">
                             <!-- User avatar -->
-                            <img x-show="msg.role === 'user' && settings.ui_settings.user_avatar" :src="settings.ui_settings.user_avatar" alt="User" width="36" height="36" class="avatar-img">
+                            <img x-show="msg.role === 'user' && settings.ui_settings.user_avatar" :src="settings.ui_settings.user_avatar" :alt="t('userAvatarAlt')" width="36" height="36" class="avatar-img">
                             <i class="ri-user-3-line" x-show="msg.role === 'user' && !settings.ui_settings.user_avatar"></i>
                             <!-- AI avatar -->
-                            <img x-show="msg.role === 'assistant' && settings.ui_settings.assistant_avatar" :src="settings.ui_settings.assistant_avatar" alt="AI" width="36" height="36" class="avatar-img">
+                            <img x-show="msg.role === 'assistant' && settings.ui_settings.assistant_avatar" :src="settings.ui_settings.assistant_avatar" :alt="t('assistantAvatarAlt')" width="36" height="36" class="avatar-img">
                             <i class="ri-robot-2-line" x-show="msg.role === 'assistant' && !settings.ui_settings.assistant_avatar"></i>
                         </div>
                         <div class="message-content">
@@ -440,7 +438,7 @@
                 
                 <div class="message assistant" x-show="isGenerating && (!messages.length || messages[messages.length-1].role !== 'assistant')">
                     <div class="message-avatar assistant">
-                        <img x-show="settings.ui_settings.assistant_avatar" :src="settings.ui_settings.assistant_avatar" alt="AI" width="36" height="36" class="avatar-img">
+                        <img x-show="settings.ui_settings.assistant_avatar" :src="settings.ui_settings.assistant_avatar" :alt="t('assistantAvatarAlt')" width="36" height="36" class="avatar-img">
                         <i class="ri-robot-2-line" x-show="!settings.ui_settings.assistant_avatar"></i>
                     </div>
                     <div class="message-content">
@@ -455,22 +453,22 @@
             <div class="input-area">
                 <div class="input-container-inner">
                     <div class="uploaded-image-preview" x-show="uploadedImage && chatModelSupportsVision()">
-                        <img :src="uploadedImage ? 'data:image/jpeg;base64,' + uploadedImageBase64 : ''" alt="Preview" width="60" height="60">
-                        <button class="btn-delete-overlay" @click="removeUploadedImage()" aria-label="Remove image"><i class="ri-close-circle-fill"></i></button>
+                        <img :src="uploadedImage ? 'data:image/jpeg;base64,' + uploadedImageBase64 : ''" :alt="t('preview')" width="60" height="60">
+                        <button class="btn-delete-overlay" @click="removeUploadedImage()" :aria-label="t('removeImage')"><i class="ri-close-circle-fill"></i></button>
                     </div>
                     
                     <!-- Parsed URL Preview -->
                     <div class="parsed-url-preview" x-show="parsedUrl" x-cloak>
                         <i class="ri-link"></i>
                         <span class="parsed-url-title" x-text="parsedUrlTitle"></span>
-                        <button class="btn-remove-url" @click="removeParsedUrl()" aria-label="Remove URL"><i class="ri-close-circle-fill"></i></button>
+                        <button class="btn-remove-url" @click="removeParsedUrl()" :aria-label="t('removeUrl')"><i class="ri-close-circle-fill"></i></button>
                     </div>
                     
                     <!-- Attached Document Preview -->
                     <div class="attached-doc-preview" x-show="attachedDocument" x-cloak>
                         <i class="ri-file-text-line"></i>
                         <span class="attached-doc-name" x-text="attachedDocument?.filename"></span>
-                        <button class="btn-remove-doc" @click="removeAttachedDocument()" aria-label="Remove document"><i class="ri-close-circle-fill"></i></button>
+                        <button class="btn-remove-doc" @click="removeAttachedDocument()" :aria-label="t('removeDocument')"><i class="ri-close-circle-fill"></i></button>
                     </div>
 
                     <!-- URL Input Popup -->
@@ -500,7 +498,7 @@
                              x-cloak
                              x-transition
                              role="listbox"
-                             aria-label="Composer suggestions"
+                             :aria-label="t('composerSuggestions')"
                              @mousedown.prevent>
                             <template x-for="(item, index) in completionItems" :key="item.providerId + ':' + item.id">
                                 <button type="button"
@@ -570,7 +568,7 @@
                                         :disabled="!entry.integration.feature?.available"
                                         :title="entry.integration.feature?.available
                                             ? residentText(entry.label)
-                                            : (entry.integration.feature?.reason?.message || 'Unavailable')"
+                                            : t('unavailable')"
                                         @click="openResidentIntegration(entry.integration)">
                                     <i :class="entry.icon"></i>
                                 </button>
@@ -636,14 +634,14 @@
     <div class="modal-overlay" x-show="showSettings" x-cloak @click.self="showSettings = false" @keydown.escape.window="showSettings && (showSettings = false)" x-transition role="dialog" aria-modal="true" aria-labelledby="settings-modal-title">
         <div class="settings-modal">
             <!-- Left Nav -->
-            <div class="settings-nav" role="tablist" aria-label="Settings navigation">
+            <div class="settings-nav" role="tablist" :aria-label="t('settingsNavigation')">
                 <div class="settings-title" id="settings-modal-title" x-text="t('settings')"></div>
                 <div class="nav-item" x-show="isAdmin()" role="tab" :aria-selected="settingsTab === 'models'" :class="{ 'active': settingsTab === 'models' }" @click="settingsTab = 'models'" x-text="t('modelConfig')"></div>
                 <div class="nav-item" x-show="isAdmin()" role="tab" :aria-selected="settingsTab === 'chat'" :class="{ 'active': settingsTab === 'chat' }" @click="settingsTab = 'chat'" x-text="t('chatSettings')"></div>
                 <div class="nav-item" x-show="isAdmin()" role="tab" :aria-selected="settingsTab === 'ui'" :class="{ 'active': settingsTab === 'ui' }" @click="settingsTab = 'ui'" x-text="t('uiSettings')"></div>
-                <div class="nav-item" x-show="isAdmin()" role="tab" :aria-selected="settingsTab === 'users'" :class="{ 'active': settingsTab === 'users' }" @click="settingsTab = 'users'; loadAdminUsers()">Users</div>
-                <div class="nav-item" x-show="isAdmin()" role="tab" :aria-selected="settingsTab === 'modules'" :class="{ 'active': settingsTab === 'modules' }" @click="settingsTab = 'modules'; loadModules()">Modules</div>
-                <div class="nav-item" role="tab" :aria-selected="settingsTab === 'account'" :class="{ 'active': settingsTab === 'account' }" @click="settingsTab = 'account'">Account</div>
+                <div class="nav-item" x-show="isAdmin()" role="tab" :aria-selected="settingsTab === 'users'" :class="{ 'active': settingsTab === 'users' }" @click="settingsTab = 'users'; loadAdminUsers()" x-text="t('users')"></div>
+                <div class="nav-item" x-show="isAdmin()" role="tab" :aria-selected="settingsTab === 'modules'" :class="{ 'active': settingsTab === 'modules' }" @click="settingsTab = 'modules'; loadModules()" x-text="t('modules')"></div>
+                <div class="nav-item" role="tab" :aria-selected="settingsTab === 'account'" :class="{ 'active': settingsTab === 'account' }" @click="settingsTab = 'account'" x-text="t('account')"></div>
                 <div class="settings-footer">
                     © 2026 ChatRaw by massif-01<br>
                     <a href="https://opensource.org/licenses/MIT" target="_blank" rel="noopener" class="settings-footer-link" x-text="t('mitLicense')"></a>
@@ -672,25 +670,25 @@
                                 </div>
                                 
                                 <div class="form-group">
-                                    <label class="form-label">API Endpoint</label>
+                                    <label class="form-label" x-text="t('apiEndpoint')"></label>
                                     <input type="text" class="input-minimal" x-model="model.api_url">
                                 </div>
                                 
                                 <div class="form-group">
-                                    <label class="form-label">API Key (Optional)</label>
+                                    <label class="form-label" x-text="t('apiKeyOptional')"></label>
                                     <input type="password" class="input-minimal"
                                            x-model="model.api_key"
-                                           :placeholder="model.api_key_configured ? 'Configured — enter to replace' : ''"
+                                           :placeholder="model.api_key_configured ? t('configuredReplace') : ''"
                                            @input="model.api_key_action = 'replace'">
                                     <button type="button" class="btn-secondary btn-compact"
                                             x-show="model.api_key_configured"
                                             @click="model.api_key = ''; model.api_key_action = 'clear'">
-                                        Clear key
+                                        <span x-text="t('clearKey')"></span>
                                     </button>
                                 </div>
 
                                 <div class="form-group">
-                                    <label class="form-label">Model ID</label>
+                                    <label class="form-label" x-text="t('modelId')"></label>
                                     <input type="text" class="input-minimal" x-model="model.model_id">
                                 </div>
 
@@ -747,14 +745,14 @@
                         </div>
 
                         <div class="form-group">
-                            <label class="form-label">Temperature: <span x-text="settings.chat_settings.temperature"></span></label>
+                            <label class="form-label"><span x-text="t('temperature')"></span>: <span x-text="settings.chat_settings.temperature"></span></label>
                             <input type="range" min="0" max="2" step="0.1" x-model.number="settings.chat_settings.temperature">
                             <span class="form-sublabel form-sublabel-inline" x-text="t('temperatureHint')"></span>
                         </div>
 
                         <!-- Top P Slider Restored -->
                         <div class="form-group">
-                            <label class="form-label">Top P: <span x-text="settings.chat_settings.top_p"></span></label>
+                            <label class="form-label"><span x-text="t('topP')"></span>: <span x-text="settings.chat_settings.top_p"></span></label>
                             <input type="range" min="0" max="1" step="0.05" x-model.number="settings.chat_settings.top_p">
                             <span class="form-sublabel form-sublabel-inline" x-text="t('topPHint')"></span>
                         </div>
@@ -783,10 +781,10 @@
                             <label class="form-label" x-text="t('theme')"></label>
                             <div class="theme-grid">
                                 <div class="theme-option" :class="{ 'active': settings.ui_settings.theme_mode === 'light' }" @click="settings.ui_settings.theme_mode = 'light'; applyTheme()">
-                                    Light
+                                    <span x-text="t('light')"></span>
                                 </div>
                                 <div class="theme-option" :class="{ 'active': settings.ui_settings.theme_mode === 'dark' }" @click="settings.ui_settings.theme_mode = 'dark'; applyTheme()">
-                                    Dark
+                                    <span x-text="t('dark')"></span>
                                 </div>
                             </div>
                         </div>
@@ -794,20 +792,20 @@
                         <div class="form-group form-group-lg">
                             <label class="form-label" x-text="t('language')"></label>
                             <div class="theme-grid">
-                                <div class="theme-option" :class="{ 'active': lang === 'en' }" @click="setLanguage('en')">English</div>
-                                <div class="theme-option" :class="{ 'active': lang === 'zh' }" @click="setLanguage('zh')">中文</div>
+                                <div class="theme-option" :class="{ 'active': lang === 'en' }" @click="setLanguage('en')" x-text="t('english')"></div>
+                                <div class="theme-option" :class="{ 'active': lang === 'zh' }" @click="setLanguage('zh')" x-text="t('chinese')"></div>
                             </div>
                         </div>
 
                         <div class="form-group form-group-lg">
                             <label class="form-label" x-text="t('logoName')"></label>
                             <div class="logo-upload-area upload-row">
-                                <img x-show="settings.ui_settings.logo_data" :src="settings.ui_settings.logo_data" alt="Logo" class="logo-preview-img" width="48" height="48">
+                                <img x-show="settings.ui_settings.logo_data" :src="settings.ui_settings.logo_data" :alt="t('logoAlt')" class="logo-preview-img" width="48" height="48">
                                 <label class="btn-secondary btn-compact">
                                     <input type="file" @change="handleLogoUpload($event)" accept="image/*" class="file-input-hidden">
                                     <span x-text="t('uploadLogo')"></span>
                                 </label>
-                                <button class="btn-delete btn-delete-inline" x-show="settings.ui_settings.logo_data" @click="settings.ui_settings.logo_data = ''" aria-label="Remove logo"><i class="ri-close-circle-fill"></i></button>
+                                <button class="btn-delete btn-delete-inline" x-show="settings.ui_settings.logo_data" @click="settings.ui_settings.logo_data = ''" :aria-label="t('removeLogo')"><i class="ri-close-circle-fill"></i></button>
                                 <input type="text" x-model="settings.ui_settings.logo_text" placeholder="JustChat" class="input-minimal input-flex">
                             </div>
                         </div>
@@ -825,7 +823,7 @@
                                 <!-- User Avatar -->
                                 <div class="avatar-group">
                                     <div class="avatar-preview-user">
-                                        <img x-show="settings.ui_settings.user_avatar" :src="settings.ui_settings.user_avatar" alt="User" width="40" height="40" class="avatar-img">
+                                        <img x-show="settings.ui_settings.user_avatar" :src="settings.ui_settings.user_avatar" :alt="t('userAvatarAlt')" width="40" height="40" class="avatar-img">
                                         <i class="ri-user-3-line" x-show="!settings.ui_settings.user_avatar"></i>
                                     </div>
                                     <label class="btn-secondary btn-compact">
@@ -837,7 +835,7 @@
                                 <!-- AI Avatar -->
                                 <div class="avatar-group">
                                     <div class="avatar-preview-assistant">
-                                        <img x-show="settings.ui_settings.assistant_avatar" :src="settings.ui_settings.assistant_avatar" alt="AI" width="40" height="40" class="avatar-img">
+                                        <img x-show="settings.ui_settings.assistant_avatar" :src="settings.ui_settings.assistant_avatar" :alt="t('assistantAvatarAlt')" width="40" height="40" class="avatar-img">
                                         <i class="ri-robot-2-line" x-show="!settings.ui_settings.assistant_avatar"></i>
                                     </div>
                                     <label class="btn-secondary btn-compact">
@@ -851,37 +849,87 @@
 
                     <div x-show="settingsTab === 'users' && isAdmin()">
                         <div class="section-header">
-                            <h2 class="section-title">User management</h2>
-                            <p class="section-desc">Create accounts, control access, and reset passwords. Usernames cannot be changed.</p>
+                            <h2 class="section-title" x-text="t('userManagement')"></h2>
+                            <p class="section-desc" x-text="t('userManagementDesc')"></p>
                         </div>
                         <div class="model-card">
                             <div class="form-group">
-                                <label class="form-label">Username</label>
+                                <label class="form-label" x-text="t('username')"></label>
                                 <input class="input-minimal" x-model="newUser.username" autocomplete="off">
                             </div>
                             <div class="form-group">
-                                <label class="form-label">Initial password</label>
+                                <label class="form-label" x-text="t('initialPassword')"></label>
                                 <input class="input-minimal" type="password" minlength="12" x-model="newUser.password" autocomplete="new-password">
+                                <span class="form-sublabel form-sublabel-block" x-text="t('passwordMinimum')"></span>
                             </div>
                             <div class="form-group">
-                                <label class="form-label">Role</label>
-                                <select class="input-minimal" x-model="newUser.role">
-                                    <option value="member">Member</option>
-                                    <option value="admin">Administrator</option>
-                                </select>
+                                <label class="form-label" x-text="t('confirmPassword')"></label>
+                                <input class="input-minimal" type="password" minlength="12" x-model="newUser.confirmPassword" autocomplete="new-password">
                             </div>
-                            <button class="btn-primary" @click="createManagedUser()">Create user</button>
+                            <div class="form-group">
+                                <label class="form-label" x-text="t('role')"></label>
+                                <select class="input-minimal" x-model="newUser.role">
+                                    <option value="member" x-text="t('member')"></option>
+                                    <option value="admin" x-text="t('administrator')"></option>
+                                </select>
+                                <span class="form-sublabel form-sublabel-block user-admin-warning"
+                                      x-show="newUser.role === 'admin'"
+                                      x-text="t('administratorAccessWarning')"></span>
+                            </div>
+                            <button class="btn-primary"
+                                    :disabled="adminCreateBusy"
+                                    @click="createManagedUser()"
+                                    x-text="t('createUser')"></button>
                         </div>
+                        <p class="section-desc" x-show="adminUsersLoading" x-text="t('usersLoading')"></p>
+                        <div class="module-task-error"
+                             x-show="adminUsersError"
+                             x-text="adminUsersError"></div>
+                        <p class="section-desc"
+                           x-show="!adminUsersLoading && !adminUsersError && adminUsers.length === 0"
+                           x-text="t('usersEmpty')"></p>
                         <template x-for="user in adminUsers" :key="user.id">
                             <div class="model-card">
                                 <div class="model-header">
-                                    <strong x-text="user.username"></strong>
-                                    <span class="model-badge" x-text="user.role"></span>
+                                    <div class="user-card-title">
+                                        <strong x-text="user.username"></strong>
+                                        <span class="model-badge"
+                                              x-show="user.id === me?.id"
+                                              x-text="t('currentUser')"></span>
+                                    </div>
+                                    <div class="user-card-badges">
+                                        <span class="model-badge" x-text="roleLabel(user.role)"></span>
+                                        <span class="model-badge"
+                                              :class="{ 'active': user.enabled }"
+                                              x-text="user.enabled ? t('enabled') : t('disabled')"></span>
+                                    </div>
                                 </div>
-                                <p class="section-desc" x-text="user.enabled ? 'Enabled' : 'Disabled'"></p>
-                                <div class="plugin-actions">
-                                    <button class="btn-secondary btn-compact" @click="setManagedUserEnabled(user, !user.enabled)" x-text="user.enabled ? 'Disable' : 'Enable'"></button>
-                                    <button class="btn-secondary btn-compact" @click="resetManagedUserPassword(user)">Reset password</button>
+                                <dl class="user-card-meta">
+                                    <div>
+                                        <dt x-text="t('createdAt')"></dt>
+                                        <dd x-text="formatUserDate(user.created_at)"></dd>
+                                    </div>
+                                    <div>
+                                        <dt x-text="t('updatedAt')"></dt>
+                                        <dd x-text="formatUserDate(user.updated_at)"></dd>
+                                    </div>
+                                </dl>
+                                <p class="section-desc"
+                                   x-show="user.id === me?.id"
+                                   x-text="t('manageSelfInAccount')"></p>
+                                <div class="plugin-actions" x-show="user.id !== me?.id">
+                                    <button class="btn-secondary btn-compact"
+                                            :disabled="isAdminUserBusy(user.id)"
+                                            @click="setManagedUserRole(user, user.role === 'admin' ? 'member' : 'admin')"
+                                            x-text="user.role === 'admin' ? t('demoteMember') : t('promoteAdministrator')"></button>
+                                    <button class="btn-secondary btn-compact"
+                                            :disabled="isAdminUserBusy(user.id)"
+                                            @click="setManagedUserEnabled(user, !user.enabled)"
+                                            x-text="user.enabled ? t('disable') : t('enable')"></button>
+                                    <button class="btn-secondary btn-compact"
+                                            :disabled="isAdminUserBusy(user.id)"
+                                            @click="resetManagedUserPassword(user)"
+                                            x-text="t('resetPassword')"></button>
                                 </div>
                             </div>
                         </template>
@@ -889,46 +937,42 @@
 
                     <div x-show="settingsTab === 'modules' && isAdmin()">
                         <div class="section-header">
-                            <h2 class="section-title">Feature suites</h2>
-                            <p class="section-desc">Each product feature joins one backend module with either a companion plugin or a source-built Resident Integration. ChatRaw does not start processes or containers.</p>
+                            <h2 class="section-title" x-text="t('featureSuites')"></h2>
+                            <p class="section-desc" x-text="t('featureSuitesDesc')"></p>
                         </div>
 
                         <div class="model-card"
                              x-show="deploymentStatus.mode === 'compose'">
                             <div class="model-header">
-                                <strong>Compose network</strong>
+                                <strong x-text="t('composeNetwork')"></strong>
                                 <span class="model-badge"
                                       x-text="deploymentStatus.module_network"></span>
                             </div>
-                            <p class="section-desc">
-                                Use the module service name on this shared network,
-                                for example http://chatraw-reference-module:8765.
-                                localhost points back to the ChatRaw container.
-                            </p>
+                            <p class="section-desc" x-text="t('composeNetworkDesc')"></p>
                         </div>
 
                         <div class="module-task-error"
                              x-show="deploymentStatus.warnings.length > 0">
-                            <strong>Container address repair required</strong>
+                            <strong x-text="t('containerAddressRepair')"></strong>
                             <template x-for="warning in deploymentStatus.warnings"
                                       :key="warning.target">
-                                <p x-text="warning.message"></p>
+                                <p x-text="localizeError(warning, 'containerAddressRepair')"></p>
                             </template>
-                            <small>Existing addresses were not changed automatically.</small>
+                            <small x-text="t('addressesUnchanged')"></small>
                         </div>
 
                         <div class="model-card">
                             <div class="form-group">
-                                <label class="form-label">Module address</label>
+                                <label class="form-label" x-text="t('moduleAddress')"></label>
                                 <input class="input-minimal"
                                        type="url"
                                        :placeholder="deploymentStatus.mode === 'compose' ? 'http://chatraw-reference-module:8765' : 'http://127.0.0.1:8765'"
                                        x-model="modulePairForm.base_url"
                                        autocomplete="off">
-                                <span class="form-sublabel form-sublabel-block">The address is sent to ChatRaw once and is never returned by the management API.</span>
+                                <span class="form-sublabel form-sublabel-block" x-text="t('moduleAddressSecret')"></span>
                             </div>
                             <div class="form-group">
-                                <label class="form-label">One-time pairing code</label>
+                                <label class="form-label" x-text="t('pairingCode')"></label>
                                 <input class="input-minimal"
                                        type="password"
                                        x-model="modulePairForm.pairing_code"
@@ -936,10 +980,10 @@
                             </div>
                             <button class="btn-primary"
                                     :disabled="moduleBusy === 'pair' || !modulePairForm.base_url || !modulePairForm.pairing_code"
-                                    @click="pairModule()">Connect for review</button>
+                                    @click="pairModule()" x-text="t('connectForReview')"></button>
                         </div>
 
-                        <p class="section-desc" x-show="modules.length === 0">No modules are connected.</p>
+                        <p class="section-desc" x-show="modules.length === 0" x-text="t('noModules')"></p>
 
                         <template x-for="module in modules" :key="module.id">
                             <div class="model-card">
@@ -948,33 +992,33 @@
                                         <strong x-text="module.name"></strong>
                                         <span class="model-badge" x-text="module.module_version"></span>
                                     </div>
-                                    <span class="model-badge" x-text="module.lifecycle_state"></span>
+                                    <span class="model-badge" x-text="stateLabel(module.lifecycle_state)"></span>
                                 </div>
                                 <p class="section-desc" x-text="module.description"></p>
-                                <p class="section-desc"><strong>Module ID:</strong> <span x-text="module.module_id"></span></p>
+                                <p class="section-desc"><strong x-text="t('moduleId') + ':'"></strong> <span x-text="module.module_id"></span></p>
 
                                 <div class="checkbox-group">
-                                    <span class="model-badge" x-text="'Health: ' + module.health_status"></span>
-                                    <span class="model-badge" x-text="'Ready: ' + module.ready_status"></span>
-                                    <span class="model-badge" x-text="'Config: ' + module.config_status"></span>
-                                    <span class="model-badge" x-text="'Frontend: ' + module.frontend_integration.status"></span>
+                                    <span class="model-badge" x-text="stateLabel(module.health_status)"></span>
+                                    <span class="model-badge" x-text="stateLabel(module.ready_status)"></span>
+                                    <span class="model-badge" x-text="stateLabel(module.config_status)"></span>
+                                    <span class="model-badge" x-text="stateLabel(module.frontend_integration.status)"></span>
                                 </div>
 
                                 <div class="form-group">
-                                    <label class="form-label">Frontend integration</label>
+                                    <label class="form-label" x-text="t('frontendIntegration')"></label>
                                     <p class="section-desc">
-                                        Module protocol <span x-text="module.protocol_version"></span>
-                                        · module <span x-text="module.module_version"></span>
+                                        <span x-text="t('moduleProtocol')"></span> <span x-text="module.protocol_version"></span>
+                                        · <span x-text="t('installedVersion')"></span> <span x-text="module.module_version"></span>
                                     </p>
                                     <p class="section-desc">
-                                        <span x-text="module.frontend_integration.mode"></span>
+                                        <span x-text="stateLabel(module.frontend_integration.mode)"></span>
                                         <span x-text="module.frontend_integration.id"></span>
-                                        <span x-text="module.frontend_integration.installed_version || 'not present'"></span>
-                                        · requires <span x-text="module.frontend_integration.required_version"></span>
+                                        <span x-text="module.frontend_integration.installed_version || t('none')"></span>
+                                        · <span x-text="t('requires')"></span> <span x-text="module.frontend_integration.required_version"></span>
                                     </p>
                                     <p class="section-desc"
                                        x-show="module.frontend_integration.mode === 'resident'">
-                                        Resident Integrations ship with the Server build and cannot be installed or removed from the Plugin Market.
+                                        <span x-text="t('residentSourceBuilt')"></span>
                                     </p>
                                     <p class="section-desc"
                                        x-show="module.frontend_integration.trust"
@@ -985,99 +1029,95 @@
                                 </div>
 
                                 <div class="form-group">
-                                    <label class="form-label">Network and configuration</label>
+                                    <label class="form-label" x-text="t('networkAndConfiguration')"></label>
                                     <p class="section-desc">
-                                        Network <span x-text="module.network.status"></span>
-                                        · configuration <span x-text="module.config_status"></span>
-                                        · ready <span x-text="module.ready_status"></span>
+                                        <span x-text="stateLabel(module.network.status)"></span>
+                                        · <span x-text="stateLabel(module.config_status)"></span>
+                                        · <span x-text="stateLabel(module.ready_status)"></span>
                                     </p>
                                     <p class="section-desc"
-                                       x-text="module.network.last_checked_at ? 'Last checked ' + module.network.last_checked_at : 'Not checked yet'"></p>
+                                       x-text="module.network.last_checked_at ? t('lastChecked') + ' ' + module.network.last_checked_at : t('notCheckedYet')"></p>
                                 </div>
 
                                 <div class="form-group">
-                                    <label class="form-label">Data ownership and retention</label>
-                                    <p class="section-desc">
-                                        Module-managed data
-                                        <span x-text="module.data_retention.supports_purge ? '· administrator purge supported' : '· no remote purge declared'"></span>
-                                    </p>
+                                    <label class="form-label" x-text="t('dataOwnership')"></label>
                                 </div>
 
                                 <div class="form-group">
-                                    <label class="form-label">Requested host capabilities</label>
-                                    <p class="section-desc" x-show="module.requested_host_capabilities.length === 0">None.</p>
+                                    <label class="form-label" x-text="t('requestedCapabilities')"></label>
+                                    <p class="section-desc" x-show="module.requested_host_capabilities.length === 0" x-text="t('none')"></p>
                                     <template x-for="review in module.capability_reviews" :key="review.capability">
-                                        <span class="model-badge" x-text="review.capability + ' · risk ' + review.risk + ' · ' + (review.effective_for_tasks ? 'task-scoped' : 'declaration only')"></span>
+                                        <span class="model-badge" x-text="review.capability + ' · ' + t('risk') + ' ' + review.risk + ' · ' + (review.effective_for_tasks ? t('taskScoped') : t('declarationOnly'))"></span>
                                     </template>
                                 </div>
 
                                 <div class="module-task-error"
                                      x-show="module.recent_fault">
-                                    <strong>Recent fault</strong>
-                                    <p x-text="module.recent_fault?.message"></p>
+                                    <strong x-text="t('recentFault')"></strong>
+                                    <p x-text="localizeError(module.recent_fault, 'moduleOperationFailed')"></p>
                                     <small x-text="module.recent_fault?.code"></small>
                                 </div>
 
                                 <div class="form-group">
-                                    <label class="form-label">Declared actions</label>
-                                    <p class="section-desc" x-show="module.actions.length === 0">No actions declared.</p>
+                                    <label class="form-label" x-text="t('declaredActions')"></label>
+                                    <p class="section-desc" x-show="module.actions.length === 0" x-text="t('noActions')"></p>
                                     <template x-for="action in module.actions" :key="action.action_id">
                                         <p class="section-desc">
                                             <strong x-text="action.action_id"></strong>
-                                            <span x-text="' v' + action.action_version + ' · minimum role ' + action.minimum_role"></span>
-                                            <span x-show="action.supports_stream"> · stream</span>
-                                            <span x-show="action.supports_cancel"> · cancel</span>
-                                            <span x-show="action.supports_approval"> · approval</span>
-                                            <span x-show="action.supports_artifacts"> · artifacts</span>
-                                            <span x-show="action.supports_chat_projection"> · chat projection</span>
+                                            <span x-text="' v' + action.action_version + ' · ' + t('minimumRole') + ' ' + roleLabel(action.minimum_role)"></span>
+                                            <span x-show="action.supports_stream" x-text="' · ' + t('supportsStream')"></span>
+                                            <span x-show="action.supports_cancel" x-text="' · ' + t('supportsCancel')"></span>
+                                            <span x-show="action.supports_approval" x-text="' · ' + t('supportsApproval')"></span>
+                                            <span x-show="action.supports_artifacts" x-text="' · ' + t('supportsArtifacts')"></span>
+                                            <span x-show="action.supports_chat_projection" x-text="' · ' + t('supportsChatProjection')"></span>
                                         </p>
                                     </template>
                                 </div>
 
-                                <p class="section-desc" x-show="!module.reviewed">Review is required before this module can be enabled.</p>
-                                <p class="section-desc" x-show="module.reviewed && !module.can_enable">Approved, but health, configuration, Ready, or frontend integration requirements are incomplete.</p>
+                                <p class="section-desc" x-show="!module.reviewed" x-text="t('reviewRequired')"></p>
+                                <p class="section-desc" x-show="module.reviewed && !module.can_enable" x-text="t('requirementsIncomplete')"></p>
 
                                 <div class="plugin-actions">
                                     <button class="btn-primary btn-compact"
                                             x-show="!module.reviewed && module.health_status !== 'incompatible'"
                                             :disabled="moduleBusy === module.id"
-                                            @click="approveModule(module)">Approve declaration</button>
+                                            @click="approveModule(module)" x-text="t('approveDeclaration')"></button>
                                     <button class="btn-secondary btn-compact"
                                             :disabled="moduleBusy === module.id"
-                                            @click="runModuleAction(module, 'check')">Check health</button>
+                                            @click="runModuleAction(module, 'check')" x-text="t('checkHealth')"></button>
                                     <button class="btn-secondary btn-compact"
                                             :disabled="moduleBusy === module.id"
-                                            @click="runModuleAction(module, 'refresh')">Refresh manifest</button>
+                                            @click="runModuleAction(module, 'refresh')" x-text="t('refreshManifest')"></button>
                                     <button class="btn-secondary btn-compact"
                                             :disabled="moduleBusy === module.id || module.health_status === 'unreachable'"
-                                            @click="openModuleConfig(module)">Configure</button>
+                                            @click="openModuleConfig(module)" x-text="t('configure')"></button>
                                     <button class="btn-primary btn-compact"
                                             x-show="['pending_review', 'disabled'].includes(module.lifecycle_state)"
                                             :disabled="moduleBusy === module.id || !module.can_enable"
-                                            @click="runModuleAction(module, 'enable')">Enable suite</button>
+                                            @click="runModuleAction(module, 'enable')" x-text="t('enableSuite')"></button>
                                     <button class="btn-secondary btn-compact"
                                             x-show="module.lifecycle_state === 'enabled'"
                                             :disabled="moduleBusy === module.id"
-                                            @click="runModuleAction(module, 'drain')">Drain</button>
+                                            @click="runModuleAction(module, 'drain')" x-text="t('drain')"></button>
                                     <button class="btn-secondary btn-compact"
                                             x-show="['enabled', 'draining'].includes(module.lifecycle_state)"
                                             :disabled="moduleBusy === module.id"
-                                            @click="runModuleAction(module, 'disable')">Disable</button>
+                                            @click="runModuleAction(module, 'disable')" x-text="t('disable')"></button>
                                     <button class="btn-delete btn-compact"
                                             x-show="module.supports_data_purge"
                                             :disabled="moduleBusy === module.id"
-                                            @click="purgeModuleData(module)">Purge module data</button>
+                                            @click="purgeModuleData(module)" x-text="t('purgeModuleData')"></button>
                                     <button class="btn-delete btn-compact"
                                             :disabled="moduleBusy === module.id"
-                                            @click="disconnectModule(module)">Disconnect</button>
+                                            @click="disconnectModule(module)" x-text="t('disconnect')"></button>
                                 </div>
                             </div>
                         </template>
 
                         <div class="model-card" x-show="moduleConfig">
                             <div class="model-header">
-                                <strong>Module configuration</strong>
-                                <span class="model-badge" x-text="'Revision ' + moduleConfig?.revision"></span>
+                                <strong x-text="t('moduleConfiguration')"></strong>
+                                <span class="model-badge" x-text="t('revision') + ' ' + moduleConfig?.revision"></span>
                             </div>
                             <p class="section-desc" x-text="moduleConfig?.moduleName"></p>
                             <template x-for="field in moduleConfigFields()" :key="field.name">
@@ -1085,18 +1125,18 @@
                                     <label class="form-label" x-text="field.schema.title || field.name"></label>
                                     <template x-if="field.secret">
                                         <div>
-                                            <p class="section-desc" x-text="moduleConfig?.secret_configured?.[field.name] ? 'Secret configured' : 'Secret not configured'"></p>
+                                            <p class="section-desc" x-text="moduleConfig?.secret_configured?.[field.name] ? t('secretConfigured') : t('secretNotConfigured')"></p>
                                             <select class="input-minimal" x-model="moduleSecretActions[field.name].action">
-                                                <option value="keep">Keep</option>
-                                                <option value="replace">Replace</option>
-                                                <option value="clear">Clear</option>
+                                                <option value="keep" x-text="t('keep')"></option>
+                                                <option value="replace" x-text="t('replace')"></option>
+                                                <option value="clear" x-text="t('clear')"></option>
                                             </select>
                                             <input class="input-minimal"
                                                    type="password"
                                                    x-show="moduleSecretActions[field.name].action === 'replace'"
                                                    x-model="moduleSecretActions[field.name].value"
                                                    autocomplete="new-password"
-                                                   placeholder="New secret">
+                                                   :placeholder="t('newSecret')">
                                         </div>
                                     </template>
                                     <template x-if="!field.secret && Array.isArray(field.schema.enum)">
@@ -1127,28 +1167,35 @@
                                 </div>
                             </template>
                             <div class="plugin-actions">
-                                <button class="btn-primary" @click="saveModuleConfig()">Save module configuration</button>
-                                <button class="btn-secondary" @click="moduleConfig = null">Cancel</button>
+                                <button class="btn-primary" @click="saveModuleConfig()" x-text="t('saveModuleConfiguration')"></button>
+                                <button class="btn-secondary" @click="moduleConfig = null" x-text="t('cancel')"></button>
                             </div>
                         </div>
                     </div>
 
                     <div x-show="settingsTab === 'account'">
                         <div class="section-header">
-                            <h2 class="section-title">Account</h2>
-                            <p class="section-desc"><span x-text="me?.username"></span> · <span x-text="me?.role"></span></p>
+                            <h2 class="section-title" x-text="t('account')"></h2>
+                            <p class="section-desc"><span x-text="me?.username"></span> · <span x-text="roleLabel(me?.role)"></span></p>
                         </div>
                         <div class="model-card">
                             <div class="form-group">
-                                <label class="form-label">Current password</label>
+                                <label class="form-label" x-text="t('language')"></label>
+                                <div class="theme-grid">
+                                    <div class="theme-option" :class="{ 'active': lang === 'en' }" @click="setLanguage('en')" x-text="t('english')"></div>
+                                    <div class="theme-option" :class="{ 'active': lang === 'zh' }" @click="setLanguage('zh')" x-text="t('chinese')"></div>
+                                </div>
+                            </div>
+                            <div class="form-group">
+                                <label class="form-label" x-text="t('currentPassword')"></label>
                                 <input class="input-minimal" type="password" x-model="passwordForm.current_password" autocomplete="current-password">
                             </div>
                             <div class="form-group">
-                                <label class="form-label">New password</label>
+                                <label class="form-label" x-text="t('newPassword')"></label>
                                 <input class="input-minimal" type="password" minlength="12" x-model="passwordForm.new_password" autocomplete="new-password">
                             </div>
-                            <button class="btn-primary" @click="changeMyPassword()">Change password</button>
-                            <button class="btn-secondary" @click="logout()">Sign out</button>
+                            <button class="btn-primary" @click="changeMyPassword()" x-text="t('changePassword')"></button>
+                            <button class="btn-secondary" @click="logout()" x-text="t('signOut')"></button>
                         </div>
                     </div>
 
@@ -1167,7 +1214,7 @@
     <div class="modal-overlay" x-show="showPlugins" x-cloak @click.self="showPlugins = false" @keydown.escape.window="showPlugins && (showPlugins = false)" x-transition role="dialog" aria-modal="true" aria-labelledby="plugins-modal-title">
         <div class="settings-modal plugin-modal">
             <!-- Left Nav -->
-            <div class="settings-nav" role="tablist" aria-label="Plugin navigation">
+            <div class="settings-nav" role="tablist" :aria-label="t('pluginNavigation')">
                 <div class="settings-title" id="plugins-modal-title" x-text="t('plugins')"></div>
                 <div class="nav-item" role="tab" :aria-selected="pluginTab === 'market'" :class="{ 'active': pluginTab === 'market' }" @click="pluginTab = 'market'; loadPluginMarket()" x-text="t('pluginMarket')"></div>
                 <div class="nav-item" role="tab" :aria-selected="pluginTab === 'installed'" :class="{ 'active': pluginTab === 'installed' }" @click="pluginTab = 'installed'" x-text="t('installedPlugins')"></div>
@@ -1195,7 +1242,7 @@
                                        class="plugin-market-search input-minimal" 
                                        :placeholder="t('searchPlugins')"
                                        x-model="pluginMarketSearch"
-                                       aria-label="Search plugins">
+                                       :aria-label="t('searchPlugins')">
                             </div>
                         </div>
                         
@@ -1228,7 +1275,7 @@
                                             <button class="btn-icon btn-icon-sm" 
                                                     @click="infoOpen = !infoOpen"
                                                     :aria-expanded="infoOpen"
-                                                    aria-label="Plugin info">
+                                                    :aria-label="t('pluginInfo')">
                                                 <i class="ri-information-line"></i>
                                             </button>
                                             <div class="plugin-info-popover" x-show="infoOpen" x-cloak x-transition>
@@ -1241,7 +1288,7 @@
                                                 @click="installPlugin(plugin)" 
                                                 :disabled="isPluginInstalled(plugin.id) || pluginInstalling === plugin.id"
                                                 :title="pluginInstalling === plugin.id ? t('installing') : (isPluginInstalled(plugin.id) ? t('installed') : t('install'))"
-                                                aria-label="Install plugin">
+                                                :aria-label="t('installPlugin')">
                                             <i class="ri-loader-4-line spin" x-show="pluginInstalling === plugin.id"></i>
                                             <i class="ri-check-line" x-show="isPluginInstalled(plugin.id) && pluginInstalling !== plugin.id"></i>
                                             <i class="ri-download-2-line" x-show="!isPluginInstalled(plugin.id) && pluginInstalling !== plugin.id"></i>
@@ -1275,7 +1322,7 @@
                                             <button class="btn-icon btn-icon-sm" 
                                                     @click="infoOpen = !infoOpen"
                                                     :aria-expanded="infoOpen"
-                                                    aria-label="Plugin info">
+                                                    :aria-label="t('pluginInfo')">
                                                 <i class="ri-information-line"></i>
                                             </button>
                                             <div class="plugin-info-popover" x-show="infoOpen" x-cloak x-transition>
@@ -1348,7 +1395,7 @@
                 <!-- Custom Settings Container (for plugins with customSettings: true) -->
                 <template x-if="currentPluginSettings?.customSettings">
                     <div id="plugin-custom-settings-area" class="plugin-custom-settings">
-                        <div class="plugin-loading-text">Loading...</div>
+                        <div class="plugin-loading-text" x-text="t('loading')"></div>
                     </div>
                 </template>
                 
@@ -1423,7 +1470,7 @@
                                 <button type="button" class="btn-secondary btn-compact"
                                         x-show="pluginApiKeyConfigured[proxy.id]"
                                         @click="pluginApiKeys[proxy.id] = ''; pluginApiKeyActions[proxy.id] = 'clear'">
-                                    Clear key
+                                    <span x-text="t('clearKey')"></span>
                                 </button>
                             </div>
                         </template>
@@ -1453,14 +1500,14 @@
                     x-text="residentWorkspace.title"></h2>
                 <button class="btn-icon"
                         type="button"
-                        aria-label="Close Resident Integration"
+                        :aria-label="t('closeResidentIntegration')"
                         @click="closeResidentWorkspace()">
                     <i class="ri-close-line"></i>
                 </button>
             </header>
             <div class="module-task-error"
                  x-show="residentWorkspace.error"
-                 x-text="residentWorkspace.error"></div>
+                 x-text="t('moduleOperationFailed')"></div>
             <div id="resident-workspace-mount"
                  class="resident-workspace-mount"></div>
         </section>
@@ -1473,7 +1520,7 @@
             x-cloak
             @click="openModuleTaskCenter()">
         <i class="ri-stack-line"></i>
-        <span>Tasks</span>
+        <span x-text="t('tasks')"></span>
         <strong x-text="moduleTaskOrder.length"></strong>
     </button>
 
@@ -1489,16 +1536,16 @@
                  aria-labelledby="module-task-title">
             <header class="module-task-header">
                 <div>
-                    <p class="module-task-eyebrow">Module task</p>
+                    <p class="module-task-eyebrow" x-text="t('moduleTask')"></p>
                     <h2 id="module-task-title"
-                        x-text="moduleTaskUi.task?.action_id || 'Task'"></h2>
+                        x-text="moduleTaskUi.task?.action_id || t('task')"></h2>
                 </div>
                 <div class="module-task-header-actions">
                     <span class="model-badge"
-                          x-text="moduleTaskUi.task?.state || 'loading'"></span>
+                          x-text="moduleTaskUi.task ? stateLabel(moduleTaskUi.task.state) : t('loading')"></span>
                     <button class="btn-icon"
                             type="button"
-                            aria-label="Close task"
+                            :aria-label="t('closeTask')"
                             @click="closeModuleTask()">
                         <i class="ri-close-line"></i>
                     </button>
@@ -1506,17 +1553,17 @@
             </header>
 
             <nav class="module-task-switcher"
-                 aria-label="Module tasks">
+                 :aria-label="t('moduleTasks')">
                 <template x-for="view in moduleTaskViews()"
                           :key="view.task.task_id">
                     <button type="button"
                             :class="{ 'active': moduleTaskUi.task?.task_id === view.task.task_id }"
                             @click="selectModuleTask(view.task.task_id)">
                         <span x-text="view.task.action_id"></span>
-                        <small x-text="view.task.state"></small>
+                        <small x-text="stateLabel(view.task.state)"></small>
                         <i class="module-task-attention"
                            x-show="view.approval"
-                           aria-label="Approval required"></i>
+                           :aria-label="t('approvalRequired')"></i>
                     </button>
                 </template>
             </nav>
@@ -1524,7 +1571,7 @@
             <div class="module-task-body">
                 <div class="module-task-progress"
                      role="progressbar"
-                     aria-label="Task progress"
+                     :aria-label="t('taskProgress')"
                      :aria-valuenow="Math.round(moduleTaskUi.progress * 100)"
                      aria-valuemin="0"
                      aria-valuemax="100">
@@ -1536,30 +1583,30 @@
 
                 <div class="module-task-error"
                      x-show="moduleTaskUi.error"
-                     x-text="moduleTaskUi.error"></div>
+                     x-text="localizeError(moduleTaskUi.error, 'moduleOperationFailed')"></div>
 
                 <section class="module-task-approval"
                          x-show="moduleTaskUi.approval">
-                    <strong>Approval required</strong>
-                    <p x-text="moduleTaskUi.approval?.prompt"></p>
+                    <strong x-text="t('approvalRequired')"></strong>
+                    <p x-text="t('approvalRequired')"></p>
                     <div class="plugin-actions">
                         <button class="btn-primary btn-compact"
                                 type="button"
-                                @click="resolveModuleTaskApproval('approve')">Approve</button>
+                                @click="resolveModuleTaskApproval('approve')" x-text="t('approve')"></button>
                         <button class="btn-secondary btn-compact"
                                 type="button"
-                                @click="resolveModuleTaskApproval('deny')">Deny</button>
+                                @click="resolveModuleTaskApproval('deny')" x-text="t('deny')"></button>
                     </div>
                 </section>
 
                 <section x-show="moduleTaskUi.output">
-                    <h3 class="module-task-section-title">Output</h3>
+                    <h3 class="module-task-section-title" x-text="t('output')"></h3>
                     <pre class="module-task-output"
                          x-text="moduleTaskUi.output"></pre>
                 </section>
 
                 <section x-show="moduleTaskUi.artifacts.length > 0">
-                    <h3 class="module-task-section-title">Artifacts</h3>
+                    <h3 class="module-task-section-title" x-text="t('artifacts')"></h3>
                     <template x-for="artifact in moduleTaskUi.artifacts"
                               :key="artifact.artifact_ref">
                         <button class="module-task-artifact"
@@ -1567,7 +1614,7 @@
                                 @click="downloadVisibleModuleArtifact(artifact)">
                             <i class="ri-download-line"></i>
                             <span x-text="artifact.filename"></span>
-                            <small x-text="`${artifact.size} bytes`"></small>
+                            <small x-text="t('artifactSize', { size: artifact.size })"></small>
                         </button>
                     </template>
                 </section>
@@ -1579,8 +1626,56 @@
                 <button class="btn-secondary btn-compact"
                         type="button"
                         x-show="moduleTaskUi.task && !['succeeded', 'failed', 'cancelled'].includes(moduleTaskUi.task.state)"
-                        @click="cancelVisibleModuleTask()">Cancel task</button>
+                        @click="cancelVisibleModuleTask()" x-text="t('cancelTask')"></button>
             </footer>
+        </section>
+    </div>
+
+    <div class="modal-overlay"
+         x-show="resetUserPasswordDialog.show"
+         x-cloak
+         x-transition
+         @click.self="closeManagedUserPasswordDialog()"
+         @keydown.escape.window="resetUserPasswordDialog.show && closeManagedUserPasswordDialog()"
+         role="dialog"
+         aria-modal="true"
+         aria-labelledby="reset-user-password-title">
+        <section class="user-password-modal">
+            <div class="section-header">
+                <h2 class="section-title"
+                    id="reset-user-password-title"
+                    x-text="t('resetPasswordTitle')"></h2>
+                <p class="section-desc"
+                   x-text="t('resetPasswordDesc', { username: resetUserPasswordDialog.user?.username || '' })"></p>
+            </div>
+            <div class="form-group">
+                <label class="form-label" x-text="t('newPassword')"></label>
+                <input class="input-minimal"
+                       type="password"
+                       minlength="12"
+                       autocomplete="new-password"
+                       x-model="resetUserPasswordDialog.newPassword">
+                <span class="form-sublabel form-sublabel-block" x-text="t('passwordMinimum')"></span>
+            </div>
+            <div class="form-group">
+                <label class="form-label" x-text="t('confirmPassword')"></label>
+                <input class="input-minimal"
+                       type="password"
+                       minlength="12"
+                       autocomplete="new-password"
+                       x-model="resetUserPasswordDialog.confirmPassword">
+            </div>
+            <div class="plugin-actions user-password-actions">
+                <button class="btn-secondary"
+                        type="button"
+                        @click="closeManagedUserPasswordDialog()"
+                        x-text="t('cancel')"></button>
+                <button class="btn-primary"
+                        type="button"
+                        :disabled="!resetUserPasswordDialog.user || isAdminUserBusy(resetUserPasswordDialog.user.id)"
+                        @click="submitManagedUserPasswordReset()"
+                        x-text="t('savePassword')"></button>
+            </div>
         </section>
     </div>
 
@@ -1594,6 +1689,6 @@
         <div class="plugin-fullscreen-content" x-html="pluginFullscreenModal.content"></div>
     </div>
 
-    <script src="app.min.js?v=7.10"></script>
+    <script src="app.min.js?v=7.13"></script>
 </body>
 </html>

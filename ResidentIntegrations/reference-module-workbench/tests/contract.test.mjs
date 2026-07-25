@@ -96,9 +96,57 @@ test('reference Resident registers and starts an embedded host task', async () =
         dom.window.document.querySelector('pre').textContent,
         '<safe>'
     );
+    assert.equal(
+        dom.window.document.querySelector('.section-desc').textContent,
+        'Succeeded'
+    );
     assert.equal(dom.window.document.querySelector('pre').children.length, 0);
 
     cleanup();
     assert.equal(unsubscribed, true);
     assert.equal(dom.window.document.querySelector('main').children.length, 0);
+});
+
+test('reference Resident localizes progress and terminal state', async () => {
+    const dom = new JSDOM('<!doctype html><body><main></main></body>', {
+        runScripts: 'outside-only',
+        url: 'http://chatraw.test/'
+    });
+    let definition;
+    dom.window.ChatRawResident = { register(value) { definition = value; } };
+    dom.window.eval(source);
+    definition.mount({
+        container: dom.window.document.querySelector('main'),
+        moduleId: 'chatraw.reference.echo',
+        modules: {
+            async startTask() { return { task_id: 'task-zh' }; },
+            subscribe(_taskId, handlers) {
+                handlers.onEvent({
+                    event: 'task.progress',
+                    data: { progress: 0.5, message: 'Step 4 of 8' }
+                });
+                assert.equal(
+                    dom.window.document.querySelector('.section-desc').textContent,
+                    '已完成 50%'
+                );
+                handlers.onEvent({
+                    event: 'task.terminal',
+                    data: { state: 'failed' }
+                });
+                return () => {};
+            }
+        },
+        t: value => value.zh,
+        getCurrentChatId: () => null
+    });
+    const textarea = dom.window.document.querySelector('textarea');
+    textarea.value = '中文任务';
+    dom.window.document.querySelector('form').dispatchEvent(
+        new dom.window.Event('submit', { bubbles: true, cancelable: true })
+    );
+    await new Promise(resolve => dom.window.setTimeout(resolve, 0));
+    assert.equal(
+        dom.window.document.querySelector('.section-desc').textContent,
+        '已失败'
+    );
 });

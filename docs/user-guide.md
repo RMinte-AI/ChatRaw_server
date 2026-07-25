@@ -17,12 +17,19 @@ ChatRaw Server 的所有用户使用同一个平台。聊天、文档、模型�
 ### 2. 登录和账户
 
 打开管理员提供的 ChatRaw Server 地址。未登录时，所有业务页面和 `/api/*` 数据接口都会要求认证。
+平台不提供公开的用户自助注册；账户由管理员创建。管理员可以调整账户角色、停用或重新启用账户，
+也可以重置其他用户的密码。角色变更、停用或管理员重置密码后，现有登录会话会失效，需要重新登录。
 
 登录后可以在“设置 → Account”中：
 
 - 查看用户名和角色；
 - 修改自己的密码；
 - 退出登录。
+
+登录页和首次初始化页右上角可直接选择 `English` 或 `中文`。进入主界面后，
+在“设置 → 账户（Account）”中也可以切换语言；选择会保存在当前浏览器中，并应用到
+核心界面的标签、按钮、状态、确认提示、警告和错误消息。插件或 Resident Integration
+提供的功能也应跟随同一语言设置；模块协议返回的机器状态值不会直接作为界面文案显示。
 
 修改密码后现有会话会失效，需要使用新密码重新登录。不要共享账号，不要把浏览器 Cookie 当作 API Token 保存。
 
@@ -129,6 +136,11 @@ If separate companies or customers require strong data isolation, deploy separat
 ### 2. Sign-in and account
 
 Use the Server URL supplied by your administrator. After signing in, open **Settings → Account** to view your role, change your password, or sign out.
+
+ChatRaw has no public self-registration; an administrator creates accounts. Administrators can
+change an account's role, disable or re-enable it, and reset another user's password. A role change,
+account disable, or administrator password reset invalidates existing sessions and requires a new
+sign-in.
 
 Changing your password invalidates the current session. Sign in again with the new password. Do not share accounts or retain browser cookies as API tokens.
 

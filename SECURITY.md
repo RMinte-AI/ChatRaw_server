@@ -29,6 +29,27 @@ Please include:
 - 使用最少敏感数据的复现步骤。
 - 预期影响和已知规避方式。
 
+## Identity and Administrator Controls / 身份与管理员控制
+
+ChatRaw has two account roles: `admin` and `member`. There is no public self-registration endpoint.
+Administrators can list and create accounts, change either role to the other, disable or re-enable an
+account, and reset another user's password. Account removal is a reversible disable operation; the
+Server does not physically delete users through the administration UI.
+
+Role changes and disabling revoke the affected user's web sessions. Demotion from `admin` to
+`member`, and disabling either role, also revoke outstanding task-scoped Host Capability grants.
+An administrator cannot demote or disable their own account, or reset their own password through
+the administrator controls; self-service password changes belong under **Settings → Account**.
+The Server must always retain at least one enabled administrator.
+
+ChatRaw 只有 `admin` 和 `member` 两种账户角色，不提供公开的用户自助注册接口。管理员可以查看和
+创建账户、在两种角色之间调整账户、停用或重新启用账户，以及重置其他用户的密码。管理界面的“移除”
+采用可恢复的停用，不物理删除用户。
+
+角色变更和停用都会撤销目标用户的 Web 会话；将 `admin` 降级为 `member` 或停用任一角色时，还会
+撤销其未过期的任务型 Host Capability。管理员不能自降级、自停用，也不能通过管理入口重置自己的
+密码；自助修改密码应使用“设置 → Account”。系统必须始终保留至少一个已启用的管理员。
+
 ## Plugins and Skills / 插件与 Skills
 
 Plugins and Agent Skills are user-enabled local extensions. Treat third-party plugin code and skill

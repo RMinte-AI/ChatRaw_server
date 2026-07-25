@@ -5,6 +5,30 @@
     const MODULE_ID = 'chatraw.reference.echo';
     const ACTION_ID = 'echo.task';
 
+    const messages = {
+        en: {
+            unavailable: 'Reference feature is unavailable',
+            prompt: 'Text for the reference module task',
+            startFailed: 'Unable to start reference task'
+        },
+        zh: {
+            unavailable: '参考模块功能暂不可用',
+            prompt: '请输入参考模块任务要处理的文本',
+            startFailed: '无法启动参考模块任务'
+        }
+    };
+
+    function t(key) {
+        const lang = ChatRawPlugin.utils.getLanguage?.() || 'en';
+        return messages[lang]?.[key] || messages.en[key] || key;
+    }
+
+    function displayError(error, fallbackKey) {
+        const lang = ChatRawPlugin.utils.getLanguage?.() || 'en';
+        if (lang === 'en' && error?.message) return error.message;
+        return t(fallbackKey);
+    }
+
     async function featureStatus() {
         return window.ChatRaw.modules.getFeatureStatus(MODULE_ID);
     }
@@ -19,12 +43,12 @@
             const status = await featureStatus();
             if (!status.available) {
                 ChatRawPlugin.utils.showToast(
-                    status.reason?.message || 'Reference feature is unavailable',
+                    displayError(status.reason, 'unavailable'),
                     'error'
                 );
                 return;
             }
-            const text = window.prompt('Text for the reference module task');
+            const text = window.prompt(t('prompt'));
             if (!text?.trim()) return;
             await window.ChatRaw.modules.startTask({
                 module_id: MODULE_ID,
@@ -40,7 +64,7 @@
             });
         } catch (error) {
             ChatRawPlugin.utils.showToast(
-                error.message || 'Unable to start reference task',
+                displayError(error, 'startFailed'),
                 'error'
             );
         } finally {

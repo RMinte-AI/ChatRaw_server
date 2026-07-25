@@ -29,13 +29,19 @@
             loading: 'Loading...',
             renderError: 'Render error',
             emptyDiagram: 'Empty diagram',
-            download: 'Download SVG'
+            download: 'Download SVG',
+            loadFailed: 'Markmap failed to load',
+            unknownError: 'An unexpected error occurred',
+            rootTopic: 'Topic'
         },
         zh: {
             loading: '加载中...',
             renderError: '渲染错误',
             emptyDiagram: '空图表',
-            download: '下载 SVG'
+            download: '下载 SVG',
+            loadFailed: '思维导图组件加载失败',
+            unknownError: '发生未知错误',
+            rootTopic: '主题'
         }
     };
 
@@ -395,7 +401,7 @@
         const ok = await initMarkmap();
         if (!ok || !window.markmap) {
             container.className = 'mindmap-error-container';
-            container.innerHTML = `<strong>${escapeHtml(t('renderError'))}:</strong> Markmap failed to load`;
+            container.innerHTML = `<strong>${escapeHtml(t('renderError'))}:</strong> ${escapeHtml(t('loadFailed'))}`;
             return;
         }
 
@@ -426,7 +432,7 @@
                 }
                 if (!root) {
                     if (/^#{2,6}\s+/m.test(markdown) && !/^#\s+/m.test(markdown)) {
-                        markdown = '# 主题\n' + markdown;
+                        markdown = `# ${t('rootTopic')}\n` + markdown;
                     }
                     const transformer = new Transformer();
                     const result = transformer.transform(markdown);
@@ -481,7 +487,7 @@
         } catch (e) {
             console.error('[MindmapRenderer] Render error:', e);
             container.className = 'mindmap-error-container';
-            container.innerHTML = `<strong>${escapeHtml(t('renderError'))}:</strong> ${escapeHtml(e.message || 'Unknown')}<pre>${escapeHtml(raw)}</pre>`;
+            container.innerHTML = `<strong>${escapeHtml(t('renderError'))}:</strong> ${escapeHtml(t('unknownError'))}<pre>${escapeHtml(raw)}</pre>`;
         }
     }
 

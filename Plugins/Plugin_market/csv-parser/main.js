@@ -14,6 +14,35 @@
         console.error('[CSVParser] ChatRawPlugin not available');
         return;
     }
+
+    const i18n = {
+        en: {
+            rowsTruncated: count => `*... ${count} more rows truncated*`,
+            libraryMissing: 'Papa Parse library is unavailable. Please try again later.',
+            invalidFile: 'Invalid file.',
+            fileTooLarge: 'The file is too large. The maximum supported size is 10 MB.',
+            parseError: 'The CSV file could not be parsed.',
+            noData: 'No data was found in the CSV file.',
+            noContent: 'No content could be extracted from the CSV file.',
+            fileLabel: 'CSV File', rowsLabel: 'Rows', columnsLabel: 'Columns',
+            parseFailed: 'Failed to parse the CSV file.'
+        },
+        zh: {
+            rowsTruncated: count => `*……另有 ${count} 行数据未显示*`,
+            libraryMissing: 'CSV 解析组件暂不可用，请稍后重试。',
+            invalidFile: '文件无效。', fileTooLarge: '文件过大，最大支持 10 MB。',
+            parseError: '无法解析此 CSV 文件。', noData: 'CSV 文件中没有可用数据。',
+            noContent: '无法从 CSV 文件中提取内容。',
+            fileLabel: 'CSV 文件', rowsLabel: '行数', columnsLabel: '列数',
+            parseFailed: 'CSV 文件解析失败。'
+        }
+    };
+
+    function t(key, ...args) {
+        const lang = ChatRaw.utils?.getLanguage?.() || 'en';
+        const value = i18n[lang]?.[key] ?? i18n.en[key] ?? key;
+        return typeof value === 'function' ? value(...args) : value;
+    }
     
     // Get Papa Parse library from dependencies
     let Papa = ChatRaw.require('papaparse');
@@ -58,7 +87,7 @@
         
         if (data.length > MAX_ROWS + 1) {
             rows.push('');
-            rows.push(`*... ${data.length - MAX_ROWS - 1} more rows truncated*`);
+            rows.push(t('rowsTruncated', data.length - MAX_ROWS - 1));
         }
         
         return rows.join('\n');
@@ -85,7 +114,7 @@
                 if (!papaLib) {
                     return {
                         success: false,
-                        error: 'Papa Parse library not loaded. Please check your internet connection and try again.'
+                        error: t('libraryMissing')
                     };
                 }
                 
@@ -93,7 +122,7 @@
                 if (!file || typeof file.text !== 'function') {
                     return {
                         success: false,
-                        error: 'Invalid file object.'
+                        error: t('invalidFile')
                     };
                 }
                 
@@ -104,7 +133,7 @@
                 if (text.length > 10 * 1024 * 1024) {
                     return {
                         success: false,
-                        error: 'File too large. Maximum supported size is 10MB.'
+                        error: t('fileTooLarge')
                     };
                 }
                 
@@ -125,7 +154,7 @@
                     if (criticalErrors.length > 0 && !result.data?.length) {
                         return {
                             success: false,
-                            error: `CSV parse error: ${criticalErrors[0].message}`
+                            error: t('parseError')
                         };
                     }
                 }
@@ -133,7 +162,7 @@
                 if (!result.data || result.data.length === 0) {
                     return {
                         success: false,
-                        error: 'No data found in CSV file.'
+                        error: t('noData')
                     };
                 }
                 
@@ -143,14 +172,14 @@
                 if (!content) {
                     return {
                         success: false,
-                        error: 'No content extracted from CSV file.'
+                        error: t('noContent')
                     };
                 }
                 
                 // Build output with metadata
                 const rowCount = result.data.length - 1;  // Minus header
                 const colCount = result.data[0]?.length || 0;
-                const header = `**CSV File**: ${file.name || 'data.csv'}\n**Rows**: ${rowCount}, **Columns**: ${colCount}\n\n`;
+                const header = `**${t('fileLabel')}**: ${file.name || 'data.csv'}\n**${t('rowsLabel')}**: ${rowCount}, **${t('columnsLabel')}**: ${colCount}\n\n`;
                 
                 return {
                     success: true,
@@ -161,7 +190,7 @@
                 console.error('[CSVParser] Error:', error);
                 return {
                     success: false,
-                    error: `Failed to parse CSV file: ${error.message || 'Unknown error'}`
+                    error: t('parseFailed')
                 };
             }
         }

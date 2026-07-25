@@ -237,6 +237,12 @@ After enabling, ChatRaw only allows remote Hermes Base URLs explicitly listed in
         return i18n[lang]?.[key] || i18n.en[key] || key;
     }
 
+    function displayError(error, fallbackKey) {
+        const lang = ChatRaw.utils?.getLanguage?.() || 'en';
+        if (lang === 'en') return error?.message || error || t(fallbackKey);
+        return t(fallbackKey);
+    }
+
     function escapeHtml(value) {
         return String(value || '')
             .replace(/&/g, '&amp;')
@@ -447,8 +453,8 @@ After enabling, ChatRaw only allows remote Hermes Base URLs explicitly listed in
                 setStatus(t('saved'));
             }
         } catch (error) {
-            setStatus(error.message || t('requestFailed'), 'error');
-            ChatRaw.utils?.showToast?.(`${t('requestFailed')}: ${error.message}`, 'error');
+            setStatus(displayError(error, 'requestFailed'), 'error');
+            ChatRaw.utils?.showToast?.(displayError(error, 'requestFailed'), 'error');
         }
     }
 
@@ -465,8 +471,8 @@ After enabling, ChatRaw only allows remote Hermes Base URLs explicitly listed in
             setStatus(`${t('healthOk')}: ${data.model || settings.model}`);
             ChatRaw.utils?.showToast?.(t('healthOk'), 'success');
         } catch (error) {
-            setStatus(error.message || t('healthFailed'), 'error');
-            ChatRaw.utils?.showToast?.(`${t('healthFailed')}: ${error.message}`, 'error');
+            setStatus(displayError(error, 'healthFailed'), 'error');
+            ChatRaw.utils?.showToast?.(displayError(error, 'healthFailed'), 'error');
         }
     }
 
@@ -481,8 +487,8 @@ After enabling, ChatRaw only allows remote Hermes Base URLs explicitly listed in
             setStatus(t('keyCleared'));
             ChatRaw.utils?.showToast?.(t('keyCleared'), 'success');
         } catch (error) {
-            setStatus(error.message || t('requestFailed'), 'error');
-            ChatRaw.utils?.showToast?.(`${t('requestFailed')}: ${error.message}`, 'error');
+            setStatus(displayError(error, 'requestFailed'), 'error');
+            ChatRaw.utils?.showToast?.(displayError(error, 'requestFailed'), 'error');
         }
     }
 
@@ -497,8 +503,8 @@ After enabling, ChatRaw only allows remote Hermes Base URLs explicitly listed in
             setStatus(t('sessionKeyCleared'));
             ChatRaw.utils?.showToast?.(t('sessionKeyCleared'), 'success');
         } catch (error) {
-            setStatus(error.message || t('requestFailed'), 'error');
-            ChatRaw.utils?.showToast?.(`${t('requestFailed')}: ${error.message}`, 'error');
+            setStatus(displayError(error, 'requestFailed'), 'error');
+            ChatRaw.utils?.showToast?.(displayError(error, 'requestFailed'), 'error');
         }
     }
 
@@ -565,7 +571,7 @@ After enabling, ChatRaw only allows remote Hermes Base URLs explicitly listed in
             }
         } catch (error) {
             if (requestId !== remoteStatusRequestId) return;
-            status.textContent = error.message || t('remoteUrlsInvalid');
+            status.textContent = displayError(error, 'remoteUrlsInvalid');
             status.style.color = 'var(--danger-color, #dc2626)';
         }
     }
@@ -608,7 +614,7 @@ After enabling, ChatRaw only allows remote Hermes Base URLs explicitly listed in
         try {
             normalized = await normalizeRemoteBaseUrls(next);
         } catch (error) {
-            setStatus(error.message || t('remoteUrlsInvalid'), 'error');
+            setStatus(displayError(error, 'remoteUrlsInvalid'), 'error');
             await updateRemoteUrlStatus();
             return;
         }
@@ -1040,7 +1046,7 @@ After enabling, ChatRaw only allows remote Hermes Base URLs explicitly listed in
         }
         injectSettingsUI();
         if (errors.length > 0) {
-            setStatus(errors[0].message || t('requestFailed'), 'error');
+            setStatus(displayError(errors[0], 'requestFailed'), 'error');
         }
     }
 
@@ -1049,7 +1055,7 @@ After enabling, ChatRaw only allows remote Hermes Base URLs explicitly listed in
         setTimeout(() => {
             openSettings().catch(error => {
                 console.error('[Hermes] Failed to open settings:', error);
-                setStatus(error.message || t('requestFailed'), 'error');
+                setStatus(displayError(error, 'requestFailed'), 'error');
             });
         }, 50);
     };

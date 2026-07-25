@@ -168,6 +168,8 @@ ChatRawPlugin.hooks.register('send_intercept', {
 
 只有明确返回 `{ success: true, handled: true }` 时，`send_intercept` 才接管发送。异常不能被当作成功；除 `AbortError` 外，ChatRaw 会记录错误并继续尝试安全路径。
 
+ChatRaw 在调用 `send_intercept` 前会确保当前聊天已经创建，因此 `context.currentChatId` 是可用于同源任务绑定的非空聊天 ID。插件不得自行创建聊天或伪造该值。
+
 ### 8. Module SDK
 
 模块配套插件只能使用：
@@ -348,6 +350,8 @@ Management settings are admin-only by default. Declare only safe non-secret valu
 ### Public APIs
 
 Use `ChatRawPlugin.hooks`, `ChatRawPlugin.ui`, `ChatRawPlugin.utils`, and documented input/storage helpers. Do not depend on internal DOM or framework fields.
+
+Before `send_intercept` runs, ChatRaw ensures that the current chat exists, so `context.currentChatId` is a non-empty chat ID suitable for same-origin task binding. Plugins must not create chats themselves or invent this value.
 
 Companion plugins use only `window.ChatRaw.modules`. The machine-readable contract is [module-plugin-sdk-v1.json](../backend/contracts/module-plugin-sdk-v1.json). They must never fetch a module URL directly, retain module credentials, use the legacy proxy as a module tunnel, or invent actor/capability identity.
 

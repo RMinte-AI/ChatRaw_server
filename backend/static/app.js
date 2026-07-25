@@ -2275,6 +2275,26 @@ function app() {
                 this.showToast(this.t('createChatFailed'), 'error');
             }
         },
+
+        async ensureCurrentChat(signal) {
+            if (this.currentChatId) {
+                return this.currentChatId;
+            }
+            const res = await fetch('/api/chats', {
+                method: 'POST',
+                signal
+            });
+            if (!res.ok) {
+                throw new Error(this.t('createChatFailed'));
+            }
+            const chat = await res.json();
+            if (!chat || typeof chat.id !== 'string' || !chat.id) {
+                throw new Error(this.t('createChatFailed'));
+            }
+            this.chats.unshift(chat);
+            this.currentChatId = chat.id;
+            return chat.id;
+        },
         
         // Select chat
         async selectChat(chatId) {
@@ -3092,6 +3112,9 @@ function app() {
                 let message = outgoing.message;
                 const activeSkillNames = [...outgoing.activeSkillNames];
                 if (!message) return;
+
+                await this.ensureCurrentChat(sendController.signal);
+                if (sendController.signal.aborted) return;
 
                 const interceptResult = await this.callSendInterceptors(
                     this.buildSendInterceptContext(message, activeSkillNames, sendController.signal)

@@ -14,19 +14,6 @@ on:
       - 'docs/**'
       - '.github/workflows/**'
       - '.github/scripts/**'
-  pull_request_target:
-    branches: [main]
-    types: [opened, synchronize, reopened]
-    paths:
-      - 'backend/**/*.py'
-      - 'backend/requirements.txt'
-      - 'backend/requirements-dev.txt'
-      - 'backend/static/**'
-      - 'Dockerfile'
-      - 'docker-compose.yml'
-      - 'docs/**'
-      - '.github/workflows/**'
-      - '.github/scripts/**'
   workflow_dispatch:
 
 permissions:
@@ -60,7 +47,10 @@ jobs:
           fetch-depth: 0
 
       - name: Fetch base branch
-        run: git fetch origin ${{ env.BASE_REF }}
+        run: |
+          git fetch \
+            https://github.com/${{ github.event.pull_request.base.repo.full_name }}.git \
+            +${{ env.BASE_REF }}:refs/remotes/origin/${{ env.BASE_REF }}
 
       - name: Check sensitive files
         id: check
@@ -101,7 +91,9 @@ jobs:
       - name: Static check (syntax + Flake8)
         id: check
         run: |
-          git fetch origin ${{ env.BASE_REF }}
+          git fetch \
+            https://github.com/${{ github.event.pull_request.base.repo.full_name }}.git \
+            +${{ env.BASE_REF }}:refs/remotes/origin/${{ env.BASE_REF }}
           # 检测可审查的代码变更：Python、JavaScript、CSS
           ALL_FILES=$(git diff --name-only origin/${{ env.BASE_REF }}...HEAD -- '*.py' '*.js' '*.css' 'backend/**/*.py' 'backend/**/*.js' 'backend/**/*.css' 2>/dev/null | tr '\n' ' ')
           PY_FILES=$(git diff --name-only origin/${{ env.BASE_REF }}...HEAD -- '*.py' 'backend/**/*.py' 2>/dev/null | tr '\n' ' ')
@@ -150,6 +142,13 @@ jobs:
           ref: ${{ github.event.pull_request.head.sha }}
           repository: ${{ github.event.pull_request.head.repo.full_name }}
           path: pr-code
+
+      - name: Fetch base branch
+        working-directory: pr-code
+        run: |
+          git fetch \
+            https://github.com/${{ github.event.pull_request.base.repo.full_name }}.git \
+            +${{ env.BASE_REF }}:refs/remotes/origin/${{ env.BASE_REF }}
 
       - name: Setup Python
         uses: actions/setup-python@v5
@@ -284,18 +283,22 @@ jobs:
               issue_number: prNum,
             });
             const bot = comments.find(c => c.user.type === 'Bot' && c.body.includes('## 🤖 自动审查报告'));
-            if (bot) {
-              await github.rest.issues.updateComment({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                comment_id: bot.id,
-                body,
-              });
-            } else {
-              await github.rest.issues.createComment({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                issue_number: prNum,
-                body,
-              });
+            try {
+              if (bot) {
+                await github.rest.issues.updateComment({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  comment_id: bot.id,
+                  body,
+                });
+              } else {
+                await github.rest.issues.createComment({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  issue_number: prNum,
+                  body,
+                });
+              }
+            } catch (e) {
+              console.log('Comment skipped or failed:', e.message);
             }

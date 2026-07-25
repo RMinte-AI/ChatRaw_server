@@ -42,10 +42,11 @@
 
 当 PR 修改了 `.github/workflows/*.yml` 或 `.github/scripts/*.py` 时，存在恶意代码操控审查逻辑的风险。因此：
 
-1. **`security-check`** 检测这些敏感文件是否被改动
-2. 若被改动 → `safe_to_run=false`
-3. `auto-check` 和 `ai-review` 在 `safe_to_run=false` 时 **不执行**（跳过）
-4. **`comment` 始终执行**（`if: always() && github.event.pull_request != null`），用于：
+1. PR Review 只使用 `pull_request`。Fork 代码只能在只读 Token、无仓库 Secrets 的环境中检出和检查；不得使用 `pull_request_target` 高权限检出 Fork 代码。
+2. **`security-check`** 检测这些敏感文件是否被改动
+3. 若被改动 → `safe_to_run=false`
+4. `auto-check` 和 `ai-review` 在 `safe_to_run=false` 时 **不执行**（跳过）
+5. **`comment` 始终执行**（`if: always() && github.event.pull_request != null`），用于：
    - 当 `safe_to_run=true` 时：发布完整审查报告（含 AI 结果）
    - 当 `safe_to_run=false` 时：发布说明性评论，告知用户因修改敏感文件而跳过 AI 审查
 
@@ -55,6 +56,8 @@
   ```bash
   git diff --name-only origin/$BASE_REF...HEAD -- '.github/workflows/*.yml' '.github/scripts/*.py'
   ```
+- 每个检出目录中的 `origin/$BASE_REF` 都从 PR 的上游仓库显式获取，不能使用 Fork 自己可能滞后的同名分支作为比较基线。
+- Fork PR 的 `GITHUB_TOKEN` 没有标签和评论写权限；`labeler` 与 `comment` 此时记录跳过信息，但不把代码检查判为失败。
 - **`comment` 的 `if` 条件**：必须为 `always()`，否则在 `ai-review` 被 skip 时，`comment` 也会因依赖失败而被 skip，导致 PR 上没有任何评论。
 - **当 `safe_to_run=false` 时**：`comment` 将 `aiResult` 覆盖为固定提示文案，说明跳过原因。
 
@@ -152,12 +155,14 @@ mkdir -p .github/workflows .github/scripts
 ### 3. 创建 `pr-review.yml`
 
 参考 `.github/workflows/pr-review.yml`，关键点：
-- 使用 `pull_request` 和 `pull_request_target`（后者用于从 main 拉取脚本）
+- 只使用 `pull_request`；Fork PR 不获得仓库 Secrets，Token 由 GitHub 降级为只读
+- 从上游仓库显式获取 base 分支，不能从 Fork 的 `origin/main` 计算差异
 - `security-check`：检测 `.github/workflows/*.yml`、`.github/scripts/*.py`
 - `auto-check`：`if: needs.security-check.outputs.safe_to_run == 'true'`
 - `ai-review`：`if` 包含 `safe_to_run`、`has_reviewable_changes`、`auto-check.result == 'success'`
 - **`comment`**：`if: always() && github.event.pull_request != null`（必须！）
 - `comment` 中：当 `!safeToRun` 时，将 `aiResult` 设为说明性文案
+- 标签或评论写入必须捕获 Fork 只读 Token 的拒绝，不能让报告写入权限影响代码检查结论
 
 ### 4. 创建 `ai_review.py`
 

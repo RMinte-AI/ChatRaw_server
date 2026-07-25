@@ -6,7 +6,7 @@
 
 管理员控制一个共享 ChatRaw Server 实例：
 
-- 创建、启用、停用用户并重置密码；
+- 查看和创建用户、调整角色、启用或停用账户，并重置其他用户的密码；
 - 配置模型、插件与模块；
 - 审批模块权限和版本变化；
 - 查看安全审计记录；
@@ -50,14 +50,24 @@ docker compose exec chatraw \
 
 ### 3. 用户与权限
 
-在“设置 → Users”中创建 `admin` 或 `member`：
+ChatRaw 不提供公开的用户自助注册。管理员在“设置 → Users”中查看现有账户，创建
+`admin` 或 `member`，并可在这两种角色之间调整其他账户：
 
 - `admin` 可以管理用户、模型、插件和模块。
 - `member` 可以使用共享数据和已启用功能，但不能管理插件或模块。
 
-停用用户会使其会话和未过期的任务型 Host Capability 失效。重置密码后要求用户重新登录。
+移除用户时应停用账户，而不是物理删除；停用的账户可以重新启用。角色变更和停用都会使目标用户的
+现有会话失效；将管理员降级为普通用户或停用任一账户时，其未过期的任务型 Host Capability 也会
+被撤销。管理员重置其他用户的密码后，该用户需要使用新密码重新登录。
 
-至少保留一个可用管理员。操作前确认目标用户名，避免停用自己的唯一管理入口。
+管理员不能自降级、自停用，也不能从 Users 管理入口重置自己的密码；修改自己的密码应使用
+“设置 → Account”。系统始终要求至少保留一个已启用管理员。操作前确认目标用户名和当前角色。
+当前权限模型只有 `admin` 与 `member`，不提供自定义权限组或更细粒度角色。
+
+管理界面支持 `English` 和 `中文`。语言选择保存在浏览器中，Users、Modules、Account、
+插件、Resident Integration、任务状态以及操作结果应统一使用当前语言。认证和用户管理
+API 会同时返回稳定的错误 `code` 与英文诊断 `detail`；前端按 `code` 显示本地化消息，
+不要依赖解析 `detail` 文本。
 
 ### 4. 插件管理
 
@@ -320,7 +330,17 @@ Use the Source or Compose commands in the [README](../README.md). Protect the on
 
 ### Users
 
-Admins manage the platform. Members use shared data and enabled features but cannot manage plugins or modules. Disabling a user revokes sessions and outstanding task capability grants. Keep at least one working administrator.
+ChatRaw has no public self-registration. Under **Settings → Users**, administrators can list and
+create accounts, change another account between `admin` and `member`, disable or re-enable it, and
+reset another user's password. Members use shared data and enabled features but cannot manage
+plugins or modules.
+
+Removing access means disabling the account, not physically deleting it. Role changes and disabling
+revoke the affected user's sessions. Demoting an administrator or disabling either role also revokes
+outstanding task capability grants. An administrator cannot demote or disable their own account, or
+reset their own password from Users; use **Settings → Account** for a self-service password change.
+Keep at least one enabled administrator. ChatRaw does not define custom permission groups or roles
+beyond `admin` and `member`.
 
 ### Plugins are trusted code
 

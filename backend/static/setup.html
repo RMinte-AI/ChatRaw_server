@@ -4,25 +4,29 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="robots" content="noindex">
-    <title>Set up · ChatRaw Server</title>
-    <link rel="stylesheet" href="/auth.css">
+    <title data-i18n="setupTitle">Set up · ChatRaw Server</title>
+    <link rel="stylesheet" href="/auth.css?v=2">
 </head>
 <body data-mode="setup">
     <main class="shell">
-        <p class="eyebrow">First-run setup</p>
-        <h1>Create the administrator.</h1>
-        <p class="intro">Use the one-time token stored in the deployment secret file. It becomes permanently invalid after setup.</p>
+        <div class="language-switch" role="group" data-i18n-aria-label="languageSelector">
+            <button type="button" class="language-option" data-language="en">English</button>
+            <button type="button" class="language-option" data-language="zh">中文</button>
+        </div>
+        <p class="eyebrow" data-i18n="setupEyebrow">First-run setup</p>
+        <h1 data-i18n="setupHeading">Create the administrator.</h1>
+        <p class="intro" data-i18n="setupIntro">Use the one-time token stored in the deployment secret file. It becomes permanently invalid after setup.</p>
         <form>
-            <label for="setup_token">Setup token</label>
+            <label for="setup_token" data-i18n="setupToken">Setup token</label>
             <input id="setup_token" name="setup_token" type="password" autocomplete="off" required autofocus>
-            <label for="username">Administrator username</label>
+            <label for="username" data-i18n="administratorUsername">Administrator username</label>
             <input id="username" name="username" autocomplete="username" required>
-            <label for="password">Password</label>
+            <label for="password" data-i18n="password">Password</label>
             <input id="password" name="password" type="password" minlength="12" autocomplete="new-password" required>
-            <button type="submit">Create administrator</button>
+            <button type="submit" data-i18n="createAdministrator">Create administrator</button>
             <p class="message" role="status" aria-live="polite"></p>
         </form>
     </main>
-    <script src="/auth.js" defer></script>
+    <script src="/auth.js?v=2" defer></script>
 </body>
 </html>

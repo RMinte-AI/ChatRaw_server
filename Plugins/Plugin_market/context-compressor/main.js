@@ -44,6 +44,12 @@
     return i18n[lang]?.[key] || i18n.en[key] || key;
   }
 
+  function displayError(error, fallbackKey) {
+    const lang = ChatRaw.utils?.getLanguage?.() || 'en';
+    if (lang === 'en') return error?.message || error || t(fallbackKey);
+    return t(fallbackKey);
+  }
+
   async function compactCurrentChat() {
     const chatId = ChatRaw.utils?.getCurrentChatId?.();
     if (!chatId) {
@@ -71,11 +77,11 @@
           'success'
         );
       } else {
-        ChatRaw.utils?.showToast?.(data.message || t('noNeed'), 'info');
+        ChatRaw.utils?.showToast?.(displayError(data.message, 'noNeed'), 'info');
       }
     } catch (error) {
       console.error('[ContextCompressor] Manual compaction failed:', error);
-      ChatRaw.utils?.showToast?.(`${t('failed')}: ${error.message}`, 'error');
+      ChatRaw.utils?.showToast?.(displayError(error, 'failed'), 'error');
     } finally {
       ChatRaw.ui.setButtonState('manual-compact', { loading: false }, PLUGIN_ID);
     }

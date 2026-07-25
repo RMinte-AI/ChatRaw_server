@@ -170,6 +170,50 @@ class T2AuthSecurityTests(unittest.TestCase):
         self.assertEqual(len(row["token_digest"]), 64)
         self.assertNotEqual(row["token_digest"], token)
 
+    def test_auth_and_user_errors_include_stable_localization_codes(self):
+        invalid_login = self.public_client.post(
+            "/api/auth/login",
+            headers=write_headers(),
+            json={"username": "member-a", "password": "wrong-password"},
+        )
+        self.assertEqual(invalid_login.status_code, 401)
+        self.assertEqual(invalid_login.json()["code"], "invalid_credentials")
+
+        invalid_body = self.public_client.post(
+            "/api/auth/login",
+            headers={**write_headers(), "Content-Type": "application/json"},
+            content="{",
+        )
+        self.assertEqual(invalid_body.status_code, 400)
+        self.assertEqual(invalid_body.json()["code"], "invalid_request")
+
+        short_password = self.admin.post(
+            "/api/admin/users",
+            headers=write_headers(),
+            json={
+                "username": "localized-user",
+                "password": "too-short",
+                "role": "member",
+            },
+        )
+        self.assertEqual(short_password.status_code, 400)
+        self.assertEqual(
+            short_password.json()["code"],
+            "invalid_password_length",
+        )
+
+        duplicate = self.admin.post(
+            "/api/admin/users",
+            headers=write_headers(),
+            json={
+                "username": "member-a",
+                "password": MEMBER_PASSWORD,
+                "role": "member",
+            },
+        )
+        self.assertEqual(duplicate.status_code, 409)
+        self.assertEqual(duplicate.json()["code"], "username_in_use")
+
     def test_password_hashes_use_argon2id(self):
         with main.db.connection() as connection:
             hashes = [

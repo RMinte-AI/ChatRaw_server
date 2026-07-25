@@ -24,6 +24,7 @@ body {
 }
 
 .shell {
+    position: relative;
     width: min(92vw, 460px);
     padding: 44px;
     border: 1px solid rgba(255, 255, 255, .8);
@@ -31,6 +32,35 @@ body {
     background: var(--card);
     box-shadow: 0 24px 80px rgba(40, 35, 25, .12);
     backdrop-filter: blur(20px);
+}
+
+.language-switch {
+    position: absolute;
+    top: 18px;
+    right: 20px;
+    display: flex;
+    gap: 4px;
+    padding: 3px;
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    background: rgba(255, 255, 255, .58);
+}
+
+.language-switch .language-option {
+    width: auto;
+    min-height: 30px;
+    margin: 0;
+    padding: 0 10px;
+    border-radius: 999px;
+    color: var(--muted);
+    background: transparent;
+    font-size: 12px;
+    font-weight: 700;
+}
+
+.language-switch .language-option[aria-pressed="true"] {
+    color: white;
+    background: var(--accent);
 }
 
 .eyebrow {
@@ -104,5 +134,6 @@ button:disabled { cursor: wait; opacity: .65; }
 .message.success { color: var(--accent); }
 
 @media (max-width: 560px) {
-    .shell { padding: 32px 24px; border-radius: 22px; }
+    .shell { padding: 72px 24px 32px; border-radius: 22px; }
+    .language-switch { top: 20px; right: 24px; }
 }

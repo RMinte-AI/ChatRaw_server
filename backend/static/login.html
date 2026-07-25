@@ -4,23 +4,27 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="robots" content="noindex">
-    <title>Sign in · ChatRaw Server</title>
-    <link rel="stylesheet" href="/auth.css">
+    <title data-i18n="loginTitle">Sign in · ChatRaw Server</title>
+    <link rel="stylesheet" href="/auth.css?v=2">
 </head>
 <body data-mode="login">
     <main class="shell">
+        <div class="language-switch" role="group" data-i18n-aria-label="languageSelector">
+            <button type="button" class="language-option" data-language="en">English</button>
+            <button type="button" class="language-option" data-language="zh">中文</button>
+        </div>
         <p class="eyebrow">ChatRaw Server</p>
-        <h1>Welcome back.</h1>
-        <p class="intro">Sign in to enter the shared workspace. Your administrator manages access.</p>
+        <h1 data-i18n="loginHeading">Welcome back.</h1>
+        <p class="intro" data-i18n="loginIntro">Sign in to enter the shared workspace. Your administrator manages access.</p>
         <form>
-            <label for="username">Username</label>
+            <label for="username" data-i18n="username">Username</label>
             <input id="username" name="username" autocomplete="username" required autofocus>
-            <label for="password">Password</label>
+            <label for="password" data-i18n="password">Password</label>
             <input id="password" name="password" type="password" autocomplete="current-password" required>
-            <button type="submit">Sign in</button>
+            <button type="submit" data-i18n="signIn">Sign in</button>
             <p class="message" role="status" aria-live="polite"></p>
         </form>
     </main>
-    <script src="/auth.js" defer></script>
+    <script src="/auth.js?v=2" defer></script>
 </body>
 </html>

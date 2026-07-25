@@ -1,45 +1,212 @@
-const mode = document.body.dataset.mode;
-const form = document.querySelector('form');
-const message = document.querySelector('.message');
-const button = document.querySelector('button[type="submit"]');
+(function () {
+    'use strict';
 
-function showMessage(text, success = false) {
-    message.textContent = text;
-    message.classList.toggle('success', success);
-}
-
-async function setupRedirect() {
-    const response = await fetch('/api/setup/status');
-    if (!response.ok) return;
-    const status = await response.json();
-    if (mode === 'login' && status.setup_required) location.replace('/setup');
-    if (mode === 'setup' && !status.setup_required) location.replace('/login');
-}
-
-form.addEventListener('submit', async (event) => {
-    event.preventDefault();
-    button.disabled = true;
-    showMessage('');
-    const values = Object.fromEntries(new FormData(form).entries());
-    const endpoint = mode === 'setup' ? '/api/setup/admin' : '/api/auth/login';
-    try {
-        const response = await fetch(endpoint, {
-            method: 'POST',
-            headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify(values)
-        });
-        const result = await response.json();
-        if (!response.ok) throw new Error(result.detail || 'Request failed');
-        if (mode === 'setup') {
-            showMessage('Administrator created. Continue to sign in.', true);
-            setTimeout(() => location.replace('/login'), 650);
-        } else {
-            location.replace('/');
+    const languageStorageKey = 'justchat_lang';
+    const translations = {
+        en: {
+            languageSelector: 'Language',
+            loginTitle: 'Sign in · ChatRaw Server',
+            loginHeading: 'Welcome back.',
+            loginIntro: 'Sign in to enter the shared workspace. Your administrator manages access.',
+            username: 'Username',
+            password: 'Password',
+            signIn: 'Sign in',
+            setupTitle: 'Set up · ChatRaw Server',
+            setupEyebrow: 'First-run setup',
+            setupHeading: 'Create the administrator.',
+            setupIntro: 'Use the one-time token stored in the deployment secret file. It becomes permanently invalid after setup.',
+            setupToken: 'Setup token',
+            administratorUsername: 'Administrator username',
+            createAdministrator: 'Create administrator',
+            administratorCreated: 'Administrator created. Continue to sign in.',
+            requestFailed: 'Request failed',
+            invalidRequest: 'Invalid request',
+            setupUnavailable: 'Setup is unavailable',
+            usernameInUse: 'Username is already in use',
+            invalidCredentials: 'Invalid username or password',
+            usernameMustBeString: 'Username must be a string',
+            usernameLength: 'Username must be {min}-{max} characters',
+            usernameUnsupported: 'Username contains unsupported characters',
+            passwordLength: 'Password must be at least {min} characters',
+            passwordTooLong: 'Password is too long'
+        },
+        zh: {
+            languageSelector: '语言',
+            loginTitle: '登录 · ChatRaw Server',
+            loginHeading: '欢迎回来。',
+            loginIntro: '登录以进入共享工作区。访问权限由管理员管理。',
+            username: '用户名',
+            password: '密码',
+            signIn: '登录',
+            setupTitle: '初始化 · ChatRaw Server',
+            setupEyebrow: '首次运行设置',
+            setupHeading: '创建管理员。',
+            setupIntro: '使用部署密钥文件中保存的一次性令牌。完成初始化后，该令牌将永久失效。',
+            setupToken: '初始化令牌',
+            administratorUsername: '管理员用户名',
+            createAdministrator: '创建管理员',
+            administratorCreated: '管理员已创建，请继续登录。',
+            requestFailed: '请求失败',
+            invalidRequest: '请求无效',
+            setupUnavailable: '初始化已不可用',
+            usernameInUse: '用户名已被使用',
+            invalidCredentials: '用户名或密码错误',
+            usernameMustBeString: '用户名必须是字符串',
+            usernameLength: '用户名长度必须为 {min}-{max} 个字符',
+            usernameUnsupported: '用户名包含不支持的字符',
+            passwordLength: '密码至少需要 {min} 个字符',
+            passwordTooLong: '密码过长'
         }
-    } catch (error) {
-        showMessage(error.message || 'Request failed');
-        button.disabled = false;
-    }
-});
+    };
 
-setupRedirect().catch(() => {});
+    const mode = document.body.dataset.mode;
+    const form = document.querySelector('form');
+    const message = document.querySelector('.message');
+    const submitButton = document.querySelector('button[type="submit"]');
+    let language = readLanguage();
+    let messageState = null;
+
+    function readLanguage() {
+        try {
+            const stored = localStorage.getItem(languageStorageKey);
+            return stored === 'zh' ? 'zh' : 'en';
+        } catch (_error) {
+            return 'en';
+        }
+    }
+
+    function text(key, replacements = {}) {
+        let value = translations[language][key] || translations.en[key] || key;
+        for (const [name, replacement] of Object.entries(replacements)) {
+            value = value.replace(`{${name}}`, String(replacement));
+        }
+        return value;
+    }
+
+    function localizeError(code, detail) {
+        const normalized = typeof detail === 'string' ? detail.trim() : '';
+        const codes = {
+            invalid_request: 'invalidRequest',
+            setup_unavailable: 'setupUnavailable',
+            username_in_use: 'usernameInUse',
+            invalid_credentials: 'invalidCredentials',
+            invalid_username_type: 'usernameMustBeString',
+            invalid_username_characters: 'usernameUnsupported',
+            invalid_password_too_long: 'passwordTooLong'
+        };
+        if (codes[code]) return text(codes[code]);
+
+        const exact = {
+            'Invalid request': 'invalidRequest',
+            'setup is unavailable': 'setupUnavailable',
+            'username is already in use': 'usernameInUse',
+            'invalid username or password': 'invalidCredentials',
+            'username must be a string': 'usernameMustBeString',
+            'username contains unsupported characters': 'usernameUnsupported',
+            'password is too long': 'passwordTooLong'
+        };
+        if (exact[normalized]) return text(exact[normalized]);
+
+        let match = normalized.match(/^username must be (\d+)-(\d+) characters$/);
+        if (match) {
+            return text('usernameLength', {min: match[1], max: match[2]});
+        }
+        match = normalized.match(/^password must be at least (\d+) characters$/);
+        if (match) return text('passwordLength', {min: match[1]});
+        return text('requestFailed');
+    }
+
+    function renderMessage() {
+        if (!messageState) {
+            message.textContent = '';
+            message.classList.remove('success');
+            return;
+        }
+        message.textContent = messageState.key
+            ? text(messageState.key)
+            : localizeError(messageState.code, messageState.detail);
+        message.classList.toggle('success', messageState.success);
+    }
+
+    function showMessage(state = null) {
+        messageState = state;
+        renderMessage();
+    }
+
+    function applyLanguage(nextLanguage, persist = false) {
+        language = nextLanguage === 'zh' ? 'zh' : 'en';
+        if (persist) {
+            try {
+                localStorage.setItem(languageStorageKey, language);
+            } catch (_error) {}
+        }
+        document.documentElement.lang = language === 'zh' ? 'zh-CN' : 'en';
+        for (const element of document.querySelectorAll('[data-i18n]')) {
+            element.textContent = text(element.dataset.i18n);
+        }
+        for (const element of document.querySelectorAll('[data-i18n-aria-label]')) {
+            element.setAttribute(
+                'aria-label',
+                text(element.dataset.i18nAriaLabel)
+            );
+        }
+        for (const option of document.querySelectorAll('[data-language]')) {
+            option.setAttribute(
+                'aria-pressed',
+                String(option.dataset.language === language)
+            );
+        }
+        renderMessage();
+    }
+
+    async function setupRedirect() {
+        const response = await fetch('/api/setup/status');
+        if (!response.ok) return;
+        const status = await response.json();
+        if (mode === 'login' && status.setup_required) location.replace('/setup');
+        if (mode === 'setup' && !status.setup_required) location.replace('/login');
+    }
+
+    for (const option of document.querySelectorAll('[data-language]')) {
+        option.addEventListener('click', () => {
+            applyLanguage(option.dataset.language, true);
+        });
+    }
+    applyLanguage(language);
+
+    form.addEventListener('submit', async (event) => {
+        event.preventDefault();
+        submitButton.disabled = true;
+        showMessage();
+        const values = Object.fromEntries(new FormData(form).entries());
+        const endpoint = mode === 'setup' ? '/api/setup/admin' : '/api/auth/login';
+        try {
+            const response = await fetch(endpoint, {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify(values)
+            });
+            const result = await response.json();
+            if (!response.ok) {
+                showMessage({
+                    code: result.code,
+                    detail: result.detail,
+                    success: false
+                });
+                submitButton.disabled = false;
+                return;
+            }
+            if (mode === 'setup') {
+                showMessage({key: 'administratorCreated', success: true});
+                setTimeout(() => location.replace('/login'), 650);
+            } else {
+                location.replace('/');
+            }
+        } catch (_error) {
+            showMessage({key: 'requestFailed', success: false});
+            submitButton.disabled = false;
+        }
+    });
+
+    setupRedirect().catch(() => {});
+})();

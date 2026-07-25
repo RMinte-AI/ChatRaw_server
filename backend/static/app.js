@@ -376,6 +376,444 @@ const i18n = {
     }
 };
 
+Object.assign(i18n.en, {
+    send: 'Send',
+    rename: 'Rename',
+    renameSharedChat: 'Rename this shared chat',
+    renameFailed: 'Rename failed',
+    deleteSharedChat: 'Delete this shared chat? Other users will lose access to it.',
+    deleteSharedDocument: 'Delete this shared document? Other users will lose access to it.',
+    requestFailed: 'Request failed',
+    unknownError: 'Unknown error',
+    authenticationRequired: 'Authentication required',
+    settingsNavigation: 'Settings navigation',
+    pluginNavigation: 'Plugin navigation',
+    toggleSidebar: 'Toggle sidebar',
+    preview: 'Preview',
+    logoAlt: 'Logo',
+    userAvatarAlt: 'User avatar',
+    assistantAvatarAlt: 'AI assistant avatar',
+    artifactSize: '{size} bytes',
+    removeImage: 'Remove image',
+    removeUrl: 'Remove URL',
+    removeDocument: 'Remove document',
+    removeLogo: 'Remove logo',
+    composerSuggestions: 'Composer suggestions',
+    apiEndpoint: 'API Endpoint',
+    apiKeyOptional: 'API Key (Optional)',
+    configuredReplace: 'Configured — enter to replace',
+    clearKey: 'Clear key',
+    modelId: 'Model ID',
+    temperature: 'Temperature',
+    topP: 'Top P',
+    english: 'English',
+    chinese: '中文',
+    users: 'Users',
+    userManagement: 'User management',
+    userManagementDesc: 'Create accounts, control access, and reset passwords. Usernames cannot be changed.',
+    username: 'Username',
+    initialPassword: 'Initial password',
+    role: 'Role',
+    member: 'Member',
+    administrator: 'Administrator',
+    createUser: 'Create user',
+    resetPassword: 'Reset password',
+    enable: 'Enable',
+    disable: 'Disable',
+    enabled: 'Enabled',
+    disabled: 'Disabled',
+    userCreated: 'User created',
+    userUpdated: 'User updated',
+    passwordReset: 'Password reset; existing sessions revoked',
+    newPasswordFor: 'New password for {username}',
+    unableCreateUser: 'Unable to create user',
+    unableUpdateUser: 'Unable to update user',
+    unableResetPassword: 'Unable to reset password',
+    unableChangePassword: 'Unable to change password',
+    modules: 'Modules',
+    featureSuites: 'Feature suites',
+    featureSuitesDesc: 'Each product feature joins one backend module with either a companion plugin or a source-built Resident Integration. ChatRaw does not start processes or containers.',
+    composeNetwork: 'Compose network',
+    composeNetworkDesc: 'Use this network for ChatRaw and module services.',
+    containerAddressRepair: 'Container address repair required',
+    addressesUnchanged: 'Existing addresses were not changed automatically.',
+    moduleAddress: 'Module address',
+    moduleAddressSecret: 'The address is sent to ChatRaw once and is never returned by the management API.',
+    pairingCode: 'One-time pairing code',
+    connectForReview: 'Connect for review',
+    noModules: 'No modules are connected.',
+    moduleId: 'Module ID',
+    frontendIntegration: 'Frontend integration',
+    moduleProtocol: 'Module protocol',
+    installedVersion: 'Installed version',
+    requires: 'Requires',
+    residentSourceBuilt: 'Resident Integration is source-built into this ChatRaw deployment.',
+    networkAndConfiguration: 'Network and configuration',
+    configurationStatus: 'Configuration',
+    lastChecked: 'Last checked',
+    dataOwnership: 'Data ownership and retention',
+    requestedCapabilities: 'Requested host capabilities',
+    none: 'None.',
+    recentFault: 'Recent fault',
+    declaredActions: 'Declared actions',
+    noActions: 'No actions declared.',
+    minimumRole: 'minimum role',
+    supportsStream: 'stream',
+    supportsCancel: 'cancel',
+    supportsApproval: 'approval',
+    supportsArtifacts: 'artifacts',
+    supportsChatProjection: 'chat projection',
+    reviewRequired: 'Review is required before this module can be enabled.',
+    requirementsIncomplete: 'Approved, but health, configuration, Ready, or frontend integration requirements are incomplete.',
+    approveDeclaration: 'Approve declaration',
+    checkHealth: 'Check health',
+    refreshManifest: 'Refresh manifest',
+    configure: 'Configure',
+    enableSuite: 'Enable suite',
+    drain: 'Drain',
+    purgeModuleData: 'Purge module data',
+    disconnect: 'Disconnect',
+    moduleConfiguration: 'Module configuration',
+    keep: 'Keep',
+    replace: 'Replace',
+    clear: 'Clear',
+    newSecret: 'New secret',
+    saveModuleConfiguration: 'Save module configuration',
+    moduleOperationFailed: 'Module operation failed',
+    modulePaired: 'Module paired for review',
+    approveModuleConfirm: 'Approve {moduleId} and its declared capabilities?',
+    moduleApproved: 'Module manifest approved',
+    moduleActionCompleted: 'Module {action} completed',
+    configurationSavedRevision: 'Configuration saved at revision {revision}',
+    disconnectModulePrompt: 'Type {moduleId} to disconnect. Module data will be preserved.',
+    moduleDisconnected: 'Module disconnected; module data was preserved',
+    purgeModulePrompt: 'This deletes data owned by the module. Type {confirmation} to continue.',
+    moduleDataPurged: 'Module-owned data purged',
+    actionCheck: 'check',
+    actionRefresh: 'refresh',
+    actionEnable: 'enable',
+    actionDrain: 'drain',
+    actionDisable: 'disable',
+    account: 'Account',
+    currentPassword: 'Current password',
+    newPassword: 'New password',
+    changePassword: 'Change password',
+    signOut: 'Sign out',
+    loading: 'Loading...',
+    pluginInfo: 'Plugin info',
+    installPlugin: 'Install plugin',
+    closeResidentIntegration: 'Close Resident Integration',
+    tasks: 'Tasks',
+    moduleTask: 'Module task',
+    task: 'Task',
+    closeTask: 'Close task',
+    moduleTasks: 'Module tasks',
+    approvalRequired: 'Approval required',
+    taskProgress: 'Task progress',
+    approve: 'Approve',
+    deny: 'Deny',
+    output: 'Output',
+    artifacts: 'Artifacts',
+    cancelTask: 'Cancel task',
+    statePending: 'Pending',
+    stateQueued: 'Queued',
+    statePaired: 'Paired',
+    stateReviewRequired: 'Review required',
+    stateApproved: 'Approved',
+    stateEnabled: 'Enabled',
+    stateDisabled: 'Disabled',
+    stateDraining: 'Draining',
+    stateReady: 'Ready',
+    stateHealthy: 'Healthy',
+    stateUnhealthy: 'Unhealthy',
+    stateConfigured: 'Configured',
+    stateUnconfigured: 'Not configured',
+    stateRunning: 'Running',
+    stateSucceeded: 'Succeeded',
+    stateFailed: 'Failed',
+    stateCancelled: 'Cancelled',
+    statePendingApproval: 'Pending approval',
+    stateReachable: 'Reachable',
+    stateUnreachable: 'Unreachable',
+    stateCompatible: 'Compatible',
+    stateIncompatible: 'Incompatible',
+    statePresent: 'Present',
+    stateMissing: 'Missing',
+    stateValid: 'Valid',
+    stateInvalid: 'Invalid',
+    statePlugin: 'Plugin',
+    stateResident: 'Resident Integration',
+    stateInstalled: 'Installed',
+    stateAvailable: 'Available',
+    stateUnknown: 'Unknown',
+    invalidRequest: 'Invalid request',
+    invalidUsernameType: 'Username must be text',
+    invalidUsernameLength: 'Username length is invalid',
+    invalidUsernameCharacters: 'Username contains unsupported characters',
+    invalidPasswordLength: 'Password is too short',
+    invalidPasswordTooLong: 'Password is too long',
+    setupUnavailable: 'Initial setup is unavailable',
+    usernameInUse: 'Username is already in use',
+    invalidCredentials: 'Invalid username or password',
+    currentPasswordIncorrect: 'Current password is incorrect',
+    invalidRole: 'Invalid role',
+    userNotFound: 'User not found',
+    lastActiveAdmin: 'The last active administrator cannot be disabled',
+    administratorRequired: 'Administrator permission is required',
+    selfUserManagementForbidden: 'Manage your own password from Account; your role and access cannot be changed here',
+    confirmPassword: 'Confirm password',
+    passwordsDoNotMatch: 'The passwords do not match',
+    passwordMinimum: 'Use at least 12 characters',
+    administratorAccessWarning: 'Administrators can manage users, models, plugins, and modules.',
+    usersLoading: 'Loading users…',
+    usersEmpty: 'No users found.',
+    usersLoadFailed: 'Unable to load users. Try again.',
+    createdAt: 'Created',
+    updatedAt: 'Updated',
+    currentUser: 'You',
+    promoteAdministrator: 'Promote to administrator',
+    demoteMember: 'Change to member',
+    confirmPromoteUser: 'Promote {username} to administrator? They will gain all management permissions and must sign in again.',
+    confirmDemoteUser: 'Change {username} to member? They will lose management permissions and must sign in again.',
+    confirmDisableUser: 'Disable {username}? Their sessions and task capabilities will be revoked; their data will be kept.',
+    userRoleUpdated: 'User role updated',
+    resetPasswordTitle: 'Reset password',
+    resetPasswordDesc: 'Set a new password for {username}. Their existing sessions will be revoked.',
+    savePassword: 'Save password',
+    cancel: 'Cancel',
+    manageSelfInAccount: 'Use Account to change your own password.',
+    unavailable: 'Unavailable',
+    risk: 'risk',
+    taskScoped: 'task-scoped',
+    declarationOnly: 'declaration only',
+    revision: 'Revision',
+    secretConfigured: 'Secret configured',
+    secretNotConfigured: 'Secret not configured',
+    notCheckedYet: 'Not checked yet',
+    taskFailed: 'Task failed',
+    taskInProgress: 'Task in progress',
+    taskUpdatesUnavailable: 'Task updates unavailable'
+});
+
+Object.assign(i18n.zh, {
+    send: '发送',
+    rename: '重命名',
+    renameSharedChat: '重命名此共享对话',
+    renameFailed: '重命名失败',
+    deleteSharedChat: '确定删除此共享对话吗？其他用户将无法再访问。',
+    deleteSharedDocument: '确定删除此共享文档吗？其他用户将无法再访问。',
+    requestFailed: '请求失败',
+    unknownError: '未知错误',
+    authenticationRequired: '需要登录',
+    settingsNavigation: '设置导航',
+    pluginNavigation: '插件导航',
+    toggleSidebar: '切换侧边栏',
+    preview: '预览',
+    logoAlt: 'Logo',
+    userAvatarAlt: '用户头像',
+    assistantAvatarAlt: 'AI 助手头像',
+    artifactSize: '{size} 字节',
+    removeImage: '移除图片',
+    removeUrl: '移除网址',
+    removeDocument: '移除文档',
+    removeLogo: '移除 Logo',
+    composerSuggestions: '输入建议',
+    apiEndpoint: 'API 地址',
+    apiKeyOptional: 'API 密钥（可选）',
+    configuredReplace: '已配置 — 输入新值可替换',
+    clearKey: '清除密钥',
+    modelId: '模型 ID',
+    temperature: '温度',
+    topP: 'Top P',
+    english: 'English',
+    chinese: '中文',
+    users: '用户',
+    userManagement: '用户管理',
+    userManagementDesc: '创建账户、控制访问权限并重置密码。用户名不可修改。',
+    username: '用户名',
+    initialPassword: '初始密码',
+    role: '角色',
+    member: '普通用户',
+    administrator: '管理员',
+    createUser: '创建用户',
+    resetPassword: '重置密码',
+    enable: '启用',
+    disable: '停用',
+    enabled: '已启用',
+    disabled: '已停用',
+    userCreated: '用户已创建',
+    userUpdated: '用户状态已更新',
+    passwordReset: '密码已重置，已有会话已撤销',
+    newPasswordFor: '为 {username} 设置新密码',
+    unableCreateUser: '无法创建用户',
+    unableUpdateUser: '无法更新用户',
+    unableResetPassword: '无法重置密码',
+    unableChangePassword: '无法修改密码',
+    modules: '模块',
+    featureSuites: '功能套件',
+    featureSuitesDesc: '每项产品功能由一个后端模块与配套插件或源码内置的 Resident Integration 组成。ChatRaw 不负责启动进程或容器。',
+    composeNetwork: 'Compose 网络',
+    composeNetworkDesc: 'ChatRaw 与模块服务应使用此网络。',
+    containerAddressRepair: '需要修复容器地址',
+    addressesUnchanged: '现有地址不会被自动修改。',
+    moduleAddress: '模块地址',
+    moduleAddressSecret: '该地址仅向 ChatRaw 提交一次，管理 API 不会返回此地址。',
+    pairingCode: '一次性配对码',
+    connectForReview: '连接并进入审核',
+    noModules: '尚未连接模块。',
+    moduleId: '模块 ID',
+    frontendIntegration: '前端集成',
+    moduleProtocol: '模块协议',
+    installedVersion: '已安装版本',
+    requires: '要求',
+    residentSourceBuilt: 'Resident Integration 已随当前 ChatRaw 部署从源码构建。',
+    networkAndConfiguration: '网络与配置',
+    configurationStatus: '配置',
+    lastChecked: '上次检查',
+    dataOwnership: '数据所有权与保留',
+    requestedCapabilities: '申请的主机能力',
+    none: '无。',
+    recentFault: '最近故障',
+    declaredActions: '声明的操作',
+    noActions: '未声明操作。',
+    minimumRole: '最低角色',
+    supportsStream: '流式',
+    supportsCancel: '可取消',
+    supportsApproval: '需审批',
+    supportsArtifacts: '产物',
+    supportsChatProjection: '投影到对话',
+    reviewRequired: '必须先审核此模块，才能启用。',
+    requirementsIncomplete: '已批准，但健康检查、配置、Ready 状态或前端集成要求尚未满足。',
+    approveDeclaration: '批准声明',
+    checkHealth: '检查健康状态',
+    refreshManifest: '刷新清单',
+    configure: '配置',
+    enableSuite: '启用套件',
+    drain: '排空',
+    purgeModuleData: '清除模块数据',
+    disconnect: '断开连接',
+    moduleConfiguration: '模块配置',
+    keep: '保留',
+    replace: '替换',
+    clear: '清除',
+    newSecret: '新密钥',
+    saveModuleConfiguration: '保存模块配置',
+    moduleOperationFailed: '模块操作失败',
+    modulePaired: '模块已连接，等待审核',
+    approveModuleConfirm: '批准 {moduleId} 及其声明的能力吗？',
+    moduleApproved: '模块清单已批准',
+    moduleActionCompleted: '模块{action}操作已完成',
+    configurationSavedRevision: '配置已保存，修订版本 {revision}',
+    disconnectModulePrompt: '输入 {moduleId} 以断开连接。模块数据将保留。',
+    moduleDisconnected: '模块已断开连接，模块数据已保留',
+    purgeModulePrompt: '这会删除模块拥有的数据。输入 {confirmation} 继续。',
+    moduleDataPurged: '模块数据已清除',
+    actionCheck: '检查',
+    actionRefresh: '刷新',
+    actionEnable: '启用',
+    actionDrain: '排空',
+    actionDisable: '停用',
+    account: '账户',
+    currentPassword: '当前密码',
+    newPassword: '新密码',
+    changePassword: '修改密码',
+    signOut: '退出登录',
+    loading: '加载中...',
+    pluginInfo: '插件信息',
+    installPlugin: '安装插件',
+    closeResidentIntegration: '关闭 Resident Integration',
+    tasks: '任务',
+    moduleTask: '模块任务',
+    task: '任务',
+    closeTask: '关闭任务',
+    moduleTasks: '模块任务',
+    approvalRequired: '需要审批',
+    taskProgress: '任务进度',
+    approve: '批准',
+    deny: '拒绝',
+    output: '输出',
+    artifacts: '产物',
+    cancelTask: '取消任务',
+    statePending: '等待中',
+    stateQueued: '排队中',
+    statePaired: '已配对',
+    stateReviewRequired: '等待审核',
+    stateApproved: '已批准',
+    stateEnabled: '已启用',
+    stateDisabled: '已停用',
+    stateDraining: '排空中',
+    stateReady: '就绪',
+    stateHealthy: '健康',
+    stateUnhealthy: '异常',
+    stateConfigured: '已配置',
+    stateUnconfigured: '未配置',
+    stateRunning: '运行中',
+    stateSucceeded: '已成功',
+    stateFailed: '失败',
+    stateCancelled: '已取消',
+    statePendingApproval: '等待审批',
+    stateReachable: '可访问',
+    stateUnreachable: '无法访问',
+    stateCompatible: '兼容',
+    stateIncompatible: '不兼容',
+    statePresent: '已存在',
+    stateMissing: '缺失',
+    stateValid: '有效',
+    stateInvalid: '无效',
+    statePlugin: '插件',
+    stateResident: 'Resident Integration',
+    stateInstalled: '已安装',
+    stateAvailable: '可用',
+    stateUnknown: '未知',
+    invalidRequest: '请求无效',
+    invalidUsernameType: '用户名必须是文本',
+    invalidUsernameLength: '用户名长度不符合要求',
+    invalidUsernameCharacters: '用户名包含不支持的字符',
+    invalidPasswordLength: '密码长度不足',
+    invalidPasswordTooLong: '密码过长',
+    setupUnavailable: '初始设置当前不可用',
+    usernameInUse: '用户名已被使用',
+    invalidCredentials: '用户名或密码错误',
+    currentPasswordIncorrect: '当前密码错误',
+    invalidRole: '角色无效',
+    userNotFound: '未找到用户',
+    lastActiveAdmin: '不能停用最后一名活跃管理员',
+    administratorRequired: '需要管理员权限',
+    selfUserManagementForbidden: '请在“账户”中修改自己的密码；不能在此变更自己的角色或访问状态',
+    confirmPassword: '确认密码',
+    passwordsDoNotMatch: '两次输入的密码不一致',
+    passwordMinimum: '密码至少 12 个字符',
+    administratorAccessWarning: '管理员可以管理用户、模型、插件和模块。',
+    usersLoading: '正在加载用户…',
+    usersEmpty: '没有找到用户。',
+    usersLoadFailed: '无法加载用户，请重试。',
+    createdAt: '创建时间',
+    updatedAt: '更新时间',
+    currentUser: '当前账户',
+    promoteAdministrator: '提升为管理员',
+    demoteMember: '降为普通用户',
+    confirmPromoteUser: '确定将 {username} 提升为管理员吗？该用户将获得全部管理权限，并需要重新登录。',
+    confirmDemoteUser: '确定将 {username} 降为普通用户吗？该用户将失去管理权限，并需要重新登录。',
+    confirmDisableUser: '确定停用 {username} 吗？其会话和任务能力将立即撤销，但数据会保留。',
+    userRoleUpdated: '用户角色已更新',
+    resetPasswordTitle: '重置密码',
+    resetPasswordDesc: '为 {username} 设置新密码。该用户已有会话将立即失效。',
+    savePassword: '保存密码',
+    cancel: '取消',
+    manageSelfInAccount: '请在“账户”中修改自己的密码。',
+    unavailable: '不可用',
+    risk: '风险',
+    taskScoped: '仅任务范围',
+    declarationOnly: '仅声明',
+    revision: '修订版本',
+    secretConfigured: '密钥已配置',
+    secretNotConfigured: '密钥未配置',
+    notCheckedYet: '尚未检查',
+    taskFailed: '任务失败',
+    taskInProgress: '任务进行中',
+    taskUpdatesUnavailable: '任务更新暂不可用'
+});
+
 // Configure marked.js with lazy-loaded highlight.js
 marked.setOptions({
     highlight: function(code, lang) {
@@ -441,7 +879,22 @@ function app() {
         settingsTab: 'models',
         me: null,
         adminUsers: [],
-        newUser: { username: '', password: '', role: 'member' },
+        adminUsersLoading: false,
+        adminUsersError: null,
+        adminCreateBusy: false,
+        adminUserBusy: {},
+        newUser: {
+            username: '',
+            password: '',
+            confirmPassword: '',
+            role: 'member'
+        },
+        resetUserPasswordDialog: {
+            show: false,
+            user: null,
+            newPassword: '',
+            confirmPassword: ''
+        },
         passwordForm: { current_password: '', new_password: '' },
         modules: [],
         modulePairForm: { base_url: '', pairing_code: '' },
@@ -604,14 +1057,108 @@ function app() {
         },
         
         // Translation helper
-        t(key) {
-            return i18n[this.lang][key] || key;
+        t(key, params = {}) {
+            const dictionary = i18n[this.lang] || i18n.en;
+            const template = dictionary[key] ?? i18n.en[key] ?? key;
+            return String(template).replace(/\{(\w+)\}/g, (_match, name) => (
+                params[name] === undefined ? `{${name}}` : String(params[name])
+            ));
         },
         
         // Set language
         setLanguage(newLang) {
-            this.lang = newLang;
-            localStorage.setItem('justchat_lang', newLang);
+            this.lang = newLang === 'zh' ? 'zh' : 'en';
+            localStorage.setItem('justchat_lang', this.lang);
+            document.documentElement.lang = this.lang === 'zh' ? 'zh-CN' : 'en';
+        },
+
+        roleLabel(role) {
+            return this.t(role === 'admin' ? 'administrator' : 'member');
+        },
+
+        stateLabel(state) {
+            const normalized = String(state ?? '').trim().toLowerCase().replace(/[\s-]+/g, '_');
+            const keys = {
+                pending: 'statePending',
+                queued: 'stateQueued',
+                paired: 'statePaired',
+                review_required: 'stateReviewRequired',
+                pending_review: 'stateReviewRequired',
+                approved: 'stateApproved',
+                enabled: 'stateEnabled',
+                disabled: 'stateDisabled',
+                draining: 'stateDraining',
+                ready: 'stateReady',
+                healthy: 'stateHealthy',
+                unhealthy: 'stateUnhealthy',
+                configured: 'stateConfigured',
+                unconfigured: 'stateUnconfigured',
+                running: 'stateRunning',
+                succeeded: 'stateSucceeded',
+                completed: 'stateSucceeded',
+                failed: 'stateFailed',
+                cancelled: 'stateCancelled',
+                canceled: 'stateCancelled',
+                pending_approval: 'statePendingApproval',
+                reachable: 'stateReachable',
+                unreachable: 'stateUnreachable',
+                compatible: 'stateCompatible',
+                incompatible: 'stateIncompatible',
+                present: 'statePresent',
+                missing: 'stateMissing',
+                valid: 'stateValid',
+                invalid: 'stateInvalid',
+                plugin: 'statePlugin',
+                resident: 'stateResident',
+                installed: 'stateInstalled',
+                available: 'stateAvailable',
+                unavailable: 'unavailable',
+                not_present: 'stateMissing'
+            };
+            return keys[normalized] ? this.t(keys[normalized]) : (state || this.t('stateUnknown'));
+        },
+
+        actionLabel(action) {
+            const key = {
+                check: 'actionCheck',
+                refresh: 'actionRefresh',
+                enable: 'actionEnable',
+                drain: 'actionDrain',
+                disable: 'actionDisable'
+            }[action];
+            return key ? this.t(key) : action;
+        },
+
+        localizeError(error, fallbackKey = 'requestFailed') {
+            const code = typeof error === 'string'
+                ? error
+                : error?.code || error?.error?.code || error?.detail?.code;
+            const keys = {
+                invalid_request: 'invalidRequest',
+                invalid_username_type: 'invalidUsernameType',
+                invalid_username_length: 'invalidUsernameLength',
+                invalid_username_characters: 'invalidUsernameCharacters',
+                invalid_password_length: 'invalidPasswordLength',
+                invalid_password_too_long: 'invalidPasswordTooLong',
+                setup_unavailable: 'setupUnavailable',
+                username_in_use: 'usernameInUse',
+                invalid_credentials: 'invalidCredentials',
+                current_password_incorrect: 'currentPasswordIncorrect',
+                invalid_role: 'invalidRole',
+                user_not_found: 'userNotFound',
+                last_active_admin: 'lastActiveAdmin',
+                administrator_required: 'administratorRequired',
+                self_user_management_forbidden: 'selfUserManagementForbidden',
+                task_failed: 'taskFailed',
+                module_event_stream_failed: 'taskUpdatesUnavailable',
+                module_event_stream_incomplete: 'taskUpdatesUnavailable'
+            };
+            if (keys[code]) return this.t(keys[code]);
+            return this.t(fallbackKey);
+        },
+
+        localizedApiError(error, fallbackKey = 'requestFailed') {
+            return this.localizeError(error, fallbackKey);
         },
         
         // Get model type display name
@@ -640,6 +1187,7 @@ function app() {
 
         // Initialize
         async init() {
+            this.setLanguage(this.lang);
             this.initResponsiveLayout();
             await this.loadMe();
             await this.loadSettings();
@@ -663,7 +1211,7 @@ function app() {
             const response = await fetch('/api/me');
             if (!response.ok) {
                 location.replace('/login');
-                throw new Error('Authentication required');
+                throw new Error(this.t('authenticationRequired'));
             }
             this.me = await response.json();
             if (!this.isAdmin()) this.settingsTab = 'account';
@@ -676,56 +1224,250 @@ function app() {
 
         async loadAdminUsers() {
             if (!this.isAdmin()) return;
-            const response = await fetch('/api/admin/users');
-            if (response.ok) {
-                const data = await response.json();
-                this.adminUsers = data.users || [];
+            this.adminUsersLoading = true;
+            this.adminUsersError = null;
+            try {
+                const response = await fetch('/api/admin/users');
+                let data = {};
+                try {
+                    data = await response.json();
+                } catch (_error) {
+                    data = {};
+                }
+                if (!response.ok) throw data;
+                this.adminUsers = Array.isArray(data.users) ? data.users : [];
+            } catch (error) {
+                this.adminUsers = [];
+                this.adminUsersError = this.localizeError(error, 'usersLoadFailed');
+            } finally {
+                this.adminUsersLoading = false;
             }
+        },
+
+        setAdminUserBusy(userId, busy) {
+            const next = { ...this.adminUserBusy };
+            if (busy) next[userId] = true;
+            else delete next[userId];
+            this.adminUserBusy = next;
+        },
+
+        isAdminUserBusy(userId) {
+            return Boolean(this.adminUserBusy[userId]);
+        },
+
+        formatUserDate(value) {
+            if (!value) return '—';
+            const parsed = new Date(value);
+            if (Number.isNaN(parsed.getTime())) return value;
+            return new Intl.DateTimeFormat(this.lang === 'zh' ? 'zh-CN' : 'en', {
+                dateStyle: 'medium',
+                timeStyle: 'short'
+            }).format(parsed);
+        },
+
+        managedUserSnapshot(user) {
+            return {
+                id: String(user.id),
+                username: String(user.username),
+                role: user.role,
+                enabled: Boolean(user.enabled)
+            };
         },
 
         async createManagedUser() {
-            const response = await fetch('/api/admin/users', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(this.newUser)
-            });
-            const result = await response.json();
-            if (!response.ok) {
-                this.showToast(result.detail || 'Unable to create user', 'error');
+            if (this.adminCreateBusy) return;
+            if (this.newUser.password.length < 12) {
+                this.showToast(this.t('passwordMinimum'), 'error');
                 return;
             }
-            this.newUser = { username: '', password: '', role: 'member' };
-            await this.loadAdminUsers();
-            this.showToast('User created', 'success');
+            if (this.newUser.password !== this.newUser.confirmPassword) {
+                this.showToast(this.t('passwordsDoNotMatch'), 'error');
+                return;
+            }
+            if (
+                this.newUser.role === 'admin'
+                && !window.confirm(this.t('administratorAccessWarning'))
+            ) {
+                return;
+            }
+            const payload = {
+                username: this.newUser.username,
+                password: this.newUser.password,
+                role: this.newUser.role
+            };
+            this.adminCreateBusy = true;
+            try {
+                const response = await fetch('/api/admin/users', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+                let result = {};
+                try {
+                    result = await response.json();
+                } catch (_error) {
+                    result = {};
+                }
+                if (!response.ok) {
+                    this.showToast(this.localizeError(result, 'unableCreateUser'), 'error');
+                    return;
+                }
+                this.newUser = {
+                    username: '',
+                    password: '',
+                    confirmPassword: '',
+                    role: 'member'
+                };
+                await this.loadAdminUsers();
+                this.showToast(this.t('userCreated'), 'success');
+            } catch (error) {
+                this.showToast(this.localizeError(error, 'unableCreateUser'), 'error');
+            } finally {
+                this.adminCreateBusy = false;
+            }
         },
 
         async setManagedUserEnabled(user, enabled) {
-            const action = enabled ? 'enable' : 'disable';
-            const response = await fetch(`/api/admin/users/${encodeURIComponent(user.id)}/${action}`, {
-                method: 'POST'
-            });
-            const result = await response.json();
-            if (!response.ok) {
-                this.showToast(result.detail || 'Unable to update user', 'error');
+            const target = this.managedUserSnapshot(user);
+            if (target.id === this.me?.id || this.isAdminUserBusy(target.id)) return;
+            if (
+                !enabled
+                && !window.confirm(this.t('confirmDisableUser', {
+                    username: target.username
+                }))
+            ) {
                 return;
             }
-            await this.loadAdminUsers();
+            const action = enabled ? 'enable' : 'disable';
+            this.setAdminUserBusy(target.id, true);
+            try {
+                const response = await fetch(
+                    `/api/admin/users/${encodeURIComponent(target.id)}/${action}`,
+                    { method: 'POST' }
+                );
+                let result = {};
+                try {
+                    result = await response.json();
+                } catch (_error) {
+                    result = {};
+                }
+                if (!response.ok) {
+                    this.showToast(this.localizeError(result, 'unableUpdateUser'), 'error');
+                    return;
+                }
+                await this.loadAdminUsers();
+                this.showToast(this.t('userUpdated'), 'success');
+            } catch (error) {
+                this.showToast(this.localizeError(error, 'unableUpdateUser'), 'error');
+            } finally {
+                this.setAdminUserBusy(target.id, false);
+            }
         },
 
-        async resetManagedUserPassword(user) {
-            const newPassword = window.prompt(`New password for ${user.username}`);
-            if (!newPassword) return;
-            const response = await fetch(`/api/admin/users/${encodeURIComponent(user.id)}/reset-password`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ new_password: newPassword })
-            });
-            const result = await response.json();
-            if (!response.ok) {
-                this.showToast(result.detail || 'Unable to reset password', 'error');
+        async setManagedUserRole(user, role) {
+            const target = this.managedUserSnapshot(user);
+            if (
+                target.id === this.me?.id
+                || target.role === role
+                || this.isAdminUserBusy(target.id)
+            ) {
                 return;
             }
-            this.showToast('Password reset; existing sessions revoked', 'success');
+            const confirmKey = role === 'admin'
+                ? 'confirmPromoteUser'
+                : 'confirmDemoteUser';
+            if (!window.confirm(this.t(confirmKey, { username: target.username }))) {
+                return;
+            }
+            this.setAdminUserBusy(target.id, true);
+            try {
+                const response = await fetch(
+                    `/api/admin/users/${encodeURIComponent(target.id)}/role`,
+                    {
+                        method: 'PUT',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ role })
+                    }
+                );
+                let result = {};
+                try {
+                    result = await response.json();
+                } catch (_error) {
+                    result = {};
+                }
+                if (!response.ok) {
+                    this.showToast(this.localizeError(result, 'unableUpdateUser'), 'error');
+                    return;
+                }
+                await this.loadAdminUsers();
+                this.showToast(this.t('userRoleUpdated'), 'success');
+            } catch (error) {
+                this.showToast(this.localizeError(error, 'unableUpdateUser'), 'error');
+            } finally {
+                this.setAdminUserBusy(target.id, false);
+            }
+        },
+
+        resetManagedUserPassword(user) {
+            const target = this.managedUserSnapshot(user);
+            if (target.id === this.me?.id || this.isAdminUserBusy(target.id)) return;
+            this.resetUserPasswordDialog = {
+                show: true,
+                user: target,
+                newPassword: '',
+                confirmPassword: ''
+            };
+        },
+
+        closeManagedUserPasswordDialog() {
+            this.resetUserPasswordDialog = {
+                show: false,
+                user: null,
+                newPassword: '',
+                confirmPassword: ''
+            };
+        },
+
+        async submitManagedUserPasswordReset() {
+            const dialog = this.resetUserPasswordDialog;
+            const target = dialog.user ? { ...dialog.user } : null;
+            if (!target || this.isAdminUserBusy(target.id)) return;
+            if (dialog.newPassword.length < 12) {
+                this.showToast(this.t('passwordMinimum'), 'error');
+                return;
+            }
+            if (dialog.newPassword !== dialog.confirmPassword) {
+                this.showToast(this.t('passwordsDoNotMatch'), 'error');
+                return;
+            }
+            this.setAdminUserBusy(target.id, true);
+            try {
+                const response = await fetch(
+                    `/api/admin/users/${encodeURIComponent(target.id)}/reset-password`,
+                    {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ new_password: dialog.newPassword })
+                    }
+                );
+                let result = {};
+                try {
+                    result = await response.json();
+                } catch (_error) {
+                    result = {};
+                }
+                if (!response.ok) {
+                    this.showToast(this.localizeError(result, 'unableResetPassword'), 'error');
+                    return;
+                }
+                this.closeManagedUserPasswordDialog();
+                await this.loadAdminUsers();
+                this.showToast(this.t('passwordReset'), 'success');
+            } catch (error) {
+                this.showToast(this.localizeError(error, 'unableResetPassword'), 'error');
+            } finally {
+                this.setAdminUserBusy(target.id, false);
+            }
         },
 
         async changeMyPassword() {
@@ -736,7 +1478,7 @@ function app() {
             });
             const result = await response.json();
             if (!response.ok) {
-                this.showToast(result.detail || 'Unable to change password', 'error');
+                this.showToast(this.localizeError(result, 'unableChangePassword'), 'error');
                 return;
             }
             location.replace('/login');
@@ -751,7 +1493,9 @@ function app() {
                 result = {};
             }
             if (!response.ok) {
-                throw new Error(result.detail || 'Module operation failed');
+                const error = new Error(this.localizeError(result, 'moduleOperationFailed'));
+                error.code = result.code || result.error?.code || result.detail?.code || '';
+                throw error;
             }
             return result;
         },
@@ -800,7 +1544,7 @@ function app() {
                 approval: null,
                 artifacts: Array.isArray(task?.artifacts) ? task.artifacts : [],
                 error: task?.state === 'failed'
-                    ? (task.outcome_code || 'Task failed')
+                    ? (task.outcome_code || 'task_failed')
                     : null
             };
         },
@@ -825,7 +1569,7 @@ function app() {
                     view.progress = 1;
                     view.approval = null;
                     view.error = task.state === 'failed'
-                        ? (task.outcome_code || 'Task failed')
+                        ? (task.outcome_code || 'task_failed')
                         : null;
                 }
             }
@@ -874,13 +1618,13 @@ function app() {
                 if (event.event === 'task.terminal') {
                     ui.progress = 1;
                     if (event.data.state === 'failed') {
-                        ui.error = event.data.outcome_code || 'Task failed';
+                        ui.error = event.data.outcome_code || 'task_failed';
                     }
                     ui.approval = null;
                 }
             } else if (event.event === 'task.progress') {
                 ui.progress = event.data.progress;
-                ui.progressMessage = event.data.message || '';
+                ui.progressMessage = this.t('taskInProgress');
             } else if (event.event === 'output.delta') {
                 ui.output += event.data.text;
             } else if (event.event === 'output.snapshot') {
@@ -903,7 +1647,9 @@ function app() {
                     decision
                 );
             } catch (error) {
-                this.moduleTaskUi.error = error.message;
+                this.moduleTaskUi.error = {
+                    code: error?.code || 'invalid_request'
+                };
             }
         },
 
@@ -914,7 +1660,9 @@ function app() {
                 const task = await window.ChatRaw.modules.cancelTask(taskId);
                 this.upsertModuleTask(task);
             } catch (error) {
-                this.moduleTaskUi.error = error.message;
+                this.moduleTaskUi.error = {
+                    code: error?.code || 'invalid_request'
+                };
             }
         },
 
@@ -927,7 +1675,9 @@ function app() {
                     artifact.artifact_ref
                 );
             } catch (error) {
-                this.moduleTaskUi.error = error.message;
+                this.moduleTaskUi.error = {
+                    code: error?.code || 'invalid_request'
+                };
             }
         },
 
@@ -1169,7 +1919,7 @@ function app() {
                 this.modules = data.modules || [];
                 this.deploymentStatus = deployment;
             } catch (error) {
-                this.showToast(error.message, 'error');
+                this.showToast(this.localizeError(error, 'moduleOperationFailed'), 'error');
             }
         },
 
@@ -1185,9 +1935,9 @@ function app() {
                 this.modulePairForm = { base_url: '', pairing_code: '' };
                 await this.loadModules();
                 await this.refreshResidentIntegrationStatuses();
-                this.showToast('Module paired for review', 'success');
+                this.showToast(this.t('modulePaired'), 'success');
             } catch (error) {
-                this.showToast(error.message, 'error');
+                this.showToast(this.localizeError(error, 'moduleOperationFailed'), 'error');
             } finally {
                 this.moduleBusy = null;
             }
@@ -1195,7 +1945,7 @@ function app() {
 
         async approveModule(module) {
             if (!this.isAdmin() || this.moduleBusy) return;
-            if (!window.confirm(`Approve ${module.module_id} and its declared capabilities?`)) return;
+            if (!window.confirm(this.t('approveModuleConfirm', { moduleId: module.module_id }))) return;
             this.moduleBusy = module.id;
             try {
                 await this.moduleApi(`/api/admin/modules/${encodeURIComponent(module.id)}/approve`, {
@@ -1208,9 +1958,9 @@ function app() {
                 });
                 await this.loadModules();
                 await this.refreshResidentIntegrationStatuses();
-                this.showToast('Module manifest approved', 'success');
+                this.showToast(this.t('moduleApproved'), 'success');
             } catch (error) {
-                this.showToast(error.message, 'error');
+                this.showToast(this.localizeError(error, 'moduleOperationFailed'), 'error');
             } finally {
                 this.moduleBusy = null;
             }
@@ -1225,9 +1975,11 @@ function app() {
                 });
                 await this.loadModules();
                 await this.refreshResidentIntegrationStatuses();
-                this.showToast(`Module ${action} completed`, 'success');
+                this.showToast(this.t('moduleActionCompleted', {
+                    action: this.actionLabel(action)
+                }), 'success');
             } catch (error) {
-                this.showToast(error.message, 'error');
+                this.showToast(this.localizeError(error, 'moduleOperationFailed'), 'error');
             } finally {
                 this.moduleBusy = null;
             }
@@ -1260,7 +2012,7 @@ function app() {
                     }
                 }
             } catch (error) {
-                this.showToast(error.message, 'error');
+                this.showToast(this.localizeError(error, 'moduleOperationFailed'), 'error');
             } finally {
                 this.moduleBusy = null;
             }
@@ -1288,9 +2040,11 @@ function app() {
                 this.moduleConfig = null;
                 await this.loadModules();
                 await this.refreshResidentIntegrationStatuses();
-                this.showToast(`Configuration saved at revision ${config.revision}`, 'success');
+                this.showToast(this.t('configurationSavedRevision', {
+                    revision: config.revision
+                }), 'success');
             } catch (error) {
-                this.showToast(error.message, 'error');
+                this.showToast(this.localizeError(error, 'moduleOperationFailed'), 'error');
             } finally {
                 this.moduleBusy = null;
             }
@@ -1298,7 +2052,9 @@ function app() {
 
         async disconnectModule(module) {
             if (!this.isAdmin() || this.moduleBusy) return;
-            const confirmation = window.prompt(`Type ${module.module_id} to disconnect. Module data will be preserved.`);
+            const confirmation = window.prompt(this.t('disconnectModulePrompt', {
+                moduleId: module.module_id
+            }));
             if (confirmation !== module.module_id) return;
             this.moduleBusy = module.id;
             try {
@@ -1309,9 +2065,9 @@ function app() {
                 });
                 await this.loadModules();
                 await this.refreshResidentIntegrationStatuses();
-                this.showToast('Module disconnected; module data was preserved', 'success');
+                this.showToast(this.t('moduleDisconnected'), 'success');
             } catch (error) {
-                this.showToast(error.message, 'error');
+                this.showToast(this.localizeError(error, 'moduleOperationFailed'), 'error');
             } finally {
                 this.moduleBusy = null;
             }
@@ -1320,7 +2076,9 @@ function app() {
         async purgeModuleData(module) {
             if (!this.isAdmin() || !module.supports_data_purge || this.moduleBusy) return;
             const expected = `PURGE ${module.module_id}`;
-            const confirmation = window.prompt(`This deletes data owned by the module. Type ${expected} to continue.`);
+            const confirmation = window.prompt(this.t('purgeModulePrompt', {
+                confirmation: expected
+            }));
             if (confirmation !== expected) return;
             this.moduleBusy = module.id;
             try {
@@ -1330,9 +2088,9 @@ function app() {
                     body: JSON.stringify({ confirmation })
                 });
                 await this.loadModules();
-                this.showToast('Module-owned data purged', 'success');
+                this.showToast(this.t('moduleDataPurged'), 'success');
             } catch (error) {
-                this.showToast(error.message, 'error');
+                this.showToast(this.localizeError(error, 'moduleOperationFailed'), 'error');
             } finally {
                 this.moduleBusy = null;
             }
@@ -1547,7 +2305,7 @@ function app() {
         
         // Delete chat
         async deleteChat(chatId) {
-            if (!confirm('Delete this shared chat? Other users will lose access to it.')) return;
+            if (!confirm(this.t('deleteSharedChat'))) return;
             try {
                 if (this.currentChatId === chatId && this.isGenerating) {
                     this.stopGeneration();
@@ -1568,7 +2326,7 @@ function app() {
         },
 
         async renameChat(chat) {
-            const title = window.prompt('Rename this shared chat', chat.title);
+            const title = window.prompt(this.t('renameSharedChat'), chat.title);
             if (!title || title.trim() === chat.title) return;
             const response = await fetch(`/api/chats/${encodeURIComponent(chat.id)}`, {
                 method: 'PATCH',
@@ -1577,7 +2335,7 @@ function app() {
             });
             const result = await response.json();
             if (!response.ok) {
-                this.showToast(result.detail || 'Rename failed', 'error');
+                this.showToast(this.localizeError(result, 'renameFailed'), 'error');
                 return;
             }
             chat.title = result.title;
@@ -2429,7 +3187,7 @@ function app() {
                     // User cancelled, do nothing
                 } else {
                     console.error('Failed to send message:', e);
-                    this.showToast(this.t('sendFailed') + ': ' + e.message, 'error');
+                    this.showToast(this.t('sendFailed'), 'error');
                 }
             } finally {
                 if (this.abortController === sendController) {
@@ -2743,7 +3501,7 @@ function app() {
                 this.commitHermesRunMessage(targetMessage, targetIndex);
             } catch (error) {
                 hermesRun.approvalSubmitting = false;
-                hermesRun.approvalError = error.message || this.t('hermesApprovalError');
+                hermesRun.approvalError = this.t('hermesApprovalError');
                 this.commitHermesRunMessage(targetMessage, targetIndex);
             }
         },
@@ -2760,7 +3518,7 @@ function app() {
             
             if (!res.ok) {
                 const errText = await res.text();
-                throw new Error(errText || 'Request failed');
+                throw new Error(this.t('requestFailed'));
             }
             
             const assistantMsg = {
@@ -2866,7 +3624,7 @@ function app() {
             const data = await res.json();
             
             if (!res.ok) {
-                throw new Error(data.error || 'Request failed');
+                throw new Error(this.t('requestFailed'));
             }
             
             if (!this.currentChatId && data.chat_id) {
@@ -2945,7 +3703,7 @@ function app() {
                 }
             } catch (e) {
                 this.uploadProgress.show = false;
-                this.showToast(this.t('uploadFailed') + ': ' + e.message, 'error');
+                this.showToast(this.t('uploadFailed'), 'error');
             }
             
             event.target.value = '';
@@ -3093,7 +3851,7 @@ function app() {
                     throw new Error(error.error);
                 }
             } catch (e) {
-                this.showToast(this.t('uploadFailed') + ': ' + e.message, 'error');
+                this.showToast(this.t('uploadFailed'), 'error');
             }
             
             event.target.value = '';
@@ -3193,7 +3951,7 @@ function app() {
                                 break;
                             } else if (result?.error) {
                                 // Plugin returned an error
-                                this.showToast(this.t('uploadFailed') + ': ' + result.error, 'error');
+                                this.showToast(this.t('uploadFailed'), 'error');
                                 pluginHandled = true;
                                 break;
                             }
@@ -3234,12 +3992,12 @@ function app() {
                         };
                         this.showToast(this.t('documentAttached') + ': ' + data.filename, 'success');
                     } else {
-                        this.showToast(this.t('uploadFailed') + ': ' + (data.error || 'Unknown error'), 'error');
+                        this.showToast(this.t('uploadFailed'), 'error');
                     }
                 }
             } catch (e) {
                 console.error('Document upload error:', e);
-                this.showToast(this.t('uploadFailed') + ': ' + (e.message || 'Unknown error'), 'error');
+                this.showToast(this.t('uploadFailed'), 'error');
             } finally {
                 this.isUploadingDocument = false;
             }
@@ -3345,10 +4103,10 @@ function app() {
                     this.urlInputValue = '';
                     this.showToast(this.t('urlAttached') + ': ' + data.title, 'success');
                 } else {
-                    this.showToast(this.t('parseFailed') + ': ' + (data.error || 'Unknown error'), 'error');
+                    this.showToast(this.t('parseFailed'), 'error');
                 }
             } catch (e) {
-                this.showToast(this.t('parseFailed') + ': ' + e.message, 'error');
+                this.showToast(this.t('parseFailed'), 'error');
             } finally {
                 this.isParsingUrl = false;
             }
@@ -3368,7 +4126,7 @@ function app() {
         
         // Delete document
         async deleteDocument(id) {
-            if (!confirm('Delete this shared document? Other users will lose access to it.')) return;
+            if (!confirm(this.t('deleteSharedDocument'))) return;
             try {
                 const response = await fetch(`/api/documents/${id}`, { method: 'DELETE' });
                 if (!response.ok) {
@@ -3481,7 +4239,7 @@ function app() {
                 await this.loadModels();
                 
             } catch (e) {
-                this.showToast(this.t('saveFailed') + ': ' + e.message, 'error');
+                this.showToast(this.t('saveFailed'), 'error');
             }
         },
         
@@ -3921,8 +4679,10 @@ function app() {
                             if (failures >= 5) {
                                 const taskView = appInstance.moduleTasks[taskId];
                                 if (taskView) {
-                                    taskView.error = error.message
-                                        || 'Task updates unavailable';
+                                    taskView.error = {
+                                        code: error?.code
+                                            || 'module_event_stream_failed'
+                                    };
                                 }
                                 break;
                             }
@@ -4901,10 +5661,10 @@ function app() {
                         await this.loadPluginJS(newPlugin);
                     }
                 } else {
-                    this.showToast(this.t('installFailed') + ': ' + data.error, 'error');
+                    this.showToast(this.t('installFailed'), 'error');
                 }
             } catch (e) {
-                this.showToast(this.t('installFailed') + ': ' + e.message, 'error');
+                this.showToast(this.t('installFailed'), 'error');
             } finally {
                 this.pluginInstalling = null;
             }
@@ -4952,10 +5712,10 @@ function app() {
                         await this.loadPluginJS(newPlugin);
                     }
                 } else {
-                    this.showToast(this.t('installFailed') + ': ' + data.error, 'error');
+                    this.showToast(this.t('installFailed'), 'error');
                 }
             } catch (e) {
-                this.showToast(this.t('installFailed') + ': ' + e.message, 'error');
+                this.showToast(this.t('installFailed'), 'error');
             } finally {
                 this.pluginUploading = false;
                 if (fileInput) fileInput.value = '';
@@ -5124,7 +5884,7 @@ function app() {
                     await this.loadInstalledPlugins();
                 } else {
                     const data = await res.json().catch(() => ({}));
-                    this.showToast(this.t('uninstallFailed') + (data.error ? ': ' + data.error : ''), 'error');
+                    this.showToast(this.t('uninstallFailed'), 'error');
                 }
             } catch (e) {
                 this.showToast(this.t('uninstallFailed'), 'error');

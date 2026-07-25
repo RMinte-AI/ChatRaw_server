@@ -27,10 +27,17 @@ PASSWORD_MIN_LENGTH = 12
 
 
 class AuthError(RuntimeError):
-    def __init__(self, message: str, status_code: int = 400):
+    def __init__(
+        self,
+        message: str,
+        status_code: int = 400,
+        *,
+        code: str = "authentication_failed",
+    ):
         super().__init__(message)
         self.message = message
         self.status_code = status_code
+        self.code = code
 
 
 @dataclass(frozen=True)
@@ -58,24 +65,29 @@ def token_digest(token: str) -> str:
 
 def validate_username(username: Any) -> str:
     if not isinstance(username, str):
-        raise AuthError("username must be a string")
+        raise AuthError("username must be a string", code="invalid_username_type")
     username = username.strip()
     if not USERNAME_MIN_LENGTH <= len(username) <= USERNAME_MAX_LENGTH:
         raise AuthError(
-            f"username must be {USERNAME_MIN_LENGTH}-{USERNAME_MAX_LENGTH} characters"
+            f"username must be {USERNAME_MIN_LENGTH}-{USERNAME_MAX_LENGTH} characters",
+            code="invalid_username_length",
         )
     if not all(character.isalnum() or character in "._-" for character in username):
-        raise AuthError("username contains unsupported characters")
+        raise AuthError(
+            "username contains unsupported characters",
+            code="invalid_username_characters",
+        )
     return username
 
 
 def validate_password(password: Any) -> str:
     if not isinstance(password, str) or len(password) < PASSWORD_MIN_LENGTH:
         raise AuthError(
-            f"password must be at least {PASSWORD_MIN_LENGTH} characters"
+            f"password must be at least {PASSWORD_MIN_LENGTH} characters",
+            code="invalid_password_length",
         )
     if len(password) > 1024:
-        raise AuthError("password is too long")
+        raise AuthError("password is too long", code="invalid_password_too_long")
     return password
 
 
@@ -203,7 +215,11 @@ class AuthService:
                     "denied",
                     {"reason": "setup_unavailable"},
                 )
-                raise AuthError("setup is unavailable", 409)
+                raise AuthError(
+                    "setup is unavailable",
+                    409,
+                    code="setup_unavailable",
+                )
             try:
                 connection.execute(
                     """
@@ -215,7 +231,11 @@ class AuthService:
                     (user_id, username, password_hash, now, now, now),
                 )
             except sqlite3.IntegrityError as error:
-                raise AuthError("username is already in use", 409) from error
+                raise AuthError(
+                    "username is already in use",
+                    409,
+                    code="username_in_use",
+                ) from error
             connection.execute(
                 "UPDATE setup_state SET consumed_at = ? WHERE singleton = 1",
                 (now,),
@@ -263,7 +283,11 @@ class AuthService:
                 "denied",
                 {"username": normalized},
             )
-            raise AuthError("invalid username or password", 401)
+            raise AuthError(
+                "invalid username or password",
+                401,
+                code="invalid_credentials",
+            )
         if self.password_hasher.check_needs_rehash(row["password_hash"]):
             with self.connection(write=True) as connection:
                 connection.execute(
@@ -360,7 +384,11 @@ class AuthService:
         except (VerifyMismatchError, InvalidHashError):
             valid = False
         if not valid:
-            raise AuthError("current password is incorrect", 403)
+            raise AuthError(
+                "current password is incorrect",
+                403,
+                code="current_password_incorrect",
+            )
         now = utc_now()
         with self.connection(write=True, immediate=True) as connection:
             connection.execute(
@@ -408,38 +436,57 @@ class AuthService:
         username = validate_username(username)
         password = validate_password(password)
         if role not in {"admin", "member"}:
-            raise AuthError("role must be admin or member")
+            raise AuthError(
+                "role must be admin or member",
+                code="invalid_role",
+            )
         user_id = str(uuid.uuid4())
         now = utc_now()
+        password_hash = self.password_hasher.hash(password)
+        denial: Optional[AuthError] = None
         with self.connection(write=True, immediate=True) as connection:
-            try:
-                connection.execute(
-                    """
-                    INSERT INTO users
-                        (id, username, password_hash, role, enabled,
-                         created_at, updated_at, password_changed_at)
-                    VALUES (?, ?, ?, ?, 1, ?, ?, ?)
-                    """,
-                    (
-                        user_id,
-                        username,
-                        self.password_hasher.hash(password),
-                        role,
-                        now,
-                        now,
-                        now,
-                    ),
+            denial = self._active_admin_denial(connection, actor)
+            if denial is None:
+                try:
+                    connection.execute(
+                        """
+                        INSERT INTO users
+                            (id, username, password_hash, role, enabled,
+                             created_at, updated_at, password_changed_at)
+                        VALUES (?, ?, ?, ?, 1, ?, ?, ?)
+                        """,
+                        (
+                            user_id,
+                            username,
+                            password_hash,
+                            role,
+                            now,
+                            now,
+                            now,
+                        ),
+                    )
+                except sqlite3.IntegrityError as error:
+                    raise AuthError(
+                        "username is already in use",
+                        409,
+                        code="username_in_use",
+                    ) from error
+                self._audit(
+                    connection,
+                    actor.id,
+                    "admin.user.create",
+                    "user",
+                    user_id,
+                    "success",
+                    {"role": role},
                 )
-            except sqlite3.IntegrityError as error:
-                raise AuthError("username is already in use", 409) from error
-            self._audit(
-                connection,
-                actor.id,
+        if denial is not None:
+            self._raise_audited_denial(
+                actor,
                 "admin.user.create",
-                "user",
                 user_id,
-                "success",
-                {"role": role},
+                denial,
+                {"reason": "actor_not_active_admin"},
             )
         return {
             "id": user_id,
@@ -457,45 +504,169 @@ class AuthService:
         enabled: bool,
     ) -> None:
         now = utc_now()
+        action = "admin.user.enable" if enabled else "admin.user.disable"
+        denial: Optional[AuthError] = None
+        denial_details: dict[str, Any] = {}
         with self.connection(write=True, immediate=True) as connection:
-            row = connection.execute(
-                "SELECT id, role, enabled FROM users WHERE id = ?",
-                (user_id,),
-            ).fetchone()
-            if row is None:
-                raise AuthError("user not found", 404)
-            if not enabled and row["role"] == "admin" and row["enabled"]:
-                active_admins = connection.execute(
-                    """
-                    SELECT COUNT(*) FROM users
-                    WHERE role = 'admin' AND enabled = 1
-                    """
-                ).fetchone()[0]
-                if active_admins <= 1:
+            denial = self._active_admin_denial(connection, actor)
+            if denial is not None:
+                denial_details = {"reason": "actor_not_active_admin"}
+            else:
+                row = connection.execute(
+                    "SELECT id, role, enabled FROM users WHERE id = ?",
+                    (user_id,),
+                ).fetchone()
+                if row is None:
+                    raise AuthError("user not found", 404, code="user_not_found")
+                if not enabled and user_id == actor.id:
+                    denial = AuthError(
+                        "administrators cannot disable their own account",
+                        409,
+                        code="self_user_management_forbidden",
+                    )
+                    denial_details = {"reason": "self_disable"}
+                elif not enabled and row["role"] == "admin" and row["enabled"]:
+                    active_admins = connection.execute(
+                        """
+                        SELECT COUNT(*) FROM users
+                        WHERE role = 'admin' AND enabled = 1
+                        """
+                    ).fetchone()[0]
+                    if active_admins <= 1:
+                        denial = AuthError(
+                            "cannot disable the last active admin",
+                            409,
+                            code="last_active_admin",
+                        )
+                        denial_details = {"reason": "last_active_admin"}
+                if denial is None:
+                    connection.execute(
+                        "UPDATE users SET enabled = ?, updated_at = ? WHERE id = ?",
+                        (1 if enabled else 0, now, user_id),
+                    )
+                    if not enabled:
+                        self._revoke_user_sessions(connection, user_id, now)
+                        self._revoke_user_capabilities(connection, user_id, now)
                     self._audit(
                         connection,
                         actor.id,
-                        "admin.user.disable",
+                        action,
                         "user",
                         user_id,
-                        "denied",
-                        {"reason": "last_active_admin"},
+                        "success",
+                        {},
                     )
-                    raise AuthError("cannot disable the last active admin", 409)
-            connection.execute(
-                "UPDATE users SET enabled = ?, updated_at = ? WHERE id = ?",
-                (1 if enabled else 0, now, user_id),
-            )
-            if not enabled:
-                self._revoke_user_sessions(connection, user_id, now)
-            self._audit(
-                connection,
-                actor.id,
-                "admin.user.enable" if enabled else "admin.user.disable",
-                "user",
+        if denial is not None:
+            self._raise_audited_denial(
+                actor,
+                action,
                 user_id,
-                "success",
-                {},
+                denial,
+                denial_details,
+            )
+
+    def set_user_role(
+        self,
+        actor: Principal,
+        user_id: str,
+        role: Any,
+    ) -> None:
+        if role not in {"admin", "member"}:
+            raise AuthError(
+                "role must be admin or member",
+                code="invalid_role",
+            )
+        now = utc_now()
+        denial: Optional[AuthError] = None
+        denial_details: dict[str, Any] = {}
+        with self.connection(write=True, immediate=True) as connection:
+            denial = self._active_admin_denial(connection, actor)
+            if denial is not None:
+                denial_details = {"reason": "actor_not_active_admin"}
+            else:
+                row = connection.execute(
+                    "SELECT id, role, enabled FROM users WHERE id = ?",
+                    (user_id,),
+                ).fetchone()
+                if row is None:
+                    raise AuthError("user not found", 404, code="user_not_found")
+                old_role = row["role"]
+                if old_role == role:
+                    self._audit(
+                        connection,
+                        actor.id,
+                        "admin.user.role.update",
+                        "user",
+                        user_id,
+                        "success",
+                        {
+                            "old_role": old_role,
+                            "new_role": role,
+                            "changed": False,
+                        },
+                    )
+                else:
+                    if user_id == actor.id:
+                        denial = AuthError(
+                            "administrators cannot change their own role",
+                            409,
+                            code="self_user_management_forbidden",
+                        )
+                        denial_details = {
+                            "reason": "self_role_change",
+                            "old_role": old_role,
+                            "new_role": role,
+                        }
+                    elif old_role == "admin" and role == "member" and row["enabled"]:
+                        active_admins = connection.execute(
+                            """
+                            SELECT COUNT(*) FROM users
+                            WHERE role = 'admin' AND enabled = 1
+                            """
+                        ).fetchone()[0]
+                        if active_admins <= 1:
+                            denial = AuthError(
+                                "cannot demote the last active admin",
+                                409,
+                                code="last_active_admin",
+                            )
+                            denial_details = {
+                                "reason": "last_active_admin",
+                                "old_role": old_role,
+                                "new_role": role,
+                            }
+                    if denial is None:
+                        connection.execute(
+                            "UPDATE users SET role = ?, updated_at = ? WHERE id = ?",
+                            (role, now, user_id),
+                        )
+                        self._revoke_user_sessions(connection, user_id, now)
+                        if old_role == "admin" and role == "member":
+                            self._revoke_user_capabilities(
+                                connection,
+                                user_id,
+                                now,
+                            )
+                        self._audit(
+                            connection,
+                            actor.id,
+                            "admin.user.role.update",
+                            "user",
+                            user_id,
+                            "success",
+                            {
+                                "old_role": old_role,
+                                "new_role": role,
+                                "changed": True,
+                            },
+                        )
+        if denial is not None:
+            self._raise_audited_denial(
+                actor,
+                "admin.user.role.update",
+                user_id,
+                denial,
+                denial_details,
             )
 
     def reset_password(
@@ -506,30 +677,53 @@ class AuthService:
     ) -> None:
         password = validate_password(password)
         now = utc_now()
+        password_hash = self.password_hasher.hash(password)
+        denial: Optional[AuthError] = None
+        denial_details: dict[str, Any] = {}
         with self.connection(write=True, immediate=True) as connection:
-            exists = connection.execute(
-                "SELECT 1 FROM users WHERE id = ?",
-                (user_id,),
-            ).fetchone()
-            if exists is None:
-                raise AuthError("user not found", 404)
-            connection.execute(
-                """
-                UPDATE users
-                SET password_hash = ?, password_changed_at = ?, updated_at = ?
-                WHERE id = ?
-                """,
-                (self.password_hasher.hash(password), now, now, user_id),
-            )
-            self._revoke_user_sessions(connection, user_id, now)
-            self._audit(
-                connection,
-                actor.id,
+            denial = self._active_admin_denial(connection, actor)
+            if denial is not None:
+                denial_details = {"reason": "actor_not_active_admin"}
+            else:
+                exists = connection.execute(
+                    "SELECT 1 FROM users WHERE id = ?",
+                    (user_id,),
+                ).fetchone()
+                if exists is None:
+                    raise AuthError("user not found", 404, code="user_not_found")
+                if user_id == actor.id:
+                    denial = AuthError(
+                        "administrators must change their own password in Account",
+                        409,
+                        code="self_user_management_forbidden",
+                    )
+                    denial_details = {"reason": "self_password_reset"}
+                else:
+                    connection.execute(
+                        """
+                        UPDATE users
+                        SET password_hash = ?, password_changed_at = ?, updated_at = ?
+                        WHERE id = ?
+                        """,
+                        (password_hash, now, now, user_id),
+                    )
+                    self._revoke_user_sessions(connection, user_id, now)
+                    self._audit(
+                        connection,
+                        actor.id,
+                        "admin.user.reset_password",
+                        "user",
+                        user_id,
+                        "success",
+                        {},
+                    )
+        if denial is not None:
+            self._raise_audited_denial(
+                actor,
                 "admin.user.reset_password",
-                "user",
                 user_id,
-                "success",
-                {},
+                denial,
+                denial_details,
             )
 
     def audit(
@@ -584,6 +778,54 @@ class AuthService:
             """,
             (now, user_id),
         )
+
+    @staticmethod
+    def _revoke_user_capabilities(connection, user_id: str, now: str) -> None:
+        connection.execute(
+            """
+            UPDATE module_capability_tokens
+            SET revoked_at = COALESCE(revoked_at, ?)
+            WHERE task_id IN (
+                SELECT id FROM module_tasks WHERE creator_user_id = ?
+            )
+            """,
+            (now, user_id),
+        )
+
+    @staticmethod
+    def _active_admin_denial(
+        connection,
+        actor: Principal,
+    ) -> Optional[AuthError]:
+        row = connection.execute(
+            "SELECT role, enabled FROM users WHERE id = ?",
+            (actor.id,),
+        ).fetchone()
+        if row is None or row["role"] != "admin" or not row["enabled"]:
+            return AuthError(
+                "administrator permission required",
+                403,
+                code="administrator_required",
+            )
+        return None
+
+    def _raise_audited_denial(
+        self,
+        actor: Principal,
+        action: str,
+        user_id: Optional[str],
+        error: AuthError,
+        details: dict[str, Any],
+    ) -> None:
+        self.audit(
+            actor.id,
+            action,
+            "user",
+            user_id,
+            "denied",
+            details,
+        )
+        raise error
 
     @staticmethod
     def _audit(

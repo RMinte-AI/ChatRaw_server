@@ -74,7 +74,8 @@
             saveFailed: 'Save failed',
             apiKeySet: 'API Key is set',
             apiKeyNotSet: 'API Key not set',
-            searchDepthHint: 'Advanced mode uses 2 credits per search, others use 1 credit'
+            searchDepthHint: 'Advanced mode uses 2 credits per search, others use 1 credit',
+            untitled: 'Untitled'
         },
         zh: {
             searchResults: '搜索结果',
@@ -118,13 +119,19 @@
             saveFailed: '保存失败',
             apiKeySet: 'API Key 已设置',
             apiKeyNotSet: 'API Key 未设置',
-            searchDepthHint: '高级模式每次搜索消耗 2 积分，其他模式消耗 1 积分'
+            searchDepthHint: '高级模式每次搜索消耗 2 积分，其他模式消耗 1 积分',
+            untitled: '无标题'
         }
     };
     
     function t(key) {
         const lang = ChatRaw.utils?.getLanguage?.() || 'en';
         return i18n[lang]?.[key] || i18n.en[key] || key;
+    }
+
+    function displayError(error, fallbackKey) {
+        void error;
+        return t(fallbackKey);
     }
     
     // ============ Settings Management ============
@@ -162,7 +169,7 @@
             throw new Error(errorData.error || 'Save failed');
         } catch (e) {
             console.error('[TavilySearch] Failed to save settings:', e);
-            ChatRaw.utils?.showToast?.(t('saveFailed') + ': ' + e.message, 'error');
+            ChatRaw.utils?.showToast?.(displayError(e, 'saveFailed'), 'error');
             return false;
         }
     }
@@ -217,12 +224,12 @@
             } else {
                 // If failed, clear the API key
                 await saveApiKey('');
-                return { success: false, error: result.error };
+                return { success: false, error: displayError(result.error, 'verifyFailed') };
             }
         } catch (e) {
             console.error('[TavilySearch] Verify failed:', e);
             await saveApiKey('');
-            return { success: false, error: e.message };
+            return { success: false, error: displayError(e, 'verifyFailed') };
         }
     }
     
@@ -265,7 +272,7 @@
         
         // Format search results
         data.results.forEach((item, index) => {
-            lines.push(`### ${index + 1}. ${item.title || 'Untitled'}`);
+            lines.push(`### ${index + 1}. ${item.title || t('untitled')}`);
             
             if (item.content) {
                 lines.push(item.content);
@@ -554,8 +561,7 @@
                 input.value = '';
                 input.placeholder = '••••••••';
             } else {
-                const errorMsg = typeof result.error === 'object' ? JSON.stringify(result.error) : result.error;
-                if (status) status.innerHTML = `<span style="color:var(--error-color);">✗ ${t('verifyFailed')}: ${errorMsg}</span>`;
+                if (status) status.innerHTML = `<span style="color:var(--error-color);">✗ ${displayError(result.error, 'verifyFailed')}</span>`;
             }
             
             if (btn) btn.textContent = t('verify');

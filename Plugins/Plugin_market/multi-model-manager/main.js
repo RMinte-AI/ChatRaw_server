@@ -59,6 +59,7 @@
             saveFailed: 'Save failed',
             verifySuccess: 'Connection verified',
             verifyFailed: 'Connection failed',
+            requiredModelFields: 'API endpoint and Model ID are required',
             originalRestored: 'Original model config restored',
             noActiveModel: 'No active model',
             activating: 'Activating...'
@@ -96,6 +97,7 @@
             saveFailed: '保存失败',
             verifySuccess: '连接验证成功',
             verifyFailed: '连接失败',
+            requiredModelFields: '请填写 API 端点和模型 ID',
             originalRestored: '已恢复原模型配置',
             noActiveModel: '无激活模型',
             activating: '激活中...'
@@ -105,6 +107,12 @@
     function t(key) {
         const lang = ChatRaw.utils?.getLanguage?.() || 'en';
         return i18n[lang]?.[key] || i18n.en[key] || key;
+    }
+
+    function displayError(error, fallbackKey) {
+        const lang = ChatRaw.utils?.getLanguage?.() || 'en';
+        if (lang === 'en') return error?.message || error || t(fallbackKey);
+        return t(fallbackKey);
     }
     
     // ============ State Management ============
@@ -351,7 +359,7 @@
     
     async function verifyModel(model) {
         if (!model.api_url || !model.model_id) {
-            alert('API URL and Model ID required');
+            alert(t('requiredModelFields'));
             return false;
         }
         
@@ -384,7 +392,7 @@
                 model.status = 'error';
                 model.verifyMessage = '';
                 renderUI();
-                alert(result.error || t('verifyFailed'));
+                alert(displayError(result.error, 'verifyFailed'));
                 return false;
             }
         } catch (e) {
@@ -392,7 +400,7 @@
             model.status = 'error';
             model.verifyMessage = '';
             renderUI();
-            alert(e.message || t('verifyFailed'));
+            alert(displayError(e, 'verifyFailed'));
             return false;
         }
     }

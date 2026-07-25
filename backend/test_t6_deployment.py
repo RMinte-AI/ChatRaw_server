@@ -126,9 +126,14 @@ class T6DeploymentTests(unittest.TestCase):
         )
         self.assertIn("deploymentStatus.warnings", markup)
         self.assertIn(
-            "Existing addresses were not changed automatically.",
+            "t('addressesUnchanged')",
             markup,
         )
+        self.assertIn(
+            "Existing addresses were not changed automatically.",
+            source,
+        )
+        self.assertIn("现有地址不会被自动修改。", source)
         self.assertIn("/api/admin/deployment-status", source)
         for forbidden in (
             "docker compose",

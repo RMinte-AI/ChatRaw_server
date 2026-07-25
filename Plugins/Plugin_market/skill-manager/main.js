@@ -166,6 +166,11 @@
     return i18n[lang]?.[key] || i18n.en[key] || key;
   }
 
+  function displayError(error, fallbackKey) {
+    if (getLang() === 'en') return error?.message || error || t(fallbackKey);
+    return t(fallbackKey);
+  }
+
   function showToast(message, type) {
     ChatRaw.utils?.showToast?.(message, type || 'info');
   }
@@ -1007,7 +1012,7 @@
     } catch (error) {
       if (!isActive(sessionId) || requestId !== requestSeq) return;
       console.error('[SkillManager] Failed to load skills:', error);
-      setStatus(`${t('loadFailed')}: ${error.message}`, 'error');
+      setStatus(displayError(error, 'loadFailed'), 'error');
       renderSkillList();
       renderDetail();
     }
@@ -1032,7 +1037,7 @@
     } catch (error) {
       if (!isActive(sessionId) || requestId !== requestSeq) return;
       console.error('[SkillManager] Failed to load skill detail:', error);
-      setStatus(`${t('actionFailed')}: ${error.message}`, 'error');
+      setStatus(displayError(error, 'actionFailed'), 'error');
       state.selectedDetail = null;
       renderDetail();
     }
@@ -1243,7 +1248,7 @@
       if (error.status === 409) {
         setStatus(t('retryOverwrite'), 'error');
       } else {
-        setStatus(`${t('actionFailed')}: ${error.message}`, 'error');
+        setStatus(displayError(error, 'actionFailed'), 'error');
       }
     } finally {
       setBusy(false);
@@ -1288,7 +1293,7 @@
         setStatus(t('retryOverwrite'), 'error');
       } else {
         clearUploadInput();
-        setStatus(`${t('actionFailed')}: ${error.message}`, 'error');
+        setStatus(displayError(error, 'actionFailed'), 'error');
       }
     } finally {
       setBusy(false);
@@ -1350,7 +1355,7 @@
     } catch (error) {
       if (!isActive(sessionId)) return;
       console.error('[SkillManager] Update failed:', error);
-      setStatus(`${t('actionFailed')}: ${error.message}`, 'error');
+      setStatus(displayError(error, 'actionFailed'), 'error');
     } finally {
       setBusy(false);
     }
@@ -1369,17 +1374,20 @@
         method: 'DELETE'
       });
       if (!isActive(sessionId)) return;
-      showToast(data.warning || t('deleteSuccess'), data.warning ? 'info' : 'success');
+      const deleteMessage = data.warning
+        ? displayError(data.warning, 'deleteSuccess')
+        : t('deleteSuccess');
+      showToast(deleteMessage, data.warning ? 'info' : 'success');
       state.selectedName = '';
       state.selectedDetail = null;
       notifyHostSkillCatalogChanged();
       await loadSkills(sessionId);
       if (!isActive(sessionId)) return;
-      setStatus(data.warning || t('deleteSuccess'), data.warning ? 'success' : 'success');
+      setStatus(deleteMessage, 'success');
     } catch (error) {
       if (!isActive(sessionId)) return;
       console.error('[SkillManager] Delete failed:', error);
-      setStatus(`${t('actionFailed')}: ${error.message}`, 'error');
+      setStatus(displayError(error, 'actionFailed'), 'error');
     } finally {
       setBusy(false);
     }
@@ -1413,7 +1421,7 @@
     } catch (error) {
       if (!isActive(state.sessionId) || requestId !== requestSeq) return;
       console.error('[SkillManager] Preview failed:', error);
-      setStatus(`${t('previewFailed')}: ${error.message}`, 'error');
+      setStatus(displayError(error, 'previewFailed'), 'error');
     }
   }
 

@@ -294,6 +294,12 @@ class ModuleErrorResponse(BaseModel):
     code: Optional[str] = None
 
 
+class AdminUserRoleUpdateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    role: Literal["admin", "member"]
+
+
 class ModuleTaskCreateApiRequest(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -2416,7 +2422,10 @@ class AuthenticationMiddleware(BaseHTTPMiddleware):
             if not loopback_allowed and not module_bridge_allowed:
                 if path not in {"/health", "/ready"}:
                     return JSONResponse(
-                        {"detail": "HTTPS is required"},
+                        {
+                            "detail": "HTTPS is required",
+                            "code": "https_required",
+                        },
                         status_code=400,
                     )
 
@@ -2432,7 +2441,10 @@ class AuthenticationMiddleware(BaseHTTPMiddleware):
                     headers={"Cache-Control": "no-store"},
                 )
             return JSONResponse(
-                {"detail": "Authentication required"},
+                {
+                    "detail": "Authentication required",
+                    "code": "authentication_required",
+                },
                 status_code=401,
             )
 
@@ -2451,7 +2463,10 @@ class AuthenticationMiddleware(BaseHTTPMiddleware):
                         {"method": method},
                     )
                 return JSONResponse(
-                    {"detail": "Request origin is not allowed"},
+                    {
+                        "detail": "Request origin is not allowed",
+                        "code": "request_origin_not_allowed",
+                    },
                     status_code=403,
                 )
 
@@ -2466,7 +2481,10 @@ class AuthenticationMiddleware(BaseHTTPMiddleware):
                     {"method": method, "required_role": "admin"},
                 )
                 return JSONResponse(
-                    {"detail": "Administrator permission required"},
+                    {
+                        "detail": "Administrator permission required",
+                        "code": "administrator_required",
+                    },
                     status_code=403,
                 )
 
@@ -2499,7 +2517,7 @@ def require_admin(request: Request) -> Principal:
 
 def _auth_error_response(error: AuthError) -> JSONResponse:
     return JSONResponse(
-        {"detail": error.message},
+        {"detail": error.message, "code": error.code},
         status_code=error.status_code,
     )
 
@@ -2597,7 +2615,10 @@ async def setup_admin(request: Request):
         )
         return {"success": True, "user": result}
     except (json.JSONDecodeError, AttributeError):
-        return JSONResponse({"detail": "Invalid request"}, status_code=400)
+        return JSONResponse(
+            {"detail": "Invalid request", "code": "invalid_request"},
+            status_code=400,
+        )
     except AuthError as error:
         return _auth_error_response(error)
 
@@ -2611,7 +2632,10 @@ async def auth_login(request: Request):
             body.get("password"),
         )
     except (json.JSONDecodeError, AttributeError):
-        return JSONResponse({"detail": "Invalid request"}, status_code=400)
+        return JSONResponse(
+            {"detail": "Invalid request", "code": "invalid_request"},
+            status_code=400,
+        )
     except AuthError as error:
         return _auth_error_response(error)
     response = JSONResponse(
@@ -2666,7 +2690,10 @@ async def change_my_password(request: Request):
             body.get("new_password"),
         )
     except (json.JSONDecodeError, AttributeError):
-        return JSONResponse({"detail": "Invalid request"}, status_code=400)
+        return JSONResponse(
+            {"detail": "Invalid request", "code": "invalid_request"},
+            status_code=400,
+        )
     except AuthError as error:
         return _auth_error_response(error)
     response = JSONResponse({"success": True, "reauthentication_required": True})
@@ -2693,7 +2720,10 @@ async def admin_create_user(request: Request):
         )
         return {"success": True, "user": user}
     except (json.JSONDecodeError, AttributeError):
-        return JSONResponse({"detail": "Invalid request"}, status_code=400)
+        return JSONResponse(
+            {"detail": "Invalid request", "code": "invalid_request"},
+            status_code=400,
+        )
     except AuthError as error:
         return _auth_error_response(error)
 
@@ -2713,9 +2743,20 @@ async def admin_disable_user(user_id: str, request: Request):
     principal = require_admin(request)
     try:
         auth_service.set_user_enabled(principal, user_id, False)
-        task_service = globals().get("module_task_service")
-        if task_service is not None:
-            task_service.revoke_user_capabilities(user_id)
+        return {"success": True}
+    except AuthError as error:
+        return _auth_error_response(error)
+
+
+@app.put("/api/admin/users/{user_id}/role")
+async def admin_update_user_role(
+    user_id: str,
+    payload: AdminUserRoleUpdateRequest,
+    request: Request,
+):
+    principal = require_admin(request)
+    try:
+        auth_service.set_user_role(principal, user_id, payload.role)
         return {"success": True}
     except AuthError as error:
         return _auth_error_response(error)
@@ -2733,7 +2774,10 @@ async def admin_reset_user_password(user_id: str, request: Request):
         )
         return {"success": True}
     except (json.JSONDecodeError, AttributeError):
-        return JSONResponse({"detail": "Invalid request"}, status_code=400)
+        return JSONResponse(
+            {"detail": "Invalid request", "code": "invalid_request"},
+            status_code=400,
+        )
     except AuthError as error:
         return _auth_error_response(error)
 

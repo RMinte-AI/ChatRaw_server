@@ -2400,9 +2400,11 @@ class ModuleTaskService:
             row = connection.execute(
                 """
                 SELECT tokens.*, tasks.state, tasks.status_sync,
-                       tasks.module_id, tasks.creator_user_id
+                       tasks.module_id, tasks.creator_user_id,
+                       users.enabled AS creator_enabled
                 FROM module_capability_tokens AS tokens
                 JOIN module_tasks AS tasks ON tasks.id = tokens.task_id
+                JOIN users ON users.id = tasks.creator_user_id
                 WHERE tokens.token_digest = ?
                 """,
                 (digest,),
@@ -2414,6 +2416,7 @@ class ModuleTaskService:
                 or _parse_utc(row["expires_at"]) <= now
                 or row["state"] in TERMINAL_TASK_STATES
                 or row["status_sync"] != "current"
+                or not row["creator_enabled"]
                 or (
                     row["max_uses"] is not None
                     and row["use_count"] >= row["max_uses"]
@@ -2448,9 +2451,12 @@ class ModuleTaskService:
         with self._connection() as connection:
             row = connection.execute(
                 """
-                SELECT task_id, capability, revoked_at, expires_at
-                FROM module_capability_tokens
-                WHERE token_digest = ?
+                SELECT tokens.task_id, tokens.capability, tokens.revoked_at,
+                       tokens.expires_at, users.enabled AS creator_enabled
+                FROM module_capability_tokens AS tokens
+                JOIN module_tasks AS tasks ON tasks.id = tokens.task_id
+                JOIN users ON users.id = tasks.creator_user_id
+                WHERE tokens.token_digest = ?
                 """,
                 (_token_digest(token),),
             ).fetchone()
@@ -2459,6 +2465,7 @@ class ModuleTaskService:
             or row["capability"] != capability
             or row["revoked_at"] is not None
             or _parse_utc(row["expires_at"]) <= datetime.now(timezone.utc)
+            or not row["creator_enabled"]
         ):
             raise ModuleTaskError(
                 "capability_token_invalid",

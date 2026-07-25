@@ -42,7 +42,8 @@
             copyMessage: 'Copy message',
             renderError: 'Render error',
             loading: 'Loading...',
-            emptyDiagram: 'Empty diagram'
+            emptyDiagram: 'Empty diagram',
+            unknownError: 'An unexpected error occurred'
         },
         zh: {
             copied: '已复制！',
@@ -51,7 +52,8 @@
             copyMessage: '复制消息',
             renderError: '渲染错误',
             loading: '加载中...',
-            emptyDiagram: '空图表'
+            emptyDiagram: '空图表',
+            unknownError: '发生未知错误'
         }
     };
     
@@ -486,7 +488,7 @@
                 console.error('[MarkdownEnhancer] Mermaid render error:', e);
                 container.className = 'mermaid-error-container';
                 container.innerHTML = `
-                    <strong>${escapeHtml(t('renderError'))}:</strong> ${escapeHtml(e.message || 'Unknown error')}
+                    <strong>${escapeHtml(t('renderError'))}:</strong> ${escapeHtml(t('unknownError'))}
                     <pre>${escapeHtml(code)}</pre>
                 `;
             }

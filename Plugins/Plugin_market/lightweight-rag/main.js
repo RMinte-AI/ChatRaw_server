@@ -57,7 +57,13 @@
             uploadFailed: 'Upload failed',
             documentDeleted: 'Document deleted',
             deleteFailed: 'Delete failed',
-            optional: 'Optional'
+            optional: 'Optional',
+            connected: 'Connected',
+            connectionFailed: 'Connection failed',
+            chunking: 'Chunking...',
+            apiEndpoint: 'API Endpoint',
+            apiKey: 'API Key',
+            modelId: 'Model ID'
         },
         zh: {
             ragSettings: 'RAG 设置',
@@ -89,7 +95,13 @@
             uploadFailed: '上传失败',
             documentDeleted: '文档已删除',
             deleteFailed: '删除失败',
-            optional: '可选'
+            optional: '可选',
+            connected: '已连接',
+            connectionFailed: '连接失败',
+            chunking: '正在分块...',
+            apiEndpoint: 'API 端点',
+            apiKey: 'API Key',
+            modelId: '模型 ID'
         }
     };
     
@@ -97,6 +109,11 @@
     function t(key) {
         const lang = ChatRaw.utils?.getLanguage?.() || 'en';
         return i18n[lang]?.[key] || i18n.en[key] || key;
+    }
+
+    function displayError(error, fallbackKey) {
+        void error;
+        return t(fallbackKey);
     }
     
     // ============ State Management ============
@@ -241,7 +258,7 @@
             console.error('[RAG Plugin] Upload failed:', e);
             uploadProgress.show = false;
             renderUploadProgress();
-            ChatRaw.utils?.showToast?.(t('uploadFailed') + ': ' + e.message, 'error');
+            ChatRaw.utils?.showToast?.(displayError(e, 'uploadFailed'), 'error');
         }
     }
     
@@ -269,7 +286,7 @@
             
             if (verifyRes.ok && verifyData.success) {
                 model.status = 'success';
-                model.verifyMessage = verifyData.message || 'Connected';
+                model.verifyMessage = displayError(verifyData.message, 'connected');
                 if (statusEl) statusEl.innerHTML = `<span style="color:var(--success-color)">● ${t('active')}</span>`;
                 
                 // Save the model to backend after successful verification
@@ -289,7 +306,7 @@
                 }
             } else {
                 model.status = 'error';
-                model.verifyMessage = verifyData.error || 'Connection failed';
+                model.verifyMessage = displayError(verifyData.error, 'connectionFailed');
                 if (statusEl) statusEl.innerHTML = `<span style="color:var(--error-color)">● ${t('error')}</span>`;
             }
             
@@ -299,10 +316,10 @@
             }
         } catch (e) {
             model.status = 'error';
-            model.verifyMessage = e.message;
+            model.verifyMessage = displayError(e, 'connectionFailed');
             if (statusEl) statusEl.innerHTML = `<span style="color:var(--error-color)">● ${t('error')}</span>`;
             if (messageEl) {
-                messageEl.textContent = e.message;
+                messageEl.textContent = model.verifyMessage;
                 messageEl.style.color = 'var(--error-color)';
             }
         }
@@ -327,7 +344,7 @@
         container.innerHTML = `
             <div style="display:flex; justify-content:space-between; margin-bottom:8px; font-size:0.85rem;">
                 <span>${uploadProgress.filename}</span>
-                <span>${uploadProgress.status === 'chunking' ? 'Chunking...' : Math.round(uploadProgress.progress) + '%'}</span>
+                <span>${uploadProgress.status === 'chunking' ? t('chunking') : Math.round(uploadProgress.progress) + '%'}</span>
             </div>
             <div style="height:4px; background:var(--bg-hover); border-radius:2px; overflow:hidden;">
                 <div style="height:100%; background:var(--text-primary); transition:width 0.2s; width:${uploadProgress.progress}%"></div>
@@ -385,21 +402,21 @@
                 </div>
                 
                 <div class="form-group" style="margin-bottom:16px;">
-                    <label class="form-label" style="display:block; margin-bottom:8px; font-weight:500;">API Endpoint</label>
+                    <label class="form-label" style="display:block; margin-bottom:8px; font-weight:500;">${t('apiEndpoint')}</label>
                     <input type="text" class="input-minimal" value="${model.api_url || ''}" 
                         onchange="window._ragPlugin.updateModel(${index}, 'api_url', this.value)"
                         style="width:100%; padding:10px; border:1px solid var(--border-color); border-radius:var(--radius-sm); background:var(--bg-primary);">
                 </div>
                 
                 <div class="form-group" style="margin-bottom:16px;">
-                    <label class="form-label" style="display:block; margin-bottom:8px; font-weight:500;">API Key (${t('optional')})</label>
+                    <label class="form-label" style="display:block; margin-bottom:8px; font-weight:500;">${t('apiKey')} (${t('optional')})</label>
                     <input type="password" class="input-minimal" value="${model.api_key || ''}"
                         onchange="window._ragPlugin.updateModel(${index}, 'api_key', this.value)"
                         style="width:100%; padding:10px; border:1px solid var(--border-color); border-radius:var(--radius-sm); background:var(--bg-primary);">
                 </div>
                 
                 <div class="form-group" style="margin-bottom:16px;">
-                    <label class="form-label" style="display:block; margin-bottom:8px; font-weight:500;">Model ID</label>
+                    <label class="form-label" style="display:block; margin-bottom:8px; font-weight:500;">${t('modelId')}</label>
                     <input type="text" class="input-minimal" value="${model.model_id || ''}"
                         onchange="window._ragPlugin.updateModel(${index}, 'model_id', this.value)"
                         style="width:100%; padding:10px; border:1px solid var(--border-color); border-radius:var(--radius-sm); background:var(--bg-primary);">

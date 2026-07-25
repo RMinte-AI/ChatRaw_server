@@ -23,6 +23,50 @@
         console.error('[ExcelParser] ChatRawPlugin not available');
         return;
     }
+
+    const i18n = {
+        en: {
+            rowsTruncated: count => `*... ${count} more rows truncated*`,
+            columnsTruncated: count => `*... ${count} more columns truncated*`,
+            libraryMissing: 'The Excel parser is unavailable. Please reinstall the plugin.',
+            invalidFile: 'Invalid file.',
+            fileTooLarge: 'The file is too large. The maximum supported size is 20 MB.',
+            noSheets: 'No worksheets were found in the Excel file.',
+            fileName: 'File name', fileType: 'File type', sheetCount: 'Worksheets',
+            worksheet: 'Worksheet', emptyWorksheet: '*Empty worksheet*',
+            dataRange: (rows, cols) => `**Data range**: ${rows} rows × ${cols} columns`,
+            formulas: 'formulas', dates: 'dates', currency: 'currency',
+            percentage: 'percentages', merges: count => `${count} merged ranges`,
+            contentFeatures: 'Content features', featureSeparator: ', ',
+            noValidData: '*No valid data*',
+            total: (sheets, rows) => `**Total**: ${sheets} worksheets, approximately ${rows} data rows`,
+            noContent: 'No content was found in the Excel file.',
+            parseFailed: 'Failed to parse the Excel file.'
+        },
+        zh: {
+            rowsTruncated: count => `*……另有 ${count} 行数据未显示*`,
+            columnsTruncated: count => `*……另有 ${count} 列数据未显示*`,
+            libraryMissing: 'Excel 解析组件暂不可用，请重新安装此插件。',
+            invalidFile: '文件无效。', fileTooLarge: '文件过大，最大支持 20 MB。',
+            noSheets: 'Excel 文件中没有工作表。',
+            fileName: '文件名', fileType: '文件类型', sheetCount: '工作表数量',
+            worksheet: '工作表', emptyWorksheet: '*空工作表*',
+            dataRange: (rows, cols) => `**数据范围**：${rows} 行 × ${cols} 列`,
+            formulas: '公式', dates: '日期', currency: '货币',
+            percentage: '百分比', merges: count => `${count} 处合并`,
+            contentFeatures: '内容特征', featureSeparator: '、',
+            noValidData: '*无有效数据*',
+            total: (sheets, rows) => `**总计**：${sheets} 个工作表，约 ${rows} 行数据`,
+            noContent: 'Excel 文件中没有可用内容。',
+            parseFailed: 'Excel 文件解析失败。'
+        }
+    };
+
+    function t(key, ...args) {
+        const lang = ChatRaw.utils?.getLanguage?.() || 'en';
+        const value = i18n[lang]?.[key] ?? i18n.en[key] ?? key;
+        return typeof value === 'function' ? value(...args) : value;
+    }
     
     // Get XLSX library from dependencies
     let XLSX = ChatRaw.require('xlsx');
@@ -449,11 +493,11 @@
         
         if (totalRows > maxRows) {
             output.push('');
-            output.push(`*... 还有 ${totalRows - maxRows} 行数据未显示*`);
+            output.push(t('rowsTruncated', totalRows - maxRows));
         }
         
         if (totalCols > maxCols) {
-            output.push(`*... 还有 ${totalCols - maxCols} 列数据未显示*`);
+            output.push(t('columnsTruncated', totalCols - maxCols));
         }
         
         return output.join('\n');
@@ -535,7 +579,7 @@
                 if (!xlsxLib) {
                     return {
                         success: false,
-                        error: 'XLSX library not loaded. Please reinstall the Excel Parser plugin.'
+                        error: t('libraryMissing')
                     };
                 }
                 
@@ -543,7 +587,7 @@
                 if (!file || typeof file.arrayBuffer !== 'function') {
                     return {
                         success: false,
-                        error: 'Invalid file object.'
+                        error: t('invalidFile')
                     };
                 }
                 
@@ -554,7 +598,7 @@
                 if (arrayBuffer.byteLength > 20 * 1024 * 1024) {
                     return {
                         success: false,
-                        error: 'File too large. Maximum supported size is 20MB.'
+                        error: t('fileTooLarge')
                     };
                 }
                 
@@ -574,7 +618,7 @@
                 if (!workbook || !workbook.SheetNames || workbook.SheetNames.length === 0) {
                     return {
                         success: false,
-                        error: 'No sheets found in the Excel file.'
+                        error: t('noSheets')
                     };
                 }
                 
@@ -592,9 +636,9 @@
                     'csv': 'CSV Text'
                 };
                 
-                contentParts.push(`**文件名**: ${filename}`);
-                contentParts.push(`**文件类型**: ${fileTypeNames[ext] || 'Excel'}`);
-                contentParts.push(`**工作表数量**: ${workbook.SheetNames.length}`);
+                contentParts.push(`**${t('fileName')}**: ${filename}`);
+                contentParts.push(`**${t('fileType')}**: ${fileTypeNames[ext] || 'Excel'}`);
+                contentParts.push(`**${t('sheetCount')}**: ${workbook.SheetNames.length}`);
                 contentParts.push('');
                 
                 // Process each sheet
@@ -604,8 +648,8 @@
                     const sheet = workbook.Sheets[sheetName];
                     
                     if (!sheet || !sheet['!ref']) {
-                        contentParts.push(`## 工作表: ${sheetName}`);
-                        contentParts.push('*空工作表*');
+                        contentParts.push(`## ${t('worksheet')}: ${sheetName}`);
+                        contentParts.push(t('emptyWorksheet'));
                         contentParts.push('');
                         continue;
                     }
@@ -614,19 +658,19 @@
                     const analysis = analyzeSheetContent(sheet, xlsxLib);
                     
                     // Sheet header
-                    contentParts.push(`## 工作表: ${sheetName}`);
-                    contentParts.push(`**数据范围**: ${stats.rows} 行 × ${stats.cols} 列`);
+                    contentParts.push(`## ${t('worksheet')}: ${sheetName}`);
+                    contentParts.push(t('dataRange', stats.rows, stats.cols));
                     
                     // Add content type indicators
                     const contentTypes = [];
-                    if (analysis.hasFormulas) contentTypes.push('公式');
-                    if (analysis.hasDates) contentTypes.push('日期');
-                    if (analysis.hasCurrency) contentTypes.push('货币');
-                    if (analysis.hasPercentage) contentTypes.push('百分比');
-                    if (stats.merges > 0) contentTypes.push(`${stats.merges}处合并`);
+                    if (analysis.hasFormulas) contentTypes.push(t('formulas'));
+                    if (analysis.hasDates) contentTypes.push(t('dates'));
+                    if (analysis.hasCurrency) contentTypes.push(t('currency'));
+                    if (analysis.hasPercentage) contentTypes.push(t('percentage'));
+                    if (stats.merges > 0) contentTypes.push(t('merges', stats.merges));
                     
                     if (contentTypes.length > 0) {
-                        contentParts.push(`**内容特征**: ${contentTypes.join('、')}`);
+                        contentParts.push(`**${t('contentFeatures')}**: ${contentTypes.join(t('featureSeparator'))}`);
                     }
                     
                     contentParts.push('');
@@ -638,7 +682,7 @@
                         contentParts.push('');
                         totalDataRows += stats.rows;
                     } else {
-                        contentParts.push('*无有效数据*');
+                        contentParts.push(t('noValidData'));
                         contentParts.push('');
                     }
                 }
@@ -646,7 +690,7 @@
                 // Summary
                 if (workbook.SheetNames.length > 1) {
                     contentParts.push('---');
-                    contentParts.push(`**总计**: ${workbook.SheetNames.length} 个工作表，约 ${totalDataRows} 行数据`);
+                    contentParts.push(t('total', workbook.SheetNames.length, totalDataRows));
                 }
                 
                 const content = contentParts.join('\n').trim();
@@ -654,7 +698,7 @@
                 if (!content) {
                     return {
                         success: false,
-                        error: 'No content found in the Excel file.'
+                        error: t('noContent')
                     };
                 }
                 
@@ -667,7 +711,7 @@
                 console.error('[ExcelParser] Error:', error);
                 return {
                     success: false,
-                    error: `Failed to parse Excel file: ${error.message || 'Unknown error'}`
+                    error: t('parseFailed')
                 };
             }
         }

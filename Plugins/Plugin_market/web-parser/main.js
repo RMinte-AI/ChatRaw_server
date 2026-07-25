@@ -47,7 +47,9 @@
             settingsSaved: 'Settings saved',
             saveFailed: 'Save failed',
             apiKeySet: 'API Key is set',
-            apiKeyNotSet: 'API Key not set'
+            apiKeyNotSet: 'API Key not set',
+            untitled: 'Untitled',
+            contentTruncated: 'Content truncated'
         },
         zh: {
             parserMode: '解析方式',
@@ -73,13 +75,20 @@
             settingsSaved: '设置已保存',
             saveFailed: '保存失败',
             apiKeySet: 'API Key 已设置',
-            apiKeyNotSet: 'API Key 未设置'
+            apiKeyNotSet: 'API Key 未设置',
+            untitled: '无标题',
+            contentTruncated: '内容已截断'
         }
     };
 
     function t(key) {
         const lang = ChatRaw.utils?.getLanguage?.() || 'en';
         return i18n[lang]?.[key] || i18n.en[key] || key;
+    }
+
+    function displayError(error, fallbackKey) {
+        void error;
+        return t(fallbackKey);
     }
 
     async function loadSettings() {
@@ -109,10 +118,10 @@
                 return true;
             }
             const err = await res.json().catch(() => ({}));
-            throw new Error(err.error || 'Save failed');
+            throw new Error(err.error || t('saveFailed'));
         } catch (e) {
             console.error('[WebParser] Failed to save settings:', e);
-            ChatRaw.utils?.showToast?.(t('saveFailed') + ': ' + e.message, 'error');
+            ChatRaw.utils?.showToast?.(displayError(e, 'saveFailed'), 'error');
             return false;
         }
     }
@@ -154,7 +163,7 @@
             return { success: true };
         }
         await saveApiKey(FIRECRAWL_SERVICE, '');
-        return { success: false, error: result.error };
+        return { success: false, error: displayError(result.error, 'verifyFailed') };
     }
 
     async function verifyJinaKey(apiKey) {
@@ -169,7 +178,7 @@
             return { success: true };
         }
         await saveApiKey(JINA_SERVICE, '');
-        return { success: false, error: result.error };
+        return { success: false, error: displayError(result.error, 'verifyFailed') };
     }
 
     function parseHtmlInBrowser(html, url) {
@@ -184,8 +193,8 @@
         const titleMatch = html.match(/<title[^>]*>([^<]+)<\/title>/i);
         const title = titleMatch ? titleMatch[1].trim() : (url ? new URL(url).hostname : '');
         const maxLen = 8000;
-        if (text.length > maxLen) text = text.slice(0, maxLen) + '\n\n[内容已截断]';
-        return { title: title || 'Untitled', content: text };
+        if (text.length > maxLen) text = text.slice(0, maxLen) + `\n\n[${t('contentTruncated')}]`;
+        return { title: title || t('untitled'), content: text };
     }
 
     async function fetchViaFirecrawl(url, settings) {
@@ -205,8 +214,8 @@
         const title = (data.metadata && data.metadata.title) || '';
         if (!content) return null;
         const maxLen = 8000;
-        const trimmed = content.length > maxLen ? content.slice(0, maxLen) + '\n\n[内容已截断]' : content;
-        return { title: title || 'Untitled', content: trimmed };
+        const trimmed = content.length > maxLen ? content.slice(0, maxLen) + `\n\n[${t('contentTruncated')}]` : content;
+        return { title: title || t('untitled'), content: trimmed };
     }
 
     async function fetchViaJina(url, settings) {
@@ -232,8 +241,8 @@
         }
         if (!content) return null;
         const maxLen = 8000;
-        const trimmed = content.length > maxLen ? content.slice(0, maxLen) + '\n\n[内容已截断]' : content;
-        return { title: title || 'Untitled', content: trimmed };
+        const trimmed = content.length > maxLen ? content.slice(0, maxLen) + `\n\n[${t('contentTruncated')}]` : content;
+        return { title: title || t('untitled'), content: trimmed };
     }
 
     function createSettingsUI() {
@@ -361,8 +370,7 @@
                 input.value = '';
                 input.placeholder = '••••••••';
             } else {
-                const err = typeof result.error === 'object' ? JSON.stringify(result.error) : result.error;
-                if (status) status.innerHTML = `<span style="color:var(--error-color);">✗ ${t('verifyFailed')}: ${err}</span>`;
+                if (status) status.innerHTML = `<span style="color:var(--error-color);">✗ ${displayError(result.error, 'verifyFailed')}</span>`;
             }
             if (btn) btn.textContent = t('verify');
             setTimeout(updateApiKeyStatus, 100);
@@ -380,8 +388,7 @@
                 input.value = '';
                 input.placeholder = '••••••••';
             } else {
-                const err = typeof result.error === 'object' ? JSON.stringify(result.error) : result.error;
-                if (status) status.innerHTML = `<span style="color:var(--error-color);">✗ ${t('verifyFailed')}: ${err}</span>`;
+                if (status) status.innerHTML = `<span style="color:var(--error-color);">✗ ${displayError(result.error, 'verifyFailed')}</span>`;
             }
             if (btn) btn.textContent = t('verify');
             setTimeout(updateApiKeyStatus, 100);

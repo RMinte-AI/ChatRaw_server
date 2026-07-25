@@ -669,9 +669,14 @@ ChatRawPlugin.ui.registerToolbarButton({
         // button contains current state: { id, active, loading, ... }
         console.log('Button clicked!');
     },
-    order: 10                  // Optional: sort order (default: 100, lower = first)
+    order: 10,                 // Optional: sort order (default: 100, lower = first)
+    placement: 'toolbar'       // Optional: 'toolbar' (default) or 'sidebar'
 });
 ```
+
+Use `placement: 'sidebar'` for an independently installed business workbench that should appear above the
+chat list. Sidebar entries may provide a localized `status` and update `status`, `disabled`, `active`, or
+`loading` through `setButtonState`. Plugins must not move entries by querying ChatRaw's DOM.
 
 **Icon Requirements**: All button icons **must** use [RemixIcon](https://remixicon.com/) (format: `ri-xxx-line` or `ri-xxx-fill`). Invalid icons will cause registration to fail.
 
@@ -1968,9 +1973,14 @@ ChatRawPlugin.ui.registerToolbarButton({
         // button 包含当前状态: { id, active, loading, ... }
         console.log('按钮被点击！');
     },
-    order: 10                  // 可选：排序权重（默认：100，越小越靠前）
+    order: 10,                 // 可选：排序权重（默认：100，越小越靠前）
+    placement: 'toolbar'       // 可选：'toolbar'（默认）或 'sidebar'
 });
 ```
+
+独立业务工作台可以使用 `placement: 'sidebar'`，入口会显示在聊天列表上方。侧栏入口可以提供
+本地化 `status`，并通过 `setButtonState` 更新 `status`、`disabled`、`active` 或 `loading`。
+插件不得查询或修改 ChatRaw DOM 来移动入口。
 
 **图标要求**：所有按钮图标**必须**使用 [RemixIcon](https://remixicon.com/)（格式：`ri-xxx-line` 或 `ri-xxx-fill`）。无效图标会导致注册失败。
 

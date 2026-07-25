@@ -18,18 +18,22 @@ Resident UI → ChatRaw Module SDK → ChatRaw Server → Module Protocol → Mo
 
 选择普通配套插件：
 
-- 功能通过一个工具栏按钮或临时弹窗即可使用；
+- 功能通过工具栏或侧栏入口打开插件工作台；
 - 希望管理员在 WebUI 中安装、启停或升级前端入口；
 - 不需要修改 ChatRaw Server 源码并重新构建。
 
 选择 Resident Integration：
 
-- 功能必须在侧边栏或输入区长期存在；
+- 功能入口及其工作区必须随 Server 源码长期存在；
 - 需要一个由 ChatRaw 托管的稳定工作区；
 - 前端代码可以进入 Server 源码审查和发布流程；
 - 接受“修改源码、重新构建、重新部署”这一交付方式。
 
 Resident 不是插件的更高权限版本，也不是运行时模块市场。WebUI 只显示 Resident 的构建状态和对应模块状态，不动态安装、删除或改写 Resident 源码。
+
+Resident 的源码存在不代表必须显示入口。对应 Module 尚未完成配对、审核、配置和首次启用时，
+Server 对普通界面隐藏该入口；已经启用过的功能如果后来发生故障，入口可以保留并显示当前状态，
+便于用户识别已部署能力与临时故障。
 
 ### 3. 冻结边界
 
@@ -294,9 +298,13 @@ Resident UI → ChatRaw Module SDK → ChatRaw Server → Module Protocol → Mo
 
 The module process never supplies browser code. A Resident Integration never calls a module address directly, reads module credentials, or bypasses ChatRaw authentication, roles, review, and enablement.
 
-Use a companion plugin when an administrator should install, enable, disable, or upgrade the frontend entry at runtime. Use a Resident Integration when the feature requires a permanent sidebar or composer entry and can be reviewed, rebuilt, and deployed with Server source.
+Use a companion plugin when an administrator should install, enable, disable, or upgrade the frontend entry at runtime; a plugin entry may choose the toolbar or sidebar mount. Use a Resident Integration when the entry and workspace must be reviewed, rebuilt, and deployed with Server source rather than installed dynamically.
 
 Resident is not a privileged plugin or a runtime marketplace. The WebUI reports its build and module status; it does not dynamically install or rewrite Resident code.
+
+A source-built Resident is not automatically visible. The ordinary UI hides its entry until the matching
+Module has completed setup and first enablement. After first enablement, a later outage may keep the entry
+visible with its current status so users can distinguish a deployed feature from an unconfigured one.
 
 ### 2. Source package
 

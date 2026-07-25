@@ -146,6 +146,12 @@ const mode = settings.display_mode || 'compact';
 - `ChatRawPlugin.ui.openFullscreenModal(options, pluginId)`
 - `ChatRawPlugin.ui.closeFullscreenModal()`
 
+`registerToolbarButton` 默认把入口放在输入框工具栏。独立业务工作台可以在 definition 中声明
+`placement: 'sidebar'`，由 Server 使用稳定的左侧业务入口样式呈现；未声明或使用未知值时仍按
+`toolbar` 处理，保证旧插件兼容。侧栏入口可以提供本地化 `status`，并通过
+`setButtonState` 更新 `status`、`disabled`、`active` 或 `loading`。插件不得自行查询或修改
+ChatRaw 的 DOM 来移动入口。
+
 不要使用 `querySelector` 定位 ChatRaw 内部按钮，也不要读取 `_x_dataStack` 等框架内部状态。
 
 ### 7. Hook

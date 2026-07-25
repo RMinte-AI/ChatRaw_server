@@ -1117,11 +1117,7 @@ class ModuleRegistry:
             and summary["can_enable"]
         )
         integration = summary["frontend_integration"]
-        visible = (
-            integration["mode"] == "resident"
-            or available
-            or summary["enabled_once"]
-        )
+        visible = available or summary["enabled_once"]
         if available:
             state = "available"
             reason = None
@@ -1620,7 +1616,10 @@ class ModuleRegistry:
                 "health_status": health,
             },
         )
-        return self.get(registration_id)
+        return await self.check(
+            registration_id,
+            actor_user_id=actor_user_id,
+        )
 
     def approve(
         self,
@@ -2040,7 +2039,7 @@ class ModuleRegistry:
                 },
             },
         )
-        return {
+        result = {
             "schema": manifest["config_schema"],
             "revision": config["revision"],
             "values": config["values"],
@@ -2048,6 +2047,17 @@ class ModuleRegistry:
             "configured": config["configured"],
             "missing_required": config["missing_required"],
         }
+        try:
+            await self.check(
+                registration_id,
+                actor_user_id=actor_user_id,
+            )
+        except ModuleRegistryError:
+            # The remote configuration was already committed. A concurrent
+            # disconnect or other lifecycle change must not turn that success
+            # into a misleading configuration-save failure.
+            pass
+        return result
 
     def _set_lifecycle(
         self,

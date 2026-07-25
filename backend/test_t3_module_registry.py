@@ -73,6 +73,7 @@ class FakeModuleClient:
         self.pairing_code = "pairing-code-" + ("x" * 24)
         self.pairing_available = True
         self.offline = False
+        self.ready_override = None
         self.config = {
             "revision": "1",
             "values": {"greeting": "Hello", "uppercase": False},
@@ -120,11 +121,16 @@ class FakeModuleClient:
         if path == HEALTH_PATH:
             return 200, {"status": "healthy"}
         if path == READY_PATH:
+            ready = (
+                self.config["configured"]
+                if self.ready_override is None
+                else self.ready_override
+            )
             return 200, {
-                "ready": self.config["configured"],
+                "ready": ready,
                 "reasons": (
                     []
-                    if self.config["configured"]
+                    if ready
                     else ["configuration_missing"]
                 ),
             }
@@ -686,6 +692,11 @@ class ModuleRegistryTests(unittest.IsolatedAsyncioTestCase):
             ready["frontend_integration"]["status"],
             "ready",
         )
+        hidden_before_enable = self.registry.feature_status(
+            ready["module_id"]
+        )
+        self.assertFalse(hidden_before_enable["visible"])
+        self.assertEqual(hidden_before_enable["state"], "hidden")
         enabled = await self.registry.enable(
             paired["id"],
             actor_user_id=self.actor,
@@ -786,12 +797,26 @@ class ModuleRegistryTests(unittest.IsolatedAsyncioTestCase):
             actor_user_id=self.actor,
         )
         self.fake.manifest["module_version"] = "1.0.1"
+        self.fake.calls.clear()
         patched = await self.registry.refresh(
             ready["id"],
             actor_user_id=self.actor,
         )
         self.assertEqual(patched["lifecycle_state"], "enabled")
         self.assertTrue(patched["reviewed"])
+        self.assertEqual(patched["health_status"], "healthy")
+        self.assertEqual(patched["ready_status"], "ready")
+        self.assertEqual(patched["config_status"], "configured")
+        self.assertIsNone(patched["recent_fault"])
+        self.assertEqual(
+            [(method, path) for method, path, _payload in self.fake.calls],
+            [
+                ("GET", MANIFEST_PATH),
+                ("GET", HEALTH_PATH),
+                ("GET", READY_PATH),
+                ("GET", CONFIG_PATH),
+            ],
+        )
 
         self.fake.manifest["module_version"] = "1.1.0"
         self.fake.manifest["requested_host_capabilities"] = [
@@ -860,6 +885,21 @@ class ModuleRegistryTests(unittest.IsolatedAsyncioTestCase):
         stored_text = json.dumps(dict(stored))
         self.assertNotIn(raw_secret, stored_text)
         self.assertNotIn("Welcome", stored_text)
+        self.assertEqual(stored["health_status"], "healthy")
+        self.assertEqual(stored["ready_status"], "ready")
+        self.assertEqual(stored["config_status"], "configured")
+        self.assertEqual(
+            [
+                (method, path)
+                for method, path, _payload in self.fake.calls[-4:]
+            ],
+            [
+                ("PUT", CONFIG_PATH),
+                ("GET", HEALTH_PATH),
+                ("GET", READY_PATH),
+                ("GET", CONFIG_PATH),
+            ],
+        )
 
         with self.assertRaises(ModuleRegistryError) as conflict:
             await self.registry.update_config(
@@ -895,6 +935,50 @@ class ModuleRegistryTests(unittest.IsolatedAsyncioTestCase):
             actor_user_id=self.actor,
         )
         self.assertFalse(cleared["secret_configured"]["service_key"])
+
+    async def test_config_update_refreshes_not_ready_and_ready_state(self):
+        paired = await self._pair()
+        self.fake.ready_override = False
+        waiting = await self.registry.update_config(
+            paired["id"],
+            {
+                "revision": "1",
+                "values": {
+                    "greeting": "Waiting for dependency",
+                    "uppercase": False,
+                },
+                "secrets": {
+                    "service_key": {"action": "keep"}
+                },
+            },
+            actor_user_id=self.actor,
+        )
+        self.assertTrue(waiting["configured"])
+        module = self.registry.get(paired["id"])
+        self.assertEqual(module["health_status"], "healthy")
+        self.assertEqual(module["ready_status"], "not_ready")
+        self.assertEqual(module["config_status"], "configured")
+
+        self.fake.ready_override = True
+        configured = await self.registry.update_config(
+            paired["id"],
+            {
+                "revision": waiting["revision"],
+                "values": {
+                    "greeting": "Ready again",
+                    "uppercase": False,
+                },
+                "secrets": {
+                    "service_key": {"action": "keep"}
+                },
+            },
+            actor_user_id=self.actor,
+        )
+        self.assertTrue(configured["configured"])
+        module = self.registry.get(paired["id"])
+        self.assertEqual(module["health_status"], "healthy")
+        self.assertEqual(module["ready_status"], "ready")
+        self.assertEqual(module["config_status"], "configured")
 
     async def test_offline_check_and_disconnect_preserves_remote_data(self):
         paired = await self._pair()

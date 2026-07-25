@@ -70,3 +70,35 @@ test('Chinese dictionary covers core account, module, and task surfaces', () => 
         assert.match(appScript, new RegExp(text.replace(/[()']/g, '\\$&')));
     }
 });
+
+test('module configuration performs a bounded readiness recheck', () => {
+    assert.match(appScript, /await this\.recheckModuleAfterConfig\(moduleId\)/);
+    assert.match(appScript, /const maxAttempts = 6/);
+    assert.match(appScript, /module\.ready_status === 'ready'/);
+    assert.match(appScript, /module\.config_status === 'missing'/);
+    assert.doesNotMatch(
+        appScript,
+        /while\s*\(\s*module\.ready_status\s*!==\s*['"]ready['"]\s*\)/
+    );
+});
+
+test('plugins can opt into the stable sidebar mount without DOM injection', () => {
+    assert.match(appScript, /config\.placement === 'sidebar' \? 'sidebar' : 'toolbar'/);
+    assert.match(appScript, /get sidebarPluginButtons\(\)/);
+    assert.match(appHtml, /x-for="btn in sidebarPluginButtons"/);
+    assert.match(appHtml, /class="plugin-sidebar-entry"/);
+    assert.match(appHtml, /getSortedPluginButtons\('toolbar'\)/);
+    assert.match(appHtml, /app\.min\.js\?v=7\.16/);
+    assert.match(appHtml, /styles\.min\.css\?v=7\.9/);
+    assert.match(appScript, /if \(btn\.loading \|\| btn\.disabled\) return false/);
+    assert.match(appHtml, /:disabled="btn\.loading \|\| btn\.disabled"/);
+    assert.match(appHtml, /@click="handlePluginMoreButtonClick\(btn\)"/);
+});
+
+test('unconfigured Resident entries stay hidden until their feature is visible', () => {
+    assert.match(
+        appScript,
+        /\.filter\(integration => integration\.feature\?\.visible === true\)/
+    );
+    assert.match(appScript, /visible: false,\s+available: false,\s+state: 'hidden'/);
+});

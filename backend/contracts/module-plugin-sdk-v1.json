@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://chatraw.local/contracts/module-plugin-sdk-v1.json",
   "contract": "ChatRaw Module Plugin SDK",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "global": "window.ChatRaw.modules",
   "transport": {
     "origin": "same-origin",
@@ -21,6 +21,18 @@
       ],
       "returns": "Promise<FeatureStatus>",
       "endpoint": "GET /api/module-features/{moduleId}"
+    },
+    "uploadTaskResource": {
+      "arguments": [
+        {
+          "name": "file",
+          "type": "File",
+          "required": true
+        }
+      ],
+      "returns": "Promise<TaskInputResource>",
+      "endpoint": "POST /api/module-task-resources",
+      "side_effect": "uploads a temporary task input resource; bind the returned resource_id through startTask.resource_ids within 24 hours"
     },
     "startTask": {
       "arguments": [
@@ -125,6 +137,39 @@
       ],
       "returns": "Promise<{filename: string}>",
       "endpoint": "GET /api/module-tasks/{taskId}/artifacts/{artifactRef}"
+    },
+    "getTaskResourceView": {
+      "arguments": [
+        {
+          "name": "taskId",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "resourceRef",
+          "type": "string",
+          "required": true
+        }
+      ],
+      "returns": "Promise<TaskResourceView>",
+      "endpoint": "GET /api/module-tasks/{taskId}/resources/{resourceRef}?disposition=inline",
+      "side_effect": "validates access and metadata before returning a same-origin session-protected content URL; the URL is not a bearer credential"
+    },
+    "downloadTaskResource": {
+      "arguments": [
+        {
+          "name": "taskId",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "resourceRef",
+          "type": "string",
+          "required": true
+        }
+      ],
+      "returns": "Promise<{filename: string}>",
+      "endpoint": "GET /api/module-tasks/{taskId}/resources/{resourceRef}?disposition=attachment"
     }
   },
   "events": {
@@ -190,6 +235,11 @@
       "module_event_stream_failed",
       "module_event_stream_incomplete",
       "artifact_download_failed",
+      "task_resource_upload_failed",
+      "task_resource_upload_response_invalid",
+      "task_resource_view_failed",
+      "task_resource_preview_unavailable",
+      "task_resource_download_failed",
       "invalid_event_cursor"
     ],
     "common_server_codes": [
@@ -208,7 +258,13 @@
       "task_control_forbidden",
       "invalid_approval",
       "artifact_not_found",
-      "artifact_expired"
+      "artifact_expired",
+      "resource_not_found",
+      "resource_expired",
+      "resource_already_bound",
+      "task_resource_not_found",
+      "task_resource_expired",
+      "task_resource_forbidden"
     ],
     "passthrough": "When Server returns {detail, code}, the SDK preserves code and HTTP status."
   },
@@ -288,6 +344,32 @@
         }
       }
     },
+    "FeatureAction": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "action_id",
+        "action_version",
+        "minimum_role",
+        "supports_stream",
+        "supports_cancel",
+        "supports_approval",
+        "supports_artifacts",
+        "supports_resources",
+        "supports_chat_projection"
+      ],
+      "properties": {
+        "action_id": {"type": "string"},
+        "action_version": {"type": "string"},
+        "minimum_role": {"enum": ["member", "admin"]},
+        "supports_stream": {"type": "boolean"},
+        "supports_cancel": {"type": "boolean"},
+        "supports_approval": {"type": "boolean"},
+        "supports_artifacts": {"type": "boolean"},
+        "supports_resources": {"type": "boolean"},
+        "supports_chat_projection": {"type": "boolean"}
+      }
+    },
     "FeatureStatus": {
       "type": "object",
       "additionalProperties": false,
@@ -307,7 +389,7 @@
       ],
       "properties": {
         "sdk_version": {
-          "const": "1.1.0"
+          "const": "1.2.0"
         },
         "module_id": {
           "type": "string"
@@ -387,8 +469,102 @@
           ]
         },
         "actions": {
-          "type": "array"
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/FeatureAction"
+          }
         }
+      }
+    },
+    "TaskInputResource": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "resource_id",
+        "filename",
+        "media_type",
+        "size",
+        "sha256",
+        "expires_at"
+      ],
+      "properties": {
+        "resource_id": {"type": "string"},
+        "filename": {"type": "string"},
+        "media_type": {"type": "string"},
+        "size": {"type": "integer", "minimum": 0},
+        "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "expires_at": {"type": "string", "format": "date-time"}
+      }
+    },
+    "TaskOutputResource": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "resource_ref",
+        "filename",
+        "media_type",
+        "size"
+      ],
+      "properties": {
+        "resource_ref": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 160
+        },
+        "filename": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 255,
+          "not": {"pattern": "[/\\\\\\u0000-\\u001f\\u007f]"}
+        },
+        "media_type": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 127
+        },
+        "size": {"type": "integer", "minimum": 0},
+        "expires_at": {
+          "oneOf": [
+            {"type": "string", "format": "date-time"},
+            {"type": "null"}
+          ]
+        }
+      }
+    },
+    "Task": {
+      "type": "object",
+      "required": [
+        "resources"
+      ],
+      "properties": {
+        "resources": {
+          "type": "array",
+          "maxItems": 128,
+          "items": {
+            "$ref": "#/$defs/TaskOutputResource"
+          }
+        }
+      }
+    },
+    "TaskResourceView": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "url",
+        "mime",
+        "filename",
+        "size",
+        "disposition"
+      ],
+      "properties": {
+        "url": {
+          "type": "string",
+          "description": "same-origin session-protected inline content URL"
+        },
+        "mime": {"type": "string"},
+        "filename": {"type": "string"},
+        "size": {"type": "integer", "minimum": 0},
+        "disposition": {"const": "inline"}
       }
     },
     "SdkError": {

@@ -4,7 +4,7 @@ import struct
 from datetime import datetime, timezone
 
 
-LATEST_SCHEMA_VERSION = 8
+LATEST_SCHEMA_VERSION = 9
 
 
 class UnsupportedSchemaVersion(RuntimeError):
@@ -584,6 +584,103 @@ def _migration_8_frontend_integrations(
     connection.execute("DROP TABLE module_feature_suites_plugin_legacy")
 
 
+def _migration_9_module_task_resources(
+    connection: sqlite3.Connection,
+) -> None:
+    connection.execute(
+        "ALTER TABLE module_capability_tokens "
+        "RENAME TO module_capability_tokens_v8"
+    )
+    connection.execute(
+        """
+        CREATE TABLE module_capability_tokens (
+            token_digest TEXT PRIMARY KEY,
+            task_id TEXT NOT NULL,
+            registration_id TEXT NOT NULL,
+            capability TEXT NOT NULL
+                CHECK (
+                    capability IN (
+                        'chat.read',
+                        'resource.read',
+                        'resource.stream',
+                        'model.invoke'
+                    )
+                ),
+            scope_json TEXT NOT NULL,
+            use_count INTEGER NOT NULL DEFAULT 0 CHECK (use_count >= 0),
+            max_uses INTEGER,
+            created_at TEXT NOT NULL,
+            expires_at TEXT NOT NULL,
+            revoked_at TEXT,
+            FOREIGN KEY (task_id)
+                REFERENCES module_tasks(id) ON DELETE CASCADE
+        )
+        """
+    )
+    connection.execute(
+        """
+        INSERT INTO module_capability_tokens (
+            token_digest, task_id, registration_id, capability,
+            scope_json, use_count, max_uses, created_at, expires_at,
+            revoked_at
+        )
+        SELECT token_digest, task_id, registration_id, capability,
+               scope_json, use_count, max_uses, created_at, expires_at,
+               revoked_at
+        FROM module_capability_tokens_v8
+        """
+    )
+    connection.execute("DROP TABLE module_capability_tokens_v8")
+    connection.execute(
+        "CREATE INDEX idx_module_capability_task "
+        "ON module_capability_tokens(task_id, capability)"
+    )
+    connection.execute(
+        """
+        CREATE TABLE module_task_input_resources (
+            resource_id TEXT PRIMARY KEY,
+            creator_user_id TEXT NOT NULL,
+            filename TEXT NOT NULL,
+            media_type TEXT NOT NULL,
+            size INTEGER NOT NULL CHECK (size >= 0),
+            sha256 TEXT NOT NULL,
+            storage_name TEXT NOT NULL UNIQUE,
+            created_at TEXT NOT NULL,
+            expires_at TEXT,
+            bound_task_id TEXT,
+            FOREIGN KEY (creator_user_id) REFERENCES users(id),
+            FOREIGN KEY (bound_task_id)
+                REFERENCES module_tasks(id) ON DELETE CASCADE
+        )
+        """
+    )
+    connection.execute(
+        """
+        CREATE TABLE module_task_output_resources (
+            resource_ref TEXT PRIMARY KEY,
+            task_id TEXT NOT NULL,
+            resource_id TEXT NOT NULL,
+            filename TEXT NOT NULL,
+            media_type TEXT NOT NULL,
+            size INTEGER NOT NULL CHECK (size >= 0),
+            expires_at TEXT,
+            created_at TEXT NOT NULL,
+            UNIQUE (task_id, resource_id),
+            FOREIGN KEY (task_id)
+                REFERENCES module_tasks(id) ON DELETE CASCADE
+        )
+        """
+    )
+    connection.execute(
+        "CREATE INDEX idx_module_task_input_resources_expiry "
+        "ON module_task_input_resources(expires_at)"
+    )
+    connection.execute(
+        "CREATE INDEX idx_module_task_output_resources_task "
+        "ON module_task_output_resources(task_id, created_at)"
+    )
+
+
 MIGRATIONS = (
     (1, "server_shared_data", _migration_1_server_shared_data),
     (2, "auth_and_audit", _migration_2_auth_and_audit),
@@ -604,6 +701,11 @@ MIGRATIONS = (
         8,
         "frontend_integrations",
         _migration_8_frontend_integrations,
+    ),
+    (
+        9,
+        "module_task_resources",
+        _migration_9_module_task_resources,
     ),
 )
 

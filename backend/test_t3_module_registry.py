@@ -489,6 +489,7 @@ class ModuleRegistryTests(unittest.IsolatedAsyncioTestCase):
         }
         self.assertEqual(reviews["chat.read"]["risk"], "medium")
         self.assertEqual(reviews["resource.read"]["risk"], "medium")
+        self.assertEqual(reviews["resource.stream"]["risk"], "medium")
         self.assertEqual(reviews["model.invoke"]["risk"], "high")
         self.assertTrue(
             all(
@@ -521,6 +522,11 @@ class ModuleRegistryTests(unittest.IsolatedAsyncioTestCase):
             credential_path.read_text(encoding="utf-8"),
             self.fake.token,
         )
+
+    async def test_optional_resource_support_defaults_to_false(self):
+        self.fake.manifest["actions"][0].pop("supports_resources", None)
+        paired = await self._pair()
+        self.assertFalse(paired["actions"][0]["supports_resources"])
 
     async def test_pair_code_is_single_use_and_identity_must_match(self):
         await self._pair()
@@ -1133,6 +1139,9 @@ class ModuleAdminApiTests(unittest.TestCase):
         )
         self.assertEqual(response.status_code, 200, response.text)
         self.assertEqual(response.json()["state"], "hidden")
+        self.assertTrue(
+            response.json()["actions"][0]["supports_resources"]
+        )
         self.assertNotIn("base_url", response.text)
         self.assertNotIn("credential", response.text)
         self.assertNotIn("sha256", response.text)
@@ -1463,6 +1472,10 @@ class ReferenceModuleConformanceTests(unittest.TestCase):
                 (
                     "/chatraw-module/v1/tasks/{task_id}/artifacts/"
                     "{artifact_id}"
+                ),
+                (
+                    "/chatraw-module/v1/tasks/{task_id}/resources/"
+                    "{resource_id}"
                 ),
             },
             route_paths,

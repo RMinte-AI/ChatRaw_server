@@ -346,14 +346,16 @@ class MigrationTests(unittest.TestCase):
                             '2026-07-24T00:00:00Z')
                     """
                 )
+                connection.execute("DROP TABLE module_task_output_resources")
+                connection.execute("DROP TABLE module_task_input_resources")
                 connection.execute(
-                    "DELETE FROM schema_migrations WHERE version = 8"
+                    "DELETE FROM schema_migrations WHERE version IN (8, 9)"
                 )
                 connection.commit()
 
                 self.assertEqual(
                     db_migrations.apply_migrations(connection),
-                    8,
+                    9,
                 )
                 row = connection.execute(
                     """
@@ -370,6 +372,138 @@ class MigrationTests(unittest.TestCase):
                 self.assertEqual(
                     row["dependency_status"],
                     "plugin_disabled",
+                )
+            finally:
+                connection.close()
+
+    def test_v9_capability_rebuild_preserves_v8_tokens(self):
+        with tempfile.TemporaryDirectory(prefix="chatraw-t1-v8-") as temp:
+            database = main.Database(str(Path(temp) / "chatraw.db"))
+            connection = database.get_conn()
+            try:
+                connection.execute("PRAGMA foreign_keys = OFF")
+                connection.execute("DROP TABLE module_task_output_resources")
+                connection.execute("DROP TABLE module_task_input_resources")
+                connection.execute(
+                    "ALTER TABLE module_capability_tokens "
+                    "RENAME TO module_capability_tokens_v9_test"
+                )
+                connection.execute(
+                    """
+                    CREATE TABLE module_capability_tokens (
+                        token_digest TEXT PRIMARY KEY,
+                        task_id TEXT NOT NULL,
+                        registration_id TEXT NOT NULL,
+                        capability TEXT NOT NULL
+                            CHECK (
+                                capability IN (
+                                    'chat.read',
+                                    'resource.read',
+                                    'model.invoke'
+                                )
+                            ),
+                        scope_json TEXT NOT NULL,
+                        use_count INTEGER NOT NULL DEFAULT 0
+                            CHECK (use_count >= 0),
+                        max_uses INTEGER,
+                        created_at TEXT NOT NULL,
+                        expires_at TEXT NOT NULL,
+                        revoked_at TEXT,
+                        FOREIGN KEY (task_id)
+                            REFERENCES module_tasks(id) ON DELETE CASCADE
+                    )
+                    """
+                )
+                connection.execute(
+                    "DROP TABLE module_capability_tokens_v9_test"
+                )
+                token_rows = [
+                    (
+                        "digest-chat",
+                        "legacy-task",
+                        "legacy-registration",
+                        "chat.read",
+                        '{"chat_id":"chat-1"}',
+                        1,
+                        5,
+                        "2026-07-24T00:00:00Z",
+                        "2026-07-24T00:15:00Z",
+                        None,
+                    ),
+                    (
+                        "digest-model",
+                        "legacy-task",
+                        "legacy-registration",
+                        "model.invoke",
+                        '{"model_config_id":"model-1"}',
+                        2,
+                        None,
+                        "2026-07-24T00:01:00Z",
+                        "2026-07-24T00:16:00Z",
+                        "2026-07-24T00:02:00Z",
+                    ),
+                ]
+                connection.executemany(
+                    """
+                    INSERT INTO module_capability_tokens (
+                        token_digest, task_id, registration_id, capability,
+                        scope_json, use_count, max_uses, created_at,
+                        expires_at, revoked_at
+                    )
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    token_rows,
+                )
+                with self.assertRaises(sqlite3.IntegrityError):
+                    connection.execute(
+                        """
+                        INSERT INTO module_capability_tokens (
+                            token_digest, task_id, registration_id,
+                            capability, scope_json, created_at, expires_at
+                        )
+                        VALUES (
+                            'digest-stream-before-v9', 'legacy-task',
+                            'legacy-registration', 'resource.stream', '{}',
+                            '2026-07-24T00:00:00Z',
+                            '2026-07-24T00:15:00Z'
+                        )
+                        """
+                    )
+                connection.execute(
+                    "DELETE FROM schema_migrations WHERE version = 9"
+                )
+                connection.commit()
+
+                self.assertEqual(
+                    db_migrations.apply_migrations(connection),
+                    9,
+                )
+                migrated_rows = [
+                    tuple(row)
+                    for row in connection.execute(
+                        """
+                        SELECT token_digest, task_id, registration_id,
+                               capability, scope_json, use_count, max_uses,
+                               created_at, expires_at, revoked_at
+                        FROM module_capability_tokens
+                        ORDER BY token_digest
+                        """
+                    )
+                ]
+                self.assertEqual(migrated_rows, sorted(token_rows))
+                connection.execute(
+                    """
+                    INSERT INTO module_capability_tokens (
+                        token_digest, task_id, registration_id, capability,
+                        scope_json, created_at, expires_at
+                    )
+                    VALUES (
+                        'digest-stream-after-v9', 'legacy-task',
+                        'legacy-registration', 'resource.stream', '{}',
+                        '2026-07-24T00:00:00Z',
+                        '2026-07-24T00:15:00Z'
+                    )
+                    """
                 )
             finally:
                 connection.close()

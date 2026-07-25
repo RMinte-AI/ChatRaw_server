@@ -56,6 +56,29 @@ ChatRaw v1 的安全边界：
 - `trusted` 是治理和未来匹配行为的元数据，不会绕过当前检查。
 - Skill 资源只摘要安全相对路径，资源文件内容不会自动读入聊天。
 
+## Module Task Resources / 模块任务资源
+
+Module task uploads use the current ChatRaw session and an opaque resource ID. Files are stored
+under a dedicated temporary directory with a random storage name; the browser never receives the
+storage path, module credential, or task-scoped Host Capability token. A temporary input can be
+bound to one task only. The module reads it through the short-lived `resource.stream` capability,
+which is scoped to the module, task, user, and resource and is revoked when the task becomes
+terminal or the module/user is disabled.
+
+Module output resources remain module-owned. ChatRaw exposes them only through the authenticated,
+same-origin task resource endpoint. Access is limited to the task creator or an administrator;
+`GET`, `HEAD`, and single-range responses must agree on declared media type and length. Invalid
+metadata or range behavior fails closed and is not redirected to another upload or document path.
+
+模块任务上传使用当前 ChatRaw Session 和不可猜测的资源 ID。文件以随机存储名写入独立临时目录；
+浏览器不会获得存储路径、模块凭证或任务级 Host Capability Token。临时输入只能绑定一个任务。
+模块通过短期 `resource.stream` Capability 读取文件，该权限与模块、任务、用户及资源绑定，并在
+任务进入终态、模块停用或用户停用时撤销。
+
+模块输出资源仍归模块所有。ChatRaw 只通过登录态保护的同源任务资源接口代理它们，并将访问限制为
+任务创建者或管理员。`GET`、`HEAD` 和单段 Range 响应必须与声明的媒体类型和长度一致；元数据或
+Range 行为不符合契约时直接失败，不回退到其他上传或文档路径。
+
 ## Local Data / 本地数据
 
 ChatRaw stores settings, chats, plugins, skills, and indexes under the configured `DATA_DIR`. Protect this

@@ -146,6 +146,7 @@ ChatRaw_server/ResidentIntegrations/feature-workbench/
       "supports_cancel": false,
       "supports_approval": false,
       "supports_artifacts": false,
+      "supports_resources": false,
       "supports_chat_projection": true
     }
   ],
@@ -277,7 +278,7 @@ Module SDK 本地错误：
 4. 实现 Health、Ready 和脱敏 Config。
 5. 实现持久 task、幂等创建和 GET 摘要。
 6. 实现持久 SSE 与断线续传。
-7. 逐项实现并测试 cancel、approval、artifact；未实现的保持 `false`。
+7. 逐项实现并测试 cancel、approval、artifact 和 resource；未实现的保持 `false`。
 8. 实现 Host Capability，最小化申请范围。
 9. 完成 Source 部署和重启恢复。
 10. 完成 Compose 网络、卷和健康检查。
@@ -362,6 +363,8 @@ AI 在报告完成前逐项给出命令、退出码和证据：
 - [ ] 终态摘要和 `task.terminal` 一致。
 - [ ] output 符合 manifest Schema。
 - [ ] 所有 `true` 能力均有正向、拒绝和竞争测试。
+- [ ] `supports_resources: true` 时覆盖临时输入单次绑定、原始字节读取和输出资源
+      GET/HEAD/Range；为 `false` 时拒绝资源。
 
 ### 权限与秘密
 
@@ -369,6 +372,8 @@ AI 在报告完成前逐项给出命令、退出码和证据：
 - [ ] member 不能管理插件和模块。
 - [ ] member 能使用启用后的功能。
 - [ ] Host Capability 与 task/scope/用户绑定。
+- [ ] `resource.stream` Token 不进入浏览器，任务终态、模块停用或用户停用后失效。
+- [ ] 普通用户不能绑定或读取其他用户的临时资源，输出资源仅任务创建者或管理员可读。
 - [ ] conformance fixture 覆盖 manifest 请求的全部 Host Capability，并证明每项发生真实回调。
 - [ ] `config_schema` 变化会改变权限摘要并触发管理员复审。
 - [ ] 浏览器、插件、manifest、OpenAPI、日志没有模块 Token。
@@ -410,6 +415,7 @@ AI 和人都不得：
 - 让插件直接连接模块或私有后端。
 - 让 Resident 直接连接模块或私有后端。
 - 在浏览器中保存模块 Token、任务输入、任务输出或秘密配置。
+- 在浏览器中保存临时资源路径、Host Capability Token 或模块输出资源的私有地址。
 - 伪造真实浏览器、客户数据、生产网络或硬件证据。
 - 用 mock 通过冒充全链路验收。
 - 将合成负载称为生产性能。

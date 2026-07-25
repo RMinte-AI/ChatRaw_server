@@ -127,6 +127,41 @@ def _read_capability_json(
     return result
 
 
+def _read_capability_resource(
+    endpoint: str,
+    token: str,
+) -> tuple[str, str, bytes]:
+    request = urllib.request.Request(
+        endpoint,
+        headers={
+            "Accept": "application/octet-stream",
+            "Authorization": f"Bearer {token}",
+        },
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=5) as response:
+            content_length = int(response.headers["Content-Length"])
+            if response.status != 200 or content_length < 0:
+                raise HostCapabilityError(
+                    "resource.stream response is invalid"
+                )
+            body = response.read(content_length + 1)
+            media_type = response.headers.get_content_type()
+            expected_sha256 = response.headers.get("X-Content-SHA256", "")
+    except (KeyError, OSError, TypeError, ValueError):
+        raise HostCapabilityError(
+            "resource.stream request failed"
+        ) from None
+    if (
+        len(body) != content_length
+        or not media_type
+        or len(expected_sha256) != 64
+        or hashlib.sha256(body).hexdigest() != expected_sha256
+    ):
+        raise HostCapabilityError("resource.stream response is invalid")
+    return media_type, expected_sha256, body
+
+
 def _exercise_host_capabilities(
     task_id: str,
     capabilities: list[dict[str, Any]],
@@ -208,6 +243,31 @@ def _exercise_host_capabilities(
             ):
                 raise HostCapabilityError(
                     "resource.read response is invalid"
+                )
+        elif capability == "resource.stream":
+            resource_ids = envelope["scope"].get("resource_ids")
+            if (
+                not isinstance(resource_ids, list)
+                or not resource_ids
+                or not all(
+                    isinstance(resource_id, str) and resource_id
+                    for resource_id in resource_ids
+                )
+                or "{resource_id}" not in endpoint
+            ):
+                raise HostCapabilityError(
+                    "resource.stream scope is invalid"
+                )
+            media_type, _sha256, body = _read_capability_resource(
+                endpoint.replace(
+                    "{resource_id}",
+                    quote(resource_ids[0], safe=""),
+                ),
+                envelope["token"],
+            )
+            if media_type != "text/plain" or body != b"conformance stream":
+                raise HostCapabilityError(
+                    "resource.stream response is invalid"
                 )
         elif capability == "model.invoke":
             response = _read_capability_json(
@@ -376,6 +436,22 @@ def _artifact_metadata(task: dict[str, Any]) -> list[dict[str, Any]]:
     ]
 
 
+def _resource_metadata(task: dict[str, Any]) -> list[dict[str, Any]]:
+    return [
+        {
+            key: resource[key]
+            for key in (
+                "resource_id",
+                "filename",
+                "media_type",
+                "size",
+                "expires_at",
+            )
+        }
+        for resource in task["resources"].values()
+    ]
+
+
 def _task_summary(task: dict[str, Any]) -> dict[str, Any]:
     summary = {
         "task_id": task["task_id"],
@@ -385,6 +461,7 @@ def _task_summary(task: dict[str, Any]) -> dict[str, Any]:
         "state": task["state"],
         "last_event_id": task["last_event_id"],
         "artifacts": _artifact_metadata(task),
+        "resources": _resource_metadata(task),
     }
     if task.get("outcome_code"):
         summary["outcome_code"] = task["outcome_code"]
@@ -651,6 +728,17 @@ async def _run_task(task_id: str) -> None:
                     "media_type": "text/plain",
                     "size": len(content),
                     "expires_at": expires_at,
+                    "content_base64": base64.b64encode(content).decode("ascii"),
+                }
+            if task_input.get("create_resource"):
+                content = output.encode("utf-8")
+                resource_id = f"resource-{uuid.uuid4().hex}"
+                current["resources"][resource_id] = {
+                    "resource_id": resource_id,
+                    "filename": "reference-resource.txt",
+                    "media_type": "text/plain",
+                    "size": len(content),
+                    "expires_at": None,
                     "content_base64": base64.b64encode(content).decode("ascii"),
                 }
             _write_state_unlocked(state)
@@ -976,6 +1064,7 @@ async def create_task(
         "delay_ms",
         "require_approval",
         "create_artifact",
+        "create_resource",
         "outcome_unknown",
         "cancel_race_succeeds",
         "cancel_rejected",
@@ -1018,6 +1107,7 @@ async def create_task(
             "result": None,
             "chat_projection": None,
             "artifacts": {},
+            "resources": {},
             "approval": None,
             "approval_completed": False,
             "next_step": 0,
@@ -1208,6 +1298,70 @@ async def get_artifact(
         content=body,
         media_type=artifact["media_type"],
         headers={"Content-Length": str(len(body))},
+    )
+
+
+@app.api_route(
+    f"{TASK_PREFIX}/{{task_id}}/resources/{{resource_id}}",
+    methods=["GET", "HEAD"],
+)
+async def get_resource(
+    task_id: str,
+    resource_id: str,
+    request: Request,
+    authorization: str | None = Header(default=None),
+):
+    state = _require_access(authorization)
+    task = _task_or_404(state, task_id)
+    resource = task["resources"].get(resource_id)
+    if resource is None:
+        raise HTTPException(status_code=404, detail="Resource not found")
+    body = base64.b64decode(resource["content_base64"])
+    size = len(body)
+    status = 200
+    start = 0
+    end = size - 1
+    range_header = request.headers.get("range")
+    headers = {
+        "Accept-Ranges": "bytes",
+        "Content-Type": resource["media_type"],
+    }
+    if range_header is not None:
+        try:
+            unit, value = range_header.split("=", 1)
+            first, last = value.split("-", 1)
+            if unit != "bytes" or "," in value or size == 0:
+                raise ValueError
+            if first:
+                start = int(first)
+                end = int(last) if last else size - 1
+            else:
+                suffix = int(last)
+                if suffix <= 0:
+                    raise ValueError
+                start = max(size - suffix, 0)
+                end = size - 1
+            if start < 0 or start >= size or end < start:
+                raise ValueError
+            end = min(end, size - 1)
+        except (TypeError, ValueError):
+            return Response(
+                status_code=416,
+                headers={
+                    **headers,
+                    "Content-Range": f"bytes */{size}",
+                    "Content-Length": "0",
+                },
+            )
+        status = 206
+        headers["Content-Range"] = f"bytes {start}-{end}/{size}"
+    selected = body[start : end + 1] if size else b""
+    headers["Content-Length"] = str(len(selected))
+    return Response(
+        content=b"" if request.method == "HEAD" else selected,
+        status_code=status,
+        media_type=resource["media_type"],
+        headers=headers,
     )
 
 

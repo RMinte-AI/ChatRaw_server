@@ -420,7 +420,7 @@ const ROUTE_MESSAGE_RESULT_KEYS = new Set(['success', 'route']);
 const RESERVED_SLASH_COMMANDS = new Set(['plugins', 'settings', 'help', 'clear', 'compact', 'api']);
 const COMMON_PATH_ROOTS = new Set(['tmp', 'var', 'usr', 'etc', 'home', 'users', 'opt', 'private', 'volumes', 'mnt']);
 const SKILL_NAME_PATTERN = /^[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?$/;
-const MODULE_SDK_VERSION = '1.1.0';
+const MODULE_SDK_VERSION = '1.2.0';
 const MODULE_TASK_STORAGE_KEY = 'chatraw_module_tasks_v1';
 const MODULE_TERMINAL_STATES = new Set(['succeeded', 'failed', 'cancelled']);
 
@@ -3646,9 +3646,148 @@ function app() {
                 return payload;
             };
 
+            const moduleResponseError = async (
+                response,
+                fallbackMessage,
+                fallbackCode
+            ) => {
+                let payload = null;
+                try {
+                    payload = await response.json();
+                } catch (_error) {
+                    payload = null;
+                }
+                return new ModuleSdkError(
+                    payload?.detail || fallbackMessage,
+                    payload?.code || fallbackCode,
+                    response.status
+                );
+            };
+
             const taskPath = taskId => (
                 `/api/module-tasks/${encodeURIComponent(taskId)}`
             );
+
+            const taskResourcePath = (taskId, resourceRef, disposition) => {
+                if (
+                    typeof taskId !== 'string'
+                    || !taskId
+                    || typeof resourceRef !== 'string'
+                    || !resourceRef
+                ) {
+                    throw new ModuleSdkError(
+                        'taskId and resourceRef are required',
+                        'invalid_sdk_argument',
+                        0
+                    );
+                }
+                return (
+                    `${taskPath(taskId)}/resources/`
+                    + `${encodeURIComponent(resourceRef)}`
+                    + `?disposition=${encodeURIComponent(disposition)}`
+                );
+            };
+
+            const taskResourceMetadata = (response, errorCode) => {
+                const disposition =
+                    response.headers.get('content-disposition') || '';
+                const dispositionType = (
+                    disposition.split(';', 1)[0] || ''
+                ).trim().toLowerCase();
+                const encoded = disposition.match(
+                    /filename\*=UTF-8''([^;]+)/i
+                );
+                const quoted = disposition.match(/filename="([^"]+)"/i);
+                let filename = quoted?.[1];
+                if (encoded) {
+                    try {
+                        filename = decodeURIComponent(encoded[1]);
+                    } catch (_error) {
+                        filename = null;
+                    }
+                }
+                const mime = (
+                    response.headers.get('content-type') || ''
+                ).split(';', 1)[0].trim();
+                const sizeHeader = response.headers.get('content-length');
+                const size = sizeHeader === null ? NaN : Number(sizeHeader);
+                if (
+                    !filename
+                    || !mime
+                    || !Number.isSafeInteger(size)
+                    || size < 0
+                    || !['inline', 'attachment'].includes(dispositionType)
+                ) {
+                    throw new ModuleSdkError(
+                        'Task resource metadata is invalid',
+                        errorCode,
+                        502
+                    );
+                }
+                return {
+                    filename,
+                    mime,
+                    size,
+                    disposition: dispositionType
+                };
+            };
+
+            const probeTaskResourceMetadata = async (
+                response,
+                errorCode
+            ) => {
+                try {
+                    return taskResourceMetadata(response, errorCode);
+                } finally {
+                    if (response.body) {
+                        await response.body.cancel();
+                    }
+                }
+            };
+
+            const isTaskInputResource = payload => {
+                if (
+                    !payload
+                    || typeof payload !== 'object'
+                    || Array.isArray(payload)
+                ) {
+                    return false;
+                }
+                const expectedKeys = [
+                    'resource_id',
+                    'filename',
+                    'media_type',
+                    'size',
+                    'sha256',
+                    'expires_at'
+                ];
+                const keys = Object.keys(payload).sort();
+                if (
+                    keys.length !== expectedKeys.length
+                    || !expectedKeys.sort().every(
+                        (key, index) => keys[index] === key
+                    )
+                ) {
+                    return false;
+                }
+                return (
+                    typeof payload.resource_id === 'string'
+                    && payload.resource_id.length > 0
+                    && typeof payload.filename === 'string'
+                    && payload.filename.length > 0
+                    && typeof payload.media_type === 'string'
+                    && payload.media_type.length > 0
+                    && Number.isSafeInteger(payload.size)
+                    && payload.size >= 0
+                    && typeof payload.sha256 === 'string'
+                    && /^[0-9a-f]{64}$/.test(payload.sha256)
+                    && typeof payload.expires_at === 'string'
+                    && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/.test(
+                        payload.expires_at
+                    )
+                    && !Number.isNaN(Date.parse(payload.expires_at))
+                );
+            };
 
             const parseSseBlock = block => {
                 let id = null;
@@ -3806,6 +3945,45 @@ function app() {
                 getFeatureStatus: moduleId => moduleRequest(
                     `/api/module-features/${encodeURIComponent(moduleId)}`
                 ),
+                uploadTaskResource: async file => {
+                    if (
+                        !(file instanceof Blob)
+                        || typeof file.name !== 'string'
+                        || !file.name
+                    ) {
+                        throw new ModuleSdkError(
+                            'file is required',
+                            'invalid_sdk_argument',
+                            0
+                        );
+                    }
+                    const form = new FormData();
+                    form.append('file', file, file.name);
+                    const response = await fetch('/api/module-task-resources', {
+                        method: 'POST',
+                        credentials: 'same-origin',
+                        body: form
+                    });
+                    let payload = null;
+                    try {
+                        payload = await response.json();
+                    } catch (_error) {}
+                    if (!response.ok) {
+                        throw new ModuleSdkError(
+                            payload?.detail || 'Task resource upload failed',
+                            payload?.code || 'task_resource_upload_failed',
+                            response.status
+                        );
+                    }
+                    if (!isTaskInputResource(payload)) {
+                        throw new ModuleSdkError(
+                            'Task resource upload response is invalid',
+                            'task_resource_upload_response_invalid',
+                            502
+                        );
+                    }
+                    return payload;
+                },
                 startTask: async (request, options = {}) => {
                     if (
                         !request
@@ -3990,6 +4168,63 @@ function app() {
                     anchor.click();
                     setTimeout(() => URL.revokeObjectURL(url), 0);
                     return { filename };
+                },
+                getTaskResourceView: async (taskId, resourceRef) => {
+                    const url = taskResourcePath(
+                        taskId,
+                        resourceRef,
+                        'inline'
+                    );
+                    const response = await fetch(url, {
+                        method: 'GET',
+                        credentials: 'same-origin'
+                    });
+                    if (!response.ok) {
+                        throw await moduleResponseError(
+                            response,
+                            'Task resource view failed',
+                            'task_resource_view_failed'
+                        );
+                    }
+                    const metadata = await probeTaskResourceMetadata(
+                        response,
+                        'task_resource_view_failed'
+                    );
+                    if (metadata.disposition !== 'inline') {
+                        throw new ModuleSdkError(
+                            'Task resource is not available for browser preview',
+                            'task_resource_preview_unavailable',
+                            415
+                        );
+                    }
+                    return { url, ...metadata };
+                },
+                downloadTaskResource: async (taskId, resourceRef) => {
+                    const url = taskResourcePath(
+                        taskId,
+                        resourceRef,
+                        'attachment'
+                    );
+                    const response = await fetch(url, {
+                        method: 'GET',
+                        credentials: 'same-origin'
+                    });
+                    if (!response.ok) {
+                        throw await moduleResponseError(
+                            response,
+                            'Task resource download failed',
+                            'task_resource_download_failed'
+                        );
+                    }
+                    const metadata = await probeTaskResourceMetadata(
+                        response,
+                        'task_resource_download_failed'
+                    );
+                    const anchor = document.createElement('a');
+                    anchor.href = url;
+                    anchor.download = metadata.filename;
+                    anchor.click();
+                    return { filename: metadata.filename };
                 }
             });
             window.ChatRaw = window.ChatRaw || {};

@@ -42,6 +42,10 @@
             "type": "boolean",
             "default": false
           },
+          "create_resource": {
+            "type": "boolean",
+            "default": false
+          },
           "outcome_unknown": {
             "type": "boolean",
             "default": false
@@ -83,6 +87,7 @@
       "supports_cancel": true,
       "supports_approval": true,
       "supports_artifacts": true,
+      "supports_resources": true,
       "supports_chat_projection": true
     }
   ],
@@ -113,6 +118,7 @@
   "requested_host_capabilities": [
     "chat.read",
     "resource.read",
+    "resource.stream",
     "model.invoke"
   ],
   "companion_plugin": {

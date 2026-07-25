@@ -96,6 +96,12 @@ directories. Compose persists them in separate named volumes. Ownership stays
 separate: ChatRaw backup does not include module-owned data, and disconnecting
 a module preserves its data.
 
+Temporary module task inputs live under the ChatRaw data directory and are
+therefore covered by the same volume and backup boundary; module-owned output
+resources remain outside that boundary. Set
+`CHATRAW_MODULE_TASK_RESOURCE_MAX_BYTES` only to a positive integer byte limit;
+an invalid configured value stops Server startup.
+
 Recommended upgrade sequence:
 
 1. Drain the module in ChatRaw so no new tasks start.
@@ -256,6 +262,10 @@ docker compose -f examples/reference-module/compose.yml logs reference-module
 源码部署把 ChatRaw 与模块数据分别保存在各自的数据目录中；Compose 使用互相
 独立的命名卷。数据所有权始终分离：ChatRaw 备份不包含模块数据，断开模块也不会
 删除模块数据。
+
+模块任务的临时输入位于 ChatRaw 数据目录内，因此沿用同一数据卷和备份边界；
+模块自有的输出资源不在该边界内。`CHATRAW_MODULE_TASK_RESOURCE_MAX_BYTES`
+只能设置为正整数的字节上限；显式设置非法值会阻止 Server 启动。
 
 建议升级顺序：
 

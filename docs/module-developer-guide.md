@@ -292,6 +292,7 @@ PURGE <module_id>
 | `POST /tasks/{task_id}/cancel` | 请求取消 |
 | `POST /tasks/{task_id}/approvals/{approval_id}` | 批准或拒绝 |
 | `GET /tasks/{task_id}/artifacts/{artifact_id}` | 下载模块原始产物 |
+| `GET|HEAD /tasks/{task_id}/resources/{resource_id}` | 流式返回声明的任务输出资源 |
 
 Server 创建任务时发送：
 
@@ -328,7 +329,7 @@ failed
 cancelled
 ```
 
-只有 `succeeded`、`failed`、`cancelled` 是终态。失败任务必须返回稳定的 `outcome_code`。成功任务可以返回符合 output Schema 的 `result`，以及声明支持时的 `chat_projection` 和 artifacts。
+只有 `succeeded`、`failed`、`cancelled` 是终态。失败任务必须返回稳定的 `outcome_code`。成功任务可以返回符合 output Schema 的 `result`，以及声明支持时的 `chat_projection`、artifacts 和 resources。
 
 任务摘要：
 
@@ -446,6 +447,7 @@ Host Capability 是 Server 为某个 task 签发的最小、短期、可撤销�
 |---|---|---|
 | `chat.read` | `GET /api/module-capabilities/v1/chat` | 当前 task 的 chat |
 | `resource.read` | `GET /api/module-capabilities/v1/resources/{id}` | 创建任务时选择的 resource IDs |
+| `resource.stream` | `GET /api/module-capabilities/v1/resource-stream/{id}` | 当前任务绑定的临时输入原始字节 |
 | `model.invoke` | `POST /api/module-capabilities/v1/model/invoke` | 当前 task 的模型调用 |
 
 模块从任务的 `host_capabilities` 中获得：
@@ -473,7 +475,39 @@ Host Capability 是 Server 为某个 task 签发的最小、短期、可撤销�
 
 `chat.read` 返回可信的 `conversation_ref` 和 `actor_ref`。模块不得接受浏览器自行传入的用户、角色或 Principal 作为替代。
 
-模块必须使用 envelope 自带的完整 `endpoint`，不能根据模块地址猜测 ChatRaw 地址。`resource.read` 的 endpoint 包含 `{resource_id}` 占位符，只能替换为 scope 中授权的资源 ID。
+模块必须使用 envelope 自带的完整 `endpoint`，不能根据模块地址猜测 ChatRaw 地址。
+`resource.read` 和 `resource.stream` 的 endpoint 包含 `{resource_id}` 占位符，只能替换为 scope
+中授权的资源 ID。`resource.stream` 返回原始字节流；模块必须检查 `Content-Type`、
+`Content-Length` 和 `X-Content-SHA256`，并将实际字节数和 SHA256 与响应头比对；不一致时
+立即失败。
+
+需要原始文件的插件先通过 Module SDK 上传临时资源，再把返回的 `resource_id` 放入创建任务请求的
+`resource_ids`。临时资源不进入 ChatRaw 文档表、解析器或索引，只能绑定一个任务。Action 必须声明
+`supports_resources: true` 才能接收临时输入或返回输出资源。
+
+模块返回的输出资源使用：
+
+```json
+{
+  "resources": [
+    {
+      "resource_id": "module-private-id",
+      "filename": "report.pdf",
+      "media_type": "application/pdf",
+      "size": 123456,
+      "expires_at": null
+    }
+  ]
+}
+```
+
+`expires_at` 可省略；省略或设为 `null` 表示模块未声明过期时间。
+`resource_id` 只在 Server 与模块之间使用。Server 面向插件返回不可猜测的 `resource_ref`，并通过
+`GET|HEAD /api/module-tasks/{task_id}/resources/{resource_ref}?disposition=inline|attachment`
+代理资源。模块的资源端点必须支持 `GET`、`HEAD` 和单段 Range，且各响应的
+`Content-Type`、`Content-Length`（以及 206 的 `Content-Range`）必须严格一致。Server 根据已
+登记的文件名生成对外 `Content-Disposition`，并在公开的 GET/HEAD 响应中返回这些元数据。不要
+返回重定向，也不要用文件名构造本地路径。协议不接受 MIME 猜测、元数据修复或旧路径回退。
 
 当前 Server 硬限制：
 
@@ -485,6 +519,7 @@ Host Capability 是 Server 为某个 task 签发的最小、短期、可撤销�
 | task 摘要响应 | 512 KiB |
 | 单个 SSE event | 128 KiB |
 | 单个 artifact | 16 MiB |
+| 单个临时任务输入 | 100 MiB（默认，可由管理员配置） |
 | task 关联资源 | 64 个 |
 | task 列表单页 | 100 条 |
 | Host Capability 有效期 | 15 分钟 |
@@ -641,6 +676,8 @@ Use the committed manifest, management, task, and Resident JSON Schemas; the Mod
 - Durable task identity, idempotent creation, persisted ordered SSE, replay with `Last-Event-ID`, and restart recovery.
 - Optional cancellation, approval, artifacts, and chat projection exactly as declared.
 - Task-scoped, expiring Host Capability tokens; never trust browser-supplied identity.
+- Temporary task inputs through `resource.stream`, and module-owned output resources through the
+  authenticated task resource proxy, only for actions that declare `supports_resources`.
 - Source and Compose deployment, persistent data, health checks, and no default host port.
 
 ### Endpoints

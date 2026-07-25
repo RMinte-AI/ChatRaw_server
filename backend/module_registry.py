@@ -12,6 +12,7 @@ import socket
 import ssl
 import tempfile
 import uuid
+from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable
@@ -477,6 +478,75 @@ class ModuleHttpClient:
                 status_code=502,
             ) from None
 
+    @asynccontextmanager
+    async def stream_bytes(
+        self,
+        base_url: str,
+        path: str,
+        *,
+        method: str,
+        token: str,
+        range_header: str | None = None,
+    ):
+        if method not in {"GET", "HEAD"}:
+            raise ValueError("resource stream method must be GET or HEAD")
+        origin, resolved_addresses = (
+            await self.address_policy.validate_and_resolve(base_url)
+        )
+        parsed_origin = urlsplit(origin)
+        connector = aiohttp.TCPConnector(
+            ssl=ssl.create_default_context(cafile=certifi.where()),
+            resolver=_PinnedResolver(
+                parsed_origin.hostname or "",
+                resolved_addresses,
+            ),
+            use_dns_cache=False,
+        )
+        timeout = aiohttp.ClientTimeout(
+            total=None,
+            connect=min(5.0, self.timeout_seconds),
+            sock_read=max(30.0, self.timeout_seconds),
+        )
+        session = aiohttp.ClientSession(
+            timeout=timeout,
+            connector=connector,
+            auto_decompress=False,
+        )
+        response = None
+        try:
+            headers = {
+                "Accept": "*/*",
+                "Authorization": f"Bearer {token}",
+                "User-Agent": "ChatRaw-Module-Registry/1",
+            }
+            if range_header is not None:
+                headers["Range"] = range_header
+            response = await session.request(
+                method,
+                f"{origin}{path}",
+                headers=headers,
+                allow_redirects=False,
+            )
+            if 300 <= response.status < 400:
+                raise ModuleTransportError(
+                    "module_redirect_forbidden",
+                    "Module redirects are not allowed",
+                    status_code=502,
+                )
+            yield response
+        except ModuleRegistryError:
+            raise
+        except (aiohttp.ClientError, asyncio.TimeoutError, OSError):
+            raise ModuleTransportError(
+                "module_unreachable",
+                "Module is unreachable",
+                status_code=502,
+            ) from None
+        finally:
+            if response is not None:
+                response.release()
+            await session.close()
+
     async def iter_sse(
         self,
         base_url: str,
@@ -918,6 +988,7 @@ class ModuleRegistry:
             risk = {
                 "chat.read": "medium",
                 "resource.read": "medium",
+                "resource.stream": "medium",
                 "model.invoke": "high",
             }.get(capability, "unrecognized")
             capability_reviews.append(
@@ -926,22 +997,33 @@ class ModuleRegistry:
                     "risk": risk,
                     "effective_in_t3": False,
                     "effective_for_tasks": capability
-                    in {"chat.read", "resource.read", "model.invoke"},
+                    in {
+                        "chat.read",
+                        "resource.read",
+                        "resource.stream",
+                        "model.invoke",
+                    },
                 }
             )
         actions = [
             {
-                key: action[key]
-                for key in (
-                    "action_id",
-                    "action_version",
-                    "minimum_role",
-                    "supports_stream",
-                    "supports_cancel",
-                    "supports_approval",
-                    "supports_artifacts",
-                    "supports_chat_projection",
-                )
+                **{
+                    key: action[key]
+                    for key in (
+                        "action_id",
+                        "action_version",
+                        "minimum_role",
+                        "supports_stream",
+                        "supports_cancel",
+                        "supports_approval",
+                        "supports_artifacts",
+                        "supports_chat_projection",
+                    )
+                },
+                "supports_resources": action.get(
+                    "supports_resources",
+                    False,
+                ),
             }
             for action in manifest["actions"]
         ]
@@ -1057,7 +1139,7 @@ class ModuleRegistry:
             for key in ("mode", "id", "required_version", "status")
         }
         return {
-            "sdk_version": "1.1.0",
+            "sdk_version": "1.2.0",
             "module_id": summary["module_id"],
             "name": summary["name"],
             "module_version": summary["module_version"],

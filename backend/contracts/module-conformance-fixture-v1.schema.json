@@ -60,12 +60,21 @@
             "type": "boolean",
             "default": false
           },
+          "expect_resource": {
+            "type": "boolean",
+            "default": false
+          },
           "host_capabilities": {
             "type": "array",
-            "maxItems": 3,
+            "maxItems": 4,
             "uniqueItems": true,
             "items": {
-              "enum": ["chat.read", "resource.read", "model.invoke"]
+              "enum": [
+                "chat.read",
+                "resource.read",
+                "resource.stream",
+                "model.invoke"
+              ]
             },
             "default": []
           },

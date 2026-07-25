@@ -4,10 +4,14 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
+import re
 import secrets
 import sqlite3
 import uuid
+from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 from typing import Any, Awaitable, Callable
 from urllib.parse import quote
 
@@ -33,6 +37,7 @@ try:
         digest_task_request,
         validate_artifact_metadata,
         validate_idempotency_key,
+        validate_resource_metadata,
         validate_task_event,
         validate_task_input,
         validate_task_summary,
@@ -59,6 +64,7 @@ except ImportError:
         digest_task_request,
         validate_artifact_metadata,
         validate_idempotency_key,
+        validate_resource_metadata,
         validate_task_event,
         validate_task_input,
         validate_task_summary,
@@ -75,6 +81,9 @@ SAFE_ARTIFACT_MEDIA_TYPES = {
     "text/csv",
     "text/plain",
 }
+DEFAULT_TASK_INPUT_RESOURCE_BYTES = 100 * 1024 * 1024
+TASK_INPUT_RESOURCE_TTL_SECONDS = 24 * 60 * 60
+_CONTENT_RANGE = re.compile(r"^bytes (\d+)-(\d+)/(\d+)$")
 LOCAL_ACTIVE_TASK_STATES = ACTIVE_TASK_STATES | {"submitting"}
 
 
@@ -115,6 +124,8 @@ class ModuleTaskService:
         chat_generation_active: Callable[[str], bool] | None = None,
         model_invoke: Callable[[str], Awaitable[str]] | None = None,
         capability_base_url: str | None = None,
+        resource_dir: str | Path | None = None,
+        max_input_resource_bytes: int | None = None,
     ):
         self.db_path = db_path
         self.busy_timeout_ms = busy_timeout_ms
@@ -130,6 +141,38 @@ class ModuleTaskService:
                 "http://127.0.0.1:51111",
             )
         ).rstrip("/")
+        self.resource_dir = Path(
+            resource_dir
+            or (Path(db_path).resolve().parent / "module-task-resources")
+        )
+        self.resource_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
+        self.resource_dir.chmod(0o700)
+        configured_limit = os.environ.get(
+            "CHATRAW_MODULE_TASK_RESOURCE_MAX_BYTES"
+        )
+        if max_input_resource_bytes is not None:
+            limit = max_input_resource_bytes
+        elif configured_limit is None:
+            limit = DEFAULT_TASK_INPUT_RESOURCE_BYTES
+        else:
+            try:
+                limit = int(configured_limit)
+            except ValueError:
+                raise RuntimeError(
+                    "CHATRAW_MODULE_TASK_RESOURCE_MAX_BYTES "
+                    "must be a positive integer"
+                ) from None
+        if (
+            not isinstance(limit, int)
+            or isinstance(limit, bool)
+            or limit < 1
+        ):
+            raise RuntimeError(
+                "CHATRAW_MODULE_TASK_RESOURCE_MAX_BYTES "
+                "must be a positive integer"
+            )
+        self.max_input_resource_bytes = limit
+        self.cleanup_input_resources()
 
     def _connection(self, *, write: bool = False, immediate: bool = False):
         return database_connection(
@@ -192,6 +235,19 @@ class ModuleTaskService:
             ).fetchall()
         return [dict(row) for row in rows]
 
+    def _resource_rows(self, task_id: str) -> list[dict[str, Any]]:
+        with self._connection() as connection:
+            rows = connection.execute(
+                """
+                SELECT resource_ref, filename, media_type, size, expires_at
+                FROM module_task_output_resources
+                WHERE task_id = ?
+                ORDER BY created_at, resource_ref
+                """,
+                (task_id,),
+            ).fetchall()
+        return [dict(row) for row in rows]
+
     def _public_task(
         self,
         row: Any,
@@ -222,6 +278,7 @@ class ModuleTaskService:
                 or principal_role == "admin"
             ),
             "artifacts": self._artifact_rows(row["id"]),
+            "resources": self._resource_rows(row["id"]),
         }
         if remote is not None and "result" in remote:
             payload["result"] = remote["result"]
@@ -308,12 +365,194 @@ class ModuleTaskService:
             resource_ids,
         )
 
+    @staticmethod
+    def _validate_resource_filename(value: Any) -> str:
+        if (
+            not isinstance(value, str)
+            or not 1 <= len(value) <= 255
+            or "/" in value
+            or "\\" in value
+            or any(
+                ord(character) < 0x20 or ord(character) == 0x7F
+                for character in value
+            )
+        ):
+            raise ModuleTaskError(
+                "invalid_resource_filename",
+                "Resource filename is invalid",
+            )
+        return value
+
+    @staticmethod
+    def _validate_resource_media_type(value: Any) -> str:
+        if (
+            not isinstance(value, str)
+            or not 1 <= len(value) <= 127
+            or "/" not in value
+            or ";" in value
+            or any(
+                ord(character) < 0x21 or ord(character) > 0x7E
+                for character in value
+            )
+        ):
+            raise ModuleTaskError(
+                "invalid_resource_media_type",
+                "Resource media type is invalid",
+            )
+        return value.lower()
+
+    async def upload_input_resource(
+        self,
+        upload: Any,
+        *,
+        creator_user_id: str,
+    ) -> dict[str, Any]:
+        self.cleanup_input_resources()
+        filename = self._validate_resource_filename(upload.filename)
+        media_type = self._validate_resource_media_type(upload.content_type)
+        resource_id = str(uuid.uuid4())
+        storage_name = secrets.token_hex(32)
+        destination = self.resource_dir / storage_name
+        partial = self.resource_dir / f".{storage_name}.part"
+        digest = hashlib.sha256()
+        size = 0
+        try:
+            descriptor = os.open(
+                partial,
+                os.O_WRONLY | os.O_CREAT | os.O_EXCL,
+                0o600,
+            )
+            with os.fdopen(descriptor, "wb") as output:
+                while True:
+                    chunk = await upload.read(64 * 1024)
+                    if not chunk:
+                        break
+                    size += len(chunk)
+                    if size > self.max_input_resource_bytes:
+                        raise ModuleTaskError(
+                            "task_resource_too_large",
+                            "Task resource exceeds the size limit",
+                            status_code=413,
+                        )
+                    digest.update(chunk)
+                    output.write(chunk)
+            partial.replace(destination)
+        except (OSError, ModuleTaskError):
+            partial.unlink(missing_ok=True)
+            destination.unlink(missing_ok=True)
+            raise
+        finally:
+            await upload.close()
+        created_at = _utc_now()
+        expires_at = (
+            datetime.now(timezone.utc)
+            + timedelta(seconds=TASK_INPUT_RESOURCE_TTL_SECONDS)
+        ).isoformat().replace("+00:00", "Z")
+        try:
+            with self._connection(write=True) as connection:
+                connection.execute(
+                    """
+                    INSERT INTO module_task_input_resources (
+                        resource_id, creator_user_id, filename, media_type,
+                        size, sha256, storage_name, created_at, expires_at,
+                        bound_task_id
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)
+                    """,
+                    (
+                        resource_id,
+                        creator_user_id,
+                        filename,
+                        media_type,
+                        size,
+                        digest.hexdigest(),
+                        storage_name,
+                        created_at,
+                        expires_at,
+                    ),
+                )
+        except sqlite3.Error:
+            destination.unlink(missing_ok=True)
+            raise
+        return {
+            "resource_id": resource_id,
+            "filename": filename,
+            "media_type": media_type,
+            "size": size,
+            "sha256": digest.hexdigest(),
+            "expires_at": expires_at,
+        }
+
+    def cleanup_input_resources(self) -> int:
+        now = _utc_now()
+        with self._connection(write=True, immediate=True) as connection:
+            rows = connection.execute(
+                """
+                SELECT resource_id, storage_name
+                FROM module_task_input_resources
+                WHERE expires_at IS NOT NULL AND expires_at <= ?
+                """,
+                (now,),
+            ).fetchall()
+            for row in rows:
+                (self.resource_dir / row["storage_name"]).unlink(
+                    missing_ok=True
+                )
+            connection.executemany(
+                """
+                DELETE FROM module_task_input_resources
+                WHERE resource_id = ?
+                  AND expires_at IS NOT NULL
+                  AND expires_at <= ?
+                """,
+                [(row["resource_id"], now) for row in rows],
+            )
+        return len(rows)
+
+    def _reactivate_input_resources(self, task_id: str) -> None:
+        with self._connection(write=True) as connection:
+            connection.execute(
+                """
+                UPDATE module_task_input_resources
+                SET expires_at = NULL
+                WHERE bound_task_id = ?
+                  AND EXISTS (
+                      SELECT 1 FROM module_tasks
+                      WHERE id = ? AND visible = 0
+                  )
+                """,
+                (task_id, task_id),
+            )
+
+    def _schedule_input_resource_cleanup(
+        self,
+        task_id: str,
+        *,
+        now: str | None = None,
+    ) -> None:
+        cleanup_at = (
+            _parse_utc(now) if now else datetime.now(timezone.utc)
+        ) + timedelta(seconds=TASK_INPUT_RESOURCE_TTL_SECONDS)
+        with self._connection(write=True) as connection:
+            connection.execute(
+                """
+                UPDATE module_task_input_resources
+                SET expires_at = ?
+                WHERE bound_task_id = ? AND expires_at IS NULL
+                """,
+                (
+                    cleanup_at.isoformat().replace("+00:00", "Z"),
+                    task_id,
+                ),
+            )
+
     def _validate_local_references(
         self,
         *,
         chat_id: str | None,
         resource_ids: list[str],
-    ) -> None:
+        principal_user_id: str,
+    ) -> bool:
+        has_uploaded_resource = False
         with self._connection() as connection:
             if chat_id is not None:
                 chat = connection.execute(
@@ -331,12 +570,40 @@ class ModuleTaskService:
                     "SELECT 1 FROM documents WHERE id = ?",
                     (resource_id,),
                 ).fetchone()
+                if resource is not None:
+                    continue
+                resource = connection.execute(
+                    """
+                    SELECT creator_user_id, expires_at
+                    FROM module_task_input_resources
+                    WHERE resource_id = ?
+                    """,
+                    (resource_id,),
+                ).fetchone()
                 if resource is None:
                     raise ModuleTaskError(
                         "resource_not_found",
                         "A task resource was not found",
                         status_code=404,
                     )
+                has_uploaded_resource = True
+                if resource["creator_user_id"] != principal_user_id:
+                    raise ModuleTaskError(
+                        "resource_access_forbidden",
+                        "A task resource is not available to this user",
+                        status_code=403,
+                    )
+                if (
+                    resource["expires_at"] is not None
+                    and _parse_utc(resource["expires_at"])
+                    <= datetime.now(timezone.utc)
+                ):
+                    raise ModuleTaskError(
+                        "resource_expired",
+                        "A task resource has expired",
+                        status_code=410,
+                    )
+        return has_uploaded_resource
 
     def _has_active_chat_task(
         self,
@@ -480,6 +747,31 @@ class ModuleTaskService:
                 """,
                 [(task_id, resource_id) for resource_id in resource_ids],
             )
+            for resource_id in resource_ids:
+                uploaded = connection.execute(
+                    """
+                    SELECT bound_task_id
+                    FROM module_task_input_resources
+                    WHERE resource_id = ?
+                    """,
+                    (resource_id,),
+                ).fetchone()
+                if uploaded is None:
+                    continue
+                if uploaded["bound_task_id"] is not None:
+                    raise ModuleTaskError(
+                        "resource_already_bound",
+                        "A task resource is already bound to a task",
+                        status_code=409,
+                    )
+                connection.execute(
+                    """
+                    UPDATE module_task_input_resources
+                    SET bound_task_id = ?, expires_at = NULL
+                    WHERE resource_id = ? AND bound_task_id IS NULL
+                    """,
+                    (task_id, resource_id),
+                )
             return connection.execute(
                 "SELECT * FROM module_tasks WHERE id = ?",
                 (task_id,),
@@ -502,9 +794,27 @@ class ModuleTaskService:
         scopes: dict[str, tuple[dict[str, Any], int | None]] = {}
         if "chat.read" in allowed and chat_id is not None:
             scopes["chat.read"] = ({"chat_id": chat_id}, None)
-        if "resource.read" in allowed and resource_ids:
+        with self._connection() as connection:
+            uploaded_ids = {
+                item["resource_id"]
+                for item in connection.execute(
+                    """
+                    SELECT resource_id
+                    FROM module_task_input_resources
+                    WHERE bound_task_id = ?
+                    """,
+                    (row["id"],),
+                ).fetchall()
+            }
+        document_ids = set(resource_ids) - uploaded_ids
+        if "resource.read" in allowed and document_ids:
             scopes["resource.read"] = (
-                {"resource_ids": sorted(resource_ids)},
+                {"resource_ids": sorted(document_ids)},
+                None,
+            )
+        if "resource.stream" in allowed and uploaded_ids:
+            scopes["resource.stream"] = (
+                {"resource_ids": sorted(uploaded_ids)},
                 None,
             )
         if "model.invoke" in allowed:
@@ -558,6 +868,9 @@ class ModuleTaskService:
             "chat.read": "/api/module-capabilities/v1/chat",
             "resource.read": (
                 "/api/module-capabilities/v1/resources/{resource_id}"
+            ),
+            "resource.stream": (
+                "/api/module-capabilities/v1/resource-stream/{resource_id}"
             ),
             "model.invoke": "/api/module-capabilities/v1/model/invoke",
         }
@@ -616,6 +929,15 @@ class ModuleTaskService:
                 "Module returned undeclared artifacts",
                 status_code=502,
             )
+        if summary.get("resources") and not action.get(
+            "supports_resources",
+            False,
+        ):
+            raise ModuleTaskError(
+                "unexpected_resource",
+                "Module returned undeclared resources",
+                status_code=502,
+            )
         return summary
 
     def _finalize_acceptance(
@@ -639,6 +961,11 @@ class ModuleTaskService:
                 )
             if current["visible"]:
                 return
+            self._store_resources(
+                connection,
+                current["id"],
+                summary.get("resources", []),
+            )
             user_message_id = None
             if current["chat_id"] is not None:
                 chat = connection.execute(
@@ -723,10 +1050,20 @@ class ModuleTaskService:
             action = self._action(target, action_id)
             self._require_action_role(action, principal_role)
             task_input = validate_task_input(task_input, action["input_schema"])
-            self._validate_local_references(
+            has_uploaded_resource = self._validate_local_references(
                 chat_id=chat_id,
                 resource_ids=resource_ids,
+                principal_user_id=principal_user_id,
             )
+            if has_uploaded_resource and not action.get(
+                "supports_resources",
+                False,
+            ):
+                raise ModuleTaskError(
+                    "task_resources_not_supported",
+                    "This action does not support task resources",
+                    status_code=409,
+                )
         except (
             ModuleRegistryError,
             ModuleTaskProtocolError,
@@ -760,6 +1097,7 @@ class ModuleTaskService:
                 principal_role=principal_role,
             )
             return task, False
+        self._reactivate_input_resources(row["id"])
         capabilities = self._issue_capabilities(
             row=row,
             target=target,
@@ -794,6 +1132,7 @@ class ModuleTaskService:
                         """,
                         (_utc_now(), row["id"]),
                     )
+                self._schedule_input_resource_cleanup(row["id"])
             if status == 409:
                 raise ModuleTaskError(
                     "module_task_conflict",
@@ -814,6 +1153,9 @@ class ModuleTaskService:
             )
             self._register_artifacts(row["id"], summary.get("artifacts", []))
             self._apply_projection(row["id"], action, summary)
+            if summary["state"] in TERMINAL_TASK_STATES:
+                self.revoke_task_capabilities(row["id"])
+                self._schedule_input_resource_cleanup(row["id"])
         except (
             ModuleRegistryError,
             ModuleTaskProtocolError,
@@ -821,6 +1163,7 @@ class ModuleTaskService:
         ) as error:
             if not isinstance(error, ModuleTransportError):
                 self.revoke_task_capabilities(row["id"])
+                self._schedule_input_resource_cleanup(row["id"])
             raise self._module_error(error) from error
         self.audit(
             principal_user_id,
@@ -935,6 +1278,74 @@ class ModuleTaskService:
                     ),
                 )
 
+    def _register_resources(
+        self,
+        task_id: str,
+        resources: list[dict[str, Any]],
+    ) -> None:
+        if not resources:
+            return
+        with self._connection(write=True, immediate=True) as connection:
+            self._store_resources(connection, task_id, resources)
+
+    def _store_resources(
+        self,
+        connection: Any,
+        task_id: str,
+        resources: list[dict[str, Any]],
+    ) -> None:
+        for resource in resources:
+            try:
+                validate_resource_metadata(resource)
+            except ModuleTaskProtocolError as error:
+                raise self._module_error(error) from error
+            self._validate_resource_media_type(resource["media_type"])
+            existing = connection.execute(
+                """
+                SELECT filename, media_type, size, expires_at
+                FROM module_task_output_resources
+                WHERE task_id = ? AND resource_id = ?
+                """,
+                (task_id, resource["resource_id"]),
+            ).fetchone()
+            metadata = (
+                resource["filename"],
+                resource["media_type"],
+                resource["size"],
+                resource.get("expires_at"),
+            )
+            if existing is not None:
+                if tuple(
+                    existing[key]
+                    for key in (
+                        "filename",
+                        "media_type",
+                        "size",
+                        "expires_at",
+                    )
+                ) != metadata:
+                    raise ModuleTaskError(
+                        "resource_identity_conflict",
+                        "Resource metadata changed unexpectedly",
+                        status_code=502,
+                    )
+                continue
+            connection.execute(
+                """
+                INSERT INTO module_task_output_resources (
+                    resource_ref, task_id, resource_id, filename,
+                    media_type, size, expires_at, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    str(uuid.uuid4()),
+                    task_id,
+                    resource["resource_id"],
+                    *metadata,
+                    _utc_now(),
+                ),
+            )
+
     @staticmethod
     def _transition_allowed(old: str, new: str) -> bool:
         if old == new:
@@ -975,6 +1386,11 @@ class ModuleTaskService:
                     "Module returned an invalid task transition",
                     status_code=502,
                 )
+            self._store_resources(
+                connection,
+                task_id,
+                summary.get("resources", []),
+            )
             terminal_at = (
                 now if summary["state"] in TERMINAL_TASK_STATES else None
             )
@@ -1002,6 +1418,7 @@ class ModuleTaskService:
             )
         if summary["state"] in TERMINAL_TASK_STATES:
             self.revoke_task_capabilities(task_id)
+            self._schedule_input_resource_cleanup(task_id, now=now)
 
     def _apply_projection(
         self,
@@ -1306,6 +1723,7 @@ class ModuleTaskService:
             self._register_artifacts(task_id, [data])
         if next_state in TERMINAL_TASK_STATES:
             self.revoke_task_capabilities(task_id)
+            self._schedule_input_resource_cleanup(task_id, now=now)
 
     def _fail_stream(
         self,
@@ -1358,6 +1776,7 @@ class ModuleTaskService:
                     ),
                 )
         self.revoke_task_capabilities(task_id)
+        self._schedule_input_resource_cleanup(task_id, now=now)
         return {
             "id": event_id,
             "event": "task.terminal",
@@ -1737,6 +2156,185 @@ class ModuleTaskService:
             "media_type": artifact["media_type"],
         }
 
+    @staticmethod
+    def _expected_resource_range(
+        range_header: str | None,
+        size: int,
+    ) -> tuple[int, int] | None:
+        if range_header is None:
+            return None
+        raw = range_header.removeprefix("bytes=")
+        start_text, end_text = raw.split("-", 1)
+        if start_text:
+            start = int(start_text)
+            if start >= size:
+                return None
+            end = int(end_text) if end_text else size - 1
+            return start, min(end, size - 1)
+        suffix = int(end_text)
+        if suffix == 0 or size == 0:
+            return None
+        return max(0, size - suffix), size - 1
+
+    @asynccontextmanager
+    async def task_resource_stream(
+        self,
+        task_id: str,
+        resource_ref: str,
+        *,
+        principal_user_id: str,
+        principal_role: str,
+        method: str,
+        range_header: str | None,
+    ):
+        row = self._task_row(task_id)
+        if (
+            row["creator_user_id"] != principal_user_id
+            and principal_role != "admin"
+        ):
+            raise ModuleTaskError(
+                "task_resource_forbidden",
+                "Task resource is not available to this user",
+                status_code=403,
+            )
+        with self._connection() as connection:
+            resource = connection.execute(
+                """
+                SELECT * FROM module_task_output_resources
+                WHERE task_id = ? AND resource_ref = ?
+                """,
+                (task_id, resource_ref),
+            ).fetchone()
+        if resource is None:
+            raise ModuleTaskError(
+                "task_resource_not_found",
+                "Task resource was not found",
+                status_code=404,
+            )
+        if resource["expires_at"] is not None and _parse_utc(
+            resource["expires_at"]
+        ) <= datetime.now(timezone.utc):
+            raise ModuleTaskError(
+                "task_resource_expired",
+                "Task resource has expired",
+                status_code=410,
+            )
+        target, action = self._target_and_action_for_row(row)
+        if not action.get("supports_resources", False):
+            raise ModuleTaskError(
+                "task_resource_not_supported",
+                "This action does not support task resources",
+                status_code=409,
+            )
+        path = (
+            f"{TASKS_PATH}/{quote(task_id, safe='')}/resources/"
+            f"{quote(resource['resource_id'], safe='')}"
+        )
+        expected_range = self._expected_resource_range(
+            range_header,
+            resource["size"],
+        )
+        try:
+            async with self.registry.client.stream_bytes(
+                target["base_url"],
+                path,
+                method=method,
+                token=target["credential"],
+                range_header=range_header,
+            ) as response:
+                headers = {
+                    key.lower(): value
+                    for key, value in response.headers.items()
+                    if key.lower()
+                    in {
+                        "accept-ranges",
+                        "content-encoding",
+                        "content-length",
+                        "content-range",
+                        "content-type",
+                    }
+                }
+                if range_header is None:
+                    expected_status = 200
+                elif expected_range is None:
+                    expected_status = 416
+                else:
+                    expected_status = 206
+                if response.status != expected_status:
+                    raise ModuleTaskError(
+                        "invalid_task_resource_response",
+                        "Module returned an invalid task resource status",
+                        status_code=502,
+                    )
+                if response.status == 416:
+                    if headers.get("content-range") != (
+                        f"bytes */{resource['size']}"
+                    ):
+                        raise ModuleTaskError(
+                            "invalid_task_resource_response",
+                            "Module returned an invalid unsatisfied range",
+                            status_code=502,
+                        )
+                else:
+                    content_type = headers.get(
+                        "content-type",
+                        "",
+                    ).split(";", 1)[0].strip().lower()
+                    if content_type != resource["media_type"].lower():
+                        raise ModuleTaskError(
+                            "invalid_task_resource_response",
+                            "Module returned an invalid task resource type",
+                            status_code=502,
+                        )
+                    if headers.get("content-encoding", "identity") != "identity":
+                        raise ModuleTaskError(
+                            "invalid_task_resource_response",
+                            "Module returned an encoded task resource",
+                            status_code=502,
+                        )
+                    try:
+                        content_length = int(headers["content-length"])
+                    except (KeyError, ValueError):
+                        raise ModuleTaskError(
+                            "invalid_task_resource_response",
+                            "Module returned an invalid task resource length",
+                            status_code=502,
+                        ) from None
+                    if response.status == 200:
+                        valid_length = content_length == resource["size"]
+                    else:
+                        match = _CONTENT_RANGE.fullmatch(
+                            headers.get("content-range", "")
+                        )
+                        valid_length = bool(
+                            match
+                            and expected_range is not None
+                            and (
+                                int(match.group(1)),
+                                int(match.group(2)),
+                            )
+                            == expected_range
+                            and int(match.group(3)) == resource["size"]
+                            and content_length
+                            == expected_range[1] - expected_range[0] + 1
+                        )
+                    if not valid_length:
+                        raise ModuleTaskError(
+                            "invalid_task_resource_response",
+                            "Module returned an invalid task resource length",
+                            status_code=502,
+                        )
+                yield {
+                    "status": response.status,
+                    "headers": headers,
+                    "body": response.content,
+                    "filename": resource["filename"],
+                    "media_type": resource["media_type"],
+                    "size": resource["size"],
+                }
+        except ModuleRegistryError as error:
+            raise self._module_error(error) from error
+
     def revoke_task_capabilities(self, task_id: str) -> None:
         with self._connection(write=True) as connection:
             connection.execute(
@@ -1927,6 +2525,66 @@ class ModuleTaskService:
         return {
             "task_id": row["task_id"],
             "resource": dict(resource),
+        }
+
+    async def capability_resource_stream(
+        self,
+        token: str,
+        resource_id: str,
+    ) -> dict[str, Any]:
+        await self._preflight_capability(token, "resource.stream")
+        row, scope = self._consume_capability(token, "resource.stream")
+        if resource_id not in scope.get("resource_ids", []):
+            raise ModuleTaskError(
+                "capability_scope_denied",
+                "Resource is outside the capability scope",
+                status_code=403,
+            )
+        with self._connection() as connection:
+            resource = connection.execute(
+                """
+                SELECT resource_id, filename, media_type, size, sha256,
+                       storage_name
+                FROM module_task_input_resources
+                WHERE resource_id = ? AND bound_task_id = ?
+                """,
+                (resource_id, row["task_id"]),
+            ).fetchone()
+        if resource is None:
+            raise ModuleTaskError(
+                "resource_not_found",
+                "Resource was not found",
+                status_code=404,
+            )
+        if Path(resource["storage_name"]).name != resource["storage_name"]:
+            raise ModuleTaskError(
+                "resource_integrity_error",
+                "Resource storage is inconsistent",
+                status_code=500,
+            )
+        path = self.resource_dir / resource["storage_name"]
+        try:
+            stat_result = path.stat()
+        except FileNotFoundError:
+            raise ModuleTaskError(
+                "resource_not_found",
+                "Resource was not found",
+                status_code=404,
+            ) from None
+        if not path.is_file() or stat_result.st_size != resource["size"]:
+            raise ModuleTaskError(
+                "resource_integrity_error",
+                "Resource storage is inconsistent",
+                status_code=500,
+            )
+        return {
+            "task_id": row["task_id"],
+            "resource_id": resource["resource_id"],
+            "filename": resource["filename"],
+            "media_type": resource["media_type"],
+            "size": resource["size"],
+            "sha256": resource["sha256"],
+            "path": path,
         }
 
     async def capability_model_invoke(

@@ -40,7 +40,12 @@ TASK_EVENTS = {
     "artifact.added",
     "task.terminal",
 }
-HOST_CAPABILITIES = {"chat.read", "resource.read", "model.invoke"}
+HOST_CAPABILITIES = {
+    "chat.read",
+    "resource.read",
+    "resource.stream",
+    "model.invoke",
+}
 MAX_TASK_REQUEST_BYTES = 256 * 1024
 MAX_TASK_RESPONSE_BYTES = 512 * 1024
 MAX_EVENT_BYTES = 128 * 1024
@@ -71,6 +76,7 @@ def _contract_validator(definition: str) -> Draft202012Validator:
 _SUMMARY_VALIDATOR = _contract_validator("moduleSummary")
 _EVENT_VALIDATOR = _contract_validator("event")
 _ARTIFACT_VALIDATOR = _contract_validator("artifact")
+_RESOURCE_VALIDATOR = _contract_validator("resource")
 
 
 class ModuleTaskProtocolError(ValueError):
@@ -214,6 +220,7 @@ def validate_task_summary(
         "result",
         "chat_projection",
         "artifacts",
+        "resources",
     }
     required = {
         "task_id",
@@ -294,6 +301,15 @@ def validate_task_summary(
         )
     for artifact in artifacts:
         validate_artifact_metadata(artifact)
+    resources = value.get("resources", [])
+    if not isinstance(resources, list) or len(resources) > 128:
+        raise ModuleTaskProtocolError(
+            "invalid_task_response",
+            "Module returned invalid resource metadata",
+            status_code=502,
+        )
+    for resource in resources:
+        validate_resource_metadata(resource)
     return value
 
 
@@ -486,6 +502,45 @@ def validate_artifact_metadata(value: Any) -> dict[str, Any]:
         raise ModuleTaskProtocolError(
             "invalid_artifact",
             "Module returned invalid artifact metadata",
+            status_code=502,
+        )
+    return value
+
+
+def validate_resource_metadata(value: Any) -> dict[str, Any]:
+    required = {"resource_id", "filename", "media_type", "size"}
+    allowed = required | {"expires_at"}
+    if (
+        not isinstance(value, dict)
+        or list(_RESOURCE_VALIDATOR.iter_errors(value))
+        or not required.issubset(value)
+        or set(value) - allowed
+        or not isinstance(value["resource_id"], str)
+        or not _IDENTIFIER.fullmatch(value["resource_id"])
+        or not isinstance(value["filename"], str)
+        or not 1 <= len(value["filename"]) <= 255
+        or "/" in value["filename"]
+        or "\\" in value["filename"]
+        or any(
+            ord(character) < 0x20 or ord(character) == 0x7F
+            for character in value["filename"]
+        )
+        or not isinstance(value["media_type"], str)
+        or not 1 <= len(value["media_type"]) <= 127
+        or not isinstance(value["size"], int)
+        or isinstance(value["size"], bool)
+        or value["size"] < 0
+        or (
+            value.get("expires_at") is not None
+            and (
+                not isinstance(value["expires_at"], str)
+                or not _valid_timestamp(value["expires_at"])
+            )
+        )
+    ):
+        raise ModuleTaskProtocolError(
+            "invalid_resource",
+            "Module returned invalid resource metadata",
             status_code=502,
         )
     return value

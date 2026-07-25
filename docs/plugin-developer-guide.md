@@ -187,6 +187,9 @@ window.ChatRaw.modules
 - `cancelTask(taskId)`
 - `respondApproval(taskId, approvalId, decision)`
 - `downloadArtifact(taskId, artifactRef)`
+- `uploadTaskResource(file)`
+- `getTaskResourceView(taskId, resourceRef)`
+- `downloadTaskResource(taskId, resourceRef)`
 
 最小示例：
 
@@ -221,6 +224,48 @@ async function run() {
 - 在浏览器存储任务输入、输出或产物路径
 
 SDK 只在浏览器保存可恢复的 `task_id`，并使用当前 ChatRaw Session 访问同源 Server。
+
+需要把原始文件交给模块时：
+
+```js
+const uploaded = await window.ChatRaw.modules.uploadTaskResource(file);
+const task = await window.ChatRaw.modules.startTask({
+    module_id: 'com.example.module',
+    action_id: 'example.import',
+    input: { display_name: file.name },
+    resource_ids: [uploaded.resource_id]
+});
+```
+
+上传接口只返回不透明资源 ID 和文件元数据，不返回用户身份、Cookie 或 Host Capability Token。
+临时资源只能绑定一个任务；上传成功后如果任务创建失败，插件应向用户报告失败，不能改用普通文档上传。
+
+任务成功后，插件可以使用任务摘要中的 `resource_ref`：
+
+```js
+const view = await window.ChatRaw.modules.getTaskResourceView(
+    task.task_id,
+    resource.resource_ref
+);
+// 只有 Server 返回 disposition: "inline" 时才会成功。
+previewFrame.src = view.url;
+
+await window.ChatRaw.modules.downloadTaskResource(
+    task.task_id,
+    resource.resource_ref
+);
+```
+
+`getTaskResourceView` 先发起一次同源 `GET` 元数据探测：收到响应头后立即取消响应体，不会把整个文件
+读入浏览器；错误响应则读取 Server 的结构化错误。校验文件名、媒体类型和长度后，它返回当前 Session
+可访问的同源 `url`。它只适用于浏览器能够原生显示且 Server 明确返回
+`Content-Disposition: inline` 的格式，
+例如 PDF、图片和受支持的文本。DOCX、XLSX、PPTX 等通常以 `attachment` 返回，此时 SDK 抛出
+`task_resource_preview_unavailable`；需要在 Modal 中预览这类文件的插件必须自带安全的渲染器，
+或让模块先转换为浏览器可显示的输出格式，不能把下载 URL 直接当作 iframe 预览。
+
+插件不得持久化该 URL、改写 `resource_ref`、推导模块地址或绕过 Server 读取资源。
+服务端错误按 SDK 稳定错误码直接展示或处理，不应切换到旧上传路径、猜测 MIME 或静默重试。
 
 ChatRaw 的任务中心归 Server 所有。每次 `startTask` 都会登记一个独立任务；刷新页面后恢复全部已登记任务，后台任务继续订阅，用户可以在任务间切换。插件不要自己复制任务列表、审批弹窗或产物凭证。
 
@@ -305,6 +350,11 @@ Management settings are admin-only by default. Declare only safe non-secret valu
 Use `ChatRawPlugin.hooks`, `ChatRawPlugin.ui`, `ChatRawPlugin.utils`, and documented input/storage helpers. Do not depend on internal DOM or framework fields.
 
 Companion plugins use only `window.ChatRaw.modules`. The machine-readable contract is [module-plugin-sdk-v1.json](../backend/contracts/module-plugin-sdk-v1.json). They must never fetch a module URL directly, retain module credentials, use the legacy proxy as a module tunnel, or invent actor/capability identity.
+
+SDK 1.2 adds `uploadTaskResource`, `getTaskResourceView`, and `downloadTaskResource`. Uploads return
+only opaque metadata and are bound once through `resource_ids`; views and downloads remain
+same-origin and session-protected. Plugins must not persist resource URLs, infer module endpoints,
+guess media types, or fall back to another upload path.
 
 ### Compatibility and acceptance
 

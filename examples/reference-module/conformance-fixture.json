@@ -13,6 +13,7 @@
       "host_capabilities": [
         "chat.read",
         "resource.read",
+        "resource.stream",
         "model.invoke"
       ],
       "control": "none",
@@ -73,6 +74,22 @@
         "task.terminal"
       ],
       "expect_artifact": true
+    },
+    {
+      "name": "resource",
+      "action_id": "echo.task",
+      "input": {
+        "text": "conformance resource",
+        "steps": 1,
+        "delay_ms": 5,
+        "create_resource": true
+      },
+      "control": "none",
+      "expected_terminal_state": "succeeded",
+      "expected_events": [
+        "task.terminal"
+      ],
+      "expect_resource": true
     }
   ]
 }

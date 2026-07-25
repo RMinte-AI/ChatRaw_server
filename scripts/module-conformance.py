@@ -112,6 +112,19 @@ class CapabilityStub:
                 self.end_headers()
                 self.wfile.write(body)
 
+            def _send_stream_resource(self) -> None:
+                body = b"conformance stream"
+                self.send_response(200)
+                self.send_header("Content-Type", "text/plain")
+                self.send_header("Content-Length", str(len(body)))
+                self.send_header(
+                    "X-Content-SHA256",
+                    hashlib.sha256(body).hexdigest(),
+                )
+                self.send_header("X-Content-Type-Options", "nosniff")
+                self.end_headers()
+                self.wfile.write(body)
+
             def _authorization(self) -> dict[str, Any] | None:
                 authorization = self.headers.get("Authorization", "")
                 if not authorization.startswith("Bearer "):
@@ -170,6 +183,22 @@ class CapabilityStub:
                             "created_at": "2026-01-01T00:00:00Z",
                         },
                     }
+                elif (
+                    capability == "resource.stream"
+                    and self.path.startswith(
+                        "/api/module-capabilities/v1/resource-stream/"
+                    )
+                ):
+                    resource_id = unquote(self.path.rsplit("/", 1)[-1])
+                    if resource_id not in scope["resource_ids"]:
+                        self._send_json(
+                            403,
+                            {"detail": "Resource outside scope"},
+                        )
+                        return
+                    owner._record_call(task_id, capability)
+                    self._send_stream_resource()
+                    return
                 else:
                     self._send_json(403, {"detail": "Capability denied"})
                     return
@@ -256,12 +285,18 @@ class CapabilityStub:
             "resource.read": {
                 "resource_ids": ["conformance-resource"]
             },
+            "resource.stream": {
+                "resource_ids": ["conformance-stream-resource"]
+            },
             "model.invoke": {"model_type": "chat"},
         }
         paths = {
             "chat.read": "/api/module-capabilities/v1/chat",
             "resource.read": (
                 "/api/module-capabilities/v1/resources/{resource_id}"
+            ),
+            "resource.stream": (
+                "/api/module-capabilities/v1/resource-stream/{resource_id}"
             ),
             "model.invoke": "/api/module-capabilities/v1/model/invoke",
         }
@@ -502,20 +537,26 @@ def _request_bytes(
     *,
     token: str,
     max_bytes: int,
+    method: str = "GET",
+    range_header: str | None = None,
 ) -> tuple[int, dict[str, str], bytes]:
+    headers = {
+        "Accept": "application/octet-stream",
+        "Authorization": f"Bearer {token}",
+    }
+    if range_header is not None:
+        headers["Range"] = range_header
     request = urllib.request.Request(
         base_url.rstrip("/") + path,
-        headers={
-            "Accept": "application/octet-stream",
-            "Authorization": f"Bearer {token}",
-        },
+        headers=headers,
+        method=method,
     )
     try:
         with urllib.request.urlopen(request, timeout=10) as response:
             body = response.read(max_bytes + 1)
             if len(body) > max_bytes:
                 raise ConformanceError(
-                    f"{path} response exceeds declared artifact size"
+                    f"{path} response exceeds declared size"
                 )
             return (
                 response.status,
@@ -763,6 +804,72 @@ def probe_tasks(
                     raise ConformanceError(
                         f"{case['name']} returned an invalid artifact"
                     )
+            resources = final.get("resources", [])
+            if case.get("expect_resource"):
+                if not resources:
+                    raise ConformanceError(
+                        f"{case['name']} did not produce a resource"
+                    )
+                resource = resources[0]
+                resource_path = (
+                    f"/chatraw-module/v1/tasks/{task_id}/resources/"
+                    f"{resource['resource_id']}"
+                )
+                resource_status, headers, body = _request_bytes(
+                    base_url,
+                    resource_path,
+                    token=token,
+                    max_bytes=resource["size"],
+                )
+                content_type = headers.get(
+                    "content-type", ""
+                ).split(";", 1)[0]
+                if (
+                    resource_status != 200
+                    or len(body) != resource["size"]
+                    or content_type != resource["media_type"]
+                    or headers.get("accept-ranges") != "bytes"
+                ):
+                    raise ConformanceError(
+                        f"{case['name']} returned an invalid resource"
+                    )
+                head_status, head_headers, head_body = _request_bytes(
+                    base_url,
+                    resource_path,
+                    token=token,
+                    max_bytes=resource["size"],
+                    method="HEAD",
+                )
+                if (
+                    head_status != 200
+                    or head_body
+                    or head_headers.get("content-length")
+                    != str(resource["size"])
+                    or head_headers.get("accept-ranges") != "bytes"
+                ):
+                    raise ConformanceError(
+                        f"{case['name']} returned invalid resource HEAD "
+                        "metadata"
+                    )
+                if resource["size"] > 0:
+                    range_status, range_headers, range_body = _request_bytes(
+                        base_url,
+                        resource_path,
+                        token=token,
+                        max_bytes=1,
+                        range_header="bytes=0-0",
+                    )
+                    if (
+                        range_status != 206
+                        or len(range_body) != 1
+                        or range_headers.get("content-length") != "1"
+                        or range_headers.get("content-range")
+                        != f"bytes 0-0/{resource['size']}"
+                    ):
+                        raise ConformanceError(
+                            f"{case['name']} returned an invalid resource "
+                            "Range response"
+                        )
             results.append(
                 {
                     "name": case["name"],
@@ -770,6 +877,7 @@ def probe_tasks(
                     "state": final["state"],
                     "events": sorted(event_types),
                     "artifacts": len(artifacts),
+                    "resources": len(resources),
                     "host_capabilities": expected_capabilities,
                 }
             )

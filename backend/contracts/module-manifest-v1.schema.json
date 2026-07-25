@@ -206,6 +206,10 @@
         "supports_artifacts": {
           "type": "boolean"
         },
+        "supports_resources": {
+          "type": "boolean",
+          "default": false
+        },
         "supports_chat_projection": {
           "type": "boolean"
         }

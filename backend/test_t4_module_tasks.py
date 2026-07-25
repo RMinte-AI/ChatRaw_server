@@ -3,11 +3,14 @@ import copy
 import importlib.util
 import json
 import os
+import stat
 import tempfile
 import time
 import unittest
 import uuid
+from contextlib import asynccontextmanager
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
 from aiohttp import web
@@ -74,6 +77,21 @@ class FakeTaskClient:
                 }
                 for artifact in task["artifacts"].values()
             ]
+        if task.get("resources"):
+            payload["resources"] = []
+            for resource in task["resources"].values():
+                metadata = {
+                    key: resource[key]
+                    for key in (
+                        "resource_id",
+                        "filename",
+                        "media_type",
+                        "size",
+                    )
+                }
+                if "expires_at" in resource:
+                    metadata["expires_at"] = resource["expires_at"]
+                payload["resources"].append(metadata)
         return payload
 
     async def request_json(
@@ -115,6 +133,7 @@ class FakeTaskClient:
                     "result": None,
                     "chat_projection": None,
                     "artifacts": {},
+                    "resources": {},
                     "events": [],
                     "host_capabilities": payload["host_capabilities"],
                 }
@@ -206,6 +225,64 @@ class FakeTaskClient:
         body = artifact["body"]
         return 200, {"content-type": artifact["media_type"]}, body
 
+    @asynccontextmanager
+    async def stream_bytes(
+        self,
+        _base_url,
+        path,
+        *,
+        method,
+        token,
+        range_header=None,
+    ):
+        del token
+        parts = path.removeprefix(f"{TASKS_PATH}/").split("/")
+        resource = self.tasks[parts[0]]["resources"][parts[2]]
+        body = resource["body"]
+        status = 200
+        selected = body
+        headers = {
+            "Content-Type": resource["media_type"],
+            "Content-Length": str(len(body)),
+            "Accept-Ranges": "bytes",
+        }
+        if range_header is not None:
+            raw = range_header.removeprefix("bytes=")
+            start_text, end_text = raw.split("-", 1)
+            if start_text:
+                start = int(start_text)
+                end = int(end_text) if end_text else len(body) - 1
+            else:
+                suffix = int(end_text)
+                start = max(0, len(body) - suffix)
+                end = len(body) - 1
+            if start >= len(body):
+                status = 416
+                selected = b""
+                headers = {
+                    "Content-Range": f"bytes */{len(body)}",
+                    "Content-Length": "0",
+                }
+            else:
+                status = 206
+                end = min(end, len(body) - 1)
+                selected = body[start : end + 1]
+                headers["Content-Length"] = str(len(selected))
+                headers["Content-Range"] = (
+                    f"bytes {start}-{end}/{len(body)}"
+                )
+
+        class Content:
+            async def iter_chunked(self, _size):
+                if method != "HEAD" and selected:
+                    yield selected
+
+        yield SimpleNamespace(
+            status=status,
+            headers=headers,
+            content=Content(),
+        )
+
     def set_state(
         self,
         task_id,
@@ -248,6 +325,25 @@ class FakeTaskClient:
                 "body": body,
             }
 
+    def add_resource(
+        self,
+        task_id,
+        body=b"resource body",
+        *,
+        expires_at="2099-01-01T00:00:00Z",
+    ):
+        resource_id = "resource-output"
+        resource = {
+            "resource_id": resource_id,
+            "filename": "source.pdf",
+            "media_type": "application/pdf",
+            "size": len(body),
+            "body": body,
+        }
+        if expires_at is not ...:
+            resource["expires_at"] = expires_at
+        self.tasks[task_id]["resources"][resource_id] = resource
+
 
 class FakeRegistry:
     def __init__(self, client):
@@ -264,6 +360,7 @@ class FakeRegistry:
             "granted_capabilities": [
                 "chat.read",
                 "resource.read",
+                "resource.stream",
                 "model.invoke",
             ],
             "lifecycle_state": "enabled",
@@ -291,6 +388,23 @@ class FakeRegistry:
                 status_code=409,
             )
         return copy.deepcopy(self.target)
+
+
+class FakeUpload:
+    def __init__(self, body, filename="input.pdf", media_type="application/pdf"):
+        self.body = body
+        self.filename = filename
+        self.content_type = media_type
+        self.offset = 0
+        self.closed = False
+
+    async def read(self, size):
+        chunk = self.body[self.offset : self.offset + size]
+        self.offset += len(chunk)
+        return chunk
+
+    async def close(self):
+        self.closed = True
 
 
 class ModuleTaskServiceTests(unittest.IsolatedAsyncioTestCase):
@@ -363,6 +477,382 @@ class ModuleTaskServiceTests(unittest.IsolatedAsyncioTestCase):
             principal_user_id=self.creator,
             principal_role="member",
         )
+
+    async def test_uploaded_resource_is_private_single_bind_and_streamed(self):
+        upload = FakeUpload(b"%PDF-private")
+        uploaded = await self.service.upload_input_resource(
+            upload,
+            creator_user_id=self.creator,
+        )
+        self.assertTrue(upload.closed)
+        self.assertEqual(uploaded["size"], len(b"%PDF-private"))
+        self.assertEqual(
+            uploaded["sha256"],
+            "9c747fd6ea592c2d09ae816761e81117b5fd7eff6a0eae7e30dde45bf9fb6fa9",
+        )
+        stored = next(self.service.resource_dir.iterdir())
+        self.assertEqual(stat.S_IMODE(self.service.resource_dir.stat().st_mode), 0o700)
+        self.assertEqual(stat.S_IMODE(stored.stat().st_mode), 0o600)
+        task, created = await self._create(
+            key="uploaded-resource",
+            chat_id=None,
+            user_message=None,
+            resource_ids=[uploaded["resource_id"]],
+        )
+        self.assertTrue(created)
+        capabilities = {
+            item["capability"]: item
+            for item in self.client.tasks[task["task_id"]][
+                "host_capabilities"
+            ]
+        }
+        self.assertIn("resource.stream", capabilities)
+        self.assertNotIn("resource.read", capabilities)
+        streamed = await self.service.capability_resource_stream(
+            capabilities["resource.stream"]["token"],
+            uploaded["resource_id"],
+        )
+        self.assertEqual(streamed["path"].read_bytes(), b"%PDF-private")
+        replay, replay_created = await self._create(
+            key="uploaded-resource",
+            chat_id=None,
+            user_message=None,
+            resource_ids=[uploaded["resource_id"]],
+        )
+        self.assertFalse(replay_created)
+        self.assertEqual(replay["task_id"], task["task_id"])
+        with self.assertRaises(ModuleTaskError) as reused:
+            await self._create(
+                key="uploaded-resource-reused",
+                chat_id=None,
+                user_message=None,
+                resource_ids=[uploaded["resource_id"]],
+            )
+        self.assertEqual(reused.exception.code, "resource_already_bound")
+        self.client.set_state(task["task_id"], "succeeded")
+        await self.service.get(
+            task["task_id"],
+            principal_user_id=self.creator,
+            principal_role="member",
+        )
+        with self.database.connection(write=True) as connection:
+            scheduled = connection.execute(
+                """
+                SELECT expires_at, storage_name
+                FROM module_task_input_resources
+                WHERE resource_id = ?
+                """,
+                (uploaded["resource_id"],),
+            ).fetchone()
+            self.assertIsNotNone(scheduled["expires_at"])
+            connection.execute(
+                """
+                UPDATE module_task_input_resources
+                SET expires_at = '2000-01-01T00:00:00Z'
+                WHERE resource_id = ?
+                """,
+                (uploaded["resource_id"],),
+            )
+        stored_path = self.service.resource_dir / scheduled["storage_name"]
+        self.assertTrue(stored_path.exists())
+        self.assertEqual(self.service.cleanup_input_resources(), 1)
+        self.assertFalse(stored_path.exists())
+
+        other_upload = await self.service.upload_input_resource(
+            FakeUpload(b"other"),
+            creator_user_id=self.creator,
+        )
+        with self.assertRaises(ModuleTaskError) as cross_user:
+            await self.service.create(
+                payload=self._payload(
+                    chat_id=None,
+                    user_message=None,
+                    resource_ids=[other_upload["resource_id"]],
+                ),
+                idempotency_key="cross-user-resource",
+                principal_user_id=self.viewer,
+                principal_role="member",
+            )
+        self.assertEqual(cross_user.exception.code, "resource_access_forbidden")
+
+    async def test_cleanup_keeps_tracking_row_when_file_removal_fails(self):
+        uploaded = await self.service.upload_input_resource(
+            FakeUpload(b"retry-cleanup"),
+            creator_user_id=self.creator,
+        )
+        with self.database.connection(write=True) as connection:
+            connection.execute(
+                """
+                UPDATE module_task_input_resources
+                SET expires_at = '2000-01-01T00:00:00Z'
+                WHERE resource_id = ?
+                """,
+                (uploaded["resource_id"],),
+            )
+        with patch.object(Path, "unlink", side_effect=OSError("denied")):
+            with self.assertRaises(OSError):
+                self.service.cleanup_input_resources()
+        with self.database.connection() as connection:
+            tracked = connection.execute(
+                """
+                SELECT 1 FROM module_task_input_resources
+                WHERE resource_id = ?
+                """,
+                (uploaded["resource_id"],),
+            ).fetchone()
+        self.assertIsNotNone(tracked)
+        self.assertEqual(self.service.cleanup_input_resources(), 1)
+
+    async def test_uploaded_resource_requires_declared_action_support(self):
+        uploaded = await self.service.upload_input_resource(
+            FakeUpload(b"unsupported"),
+            creator_user_id=self.creator,
+        )
+        self.registry.target["manifest"]["actions"][0][
+            "supports_resources"
+        ] = False
+        with self.assertRaises(ModuleTaskError) as unsupported:
+            await self._create(
+                key="unsupported-upload",
+                chat_id=None,
+                user_message=None,
+                resource_ids=[uploaded["resource_id"]],
+            )
+        self.assertEqual(
+            unsupported.exception.code,
+            "task_resources_not_supported",
+        )
+
+    async def test_one_task_can_bind_multiple_uploaded_resources(self):
+        first = await self.service.upload_input_resource(
+            FakeUpload(b"first"),
+            creator_user_id=self.creator,
+        )
+        second = await self.service.upload_input_resource(
+            FakeUpload(b"second"),
+            creator_user_id=self.creator,
+        )
+        task, created = await self._create(
+            key="multiple-uploaded-resources",
+            chat_id=None,
+            user_message=None,
+            resource_ids=[first["resource_id"], second["resource_id"]],
+        )
+        self.assertTrue(created)
+        capability = next(
+            item
+            for item in self.client.tasks[task["task_id"]][
+                "host_capabilities"
+            ]
+            if item["capability"] == "resource.stream"
+        )
+        self.assertEqual(
+            capability["scope"]["resource_ids"],
+            sorted([first["resource_id"], second["resource_id"]]),
+        )
+
+    async def test_upload_limit_and_configuration_fail_explicitly(self):
+        limited = ModuleTaskService(
+            self.database.db_path,
+            busy_timeout_ms=self.database.busy_timeout_ms,
+            registry=self.registry,
+            audit=lambda *_args: None,
+            resource_dir=Path(self.temp.name) / "limited-resources",
+            max_input_resource_bytes=4,
+        )
+        with self.assertRaises(ModuleTaskError) as oversized:
+            await limited.upload_input_resource(
+                FakeUpload(b"12345"),
+                creator_user_id=self.creator,
+            )
+        self.assertEqual(oversized.exception.status_code, 413)
+        self.assertEqual(
+            list((Path(self.temp.name) / "limited-resources").iterdir()),
+            [],
+        )
+        with patch.dict(
+            os.environ,
+            {"CHATRAW_MODULE_TASK_RESOURCE_MAX_BYTES": "not-an-integer"},
+        ):
+            with self.assertRaises(RuntimeError):
+                ModuleTaskService(
+                    self.database.db_path,
+                    busy_timeout_ms=self.database.busy_timeout_ms,
+                    registry=self.registry,
+                    audit=lambda *_args: None,
+                )
+
+    async def test_retry_reactivates_provisional_input_resource(self):
+        uploaded = await self.service.upload_input_resource(
+            FakeUpload(b"retry"),
+            creator_user_id=self.creator,
+        )
+        original_validate = self.service._validate_summary_for_row
+        calls = 0
+
+        def reject_first(*args, **kwargs):
+            nonlocal calls
+            calls += 1
+            if calls == 1:
+                raise ModuleTaskError(
+                    "invalid_module_task",
+                    "invalid",
+                    status_code=502,
+                )
+            return original_validate(*args, **kwargs)
+
+        with patch.object(
+            self.service,
+            "_validate_summary_for_row",
+            side_effect=reject_first,
+        ):
+            with self.assertRaises(ModuleTaskError):
+                await self._create(
+                    key="retry-upload",
+                    chat_id=None,
+                    user_message=None,
+                    resource_ids=[uploaded["resource_id"]],
+                )
+            with self.database.connection() as connection:
+                scheduled = connection.execute(
+                    """
+                    SELECT expires_at FROM module_task_input_resources
+                    WHERE resource_id = ?
+                    """,
+                    (uploaded["resource_id"],),
+                ).fetchone()
+            self.assertIsNotNone(scheduled["expires_at"])
+            task, created = await self._create(
+                key="retry-upload",
+                chat_id=None,
+                user_message=None,
+                resource_ids=[uploaded["resource_id"]],
+            )
+        self.assertTrue(created)
+        with self.database.connection() as connection:
+            active = connection.execute(
+                """
+                SELECT expires_at FROM module_task_input_resources
+                WHERE bound_task_id = ?
+                """,
+                (task["task_id"],),
+            ).fetchone()
+        self.assertIsNone(active["expires_at"])
+
+    async def test_resource_stream_preflights_terminal_task(self):
+        uploaded = await self.service.upload_input_resource(
+            FakeUpload(b"terminal"),
+            creator_user_id=self.creator,
+        )
+        task, _ = await self._create(
+            key="terminal-resource-stream",
+            chat_id=None,
+            user_message=None,
+            resource_ids=[uploaded["resource_id"]],
+        )
+        capability = next(
+            item
+            for item in self.client.tasks[task["task_id"]][
+                "host_capabilities"
+            ]
+            if item["capability"] == "resource.stream"
+        )
+        self.client.set_state(task["task_id"], "succeeded")
+        with self.assertRaises(ModuleTaskError) as terminal:
+            await self.service.capability_resource_stream(
+                capability["token"],
+                uploaded["resource_id"],
+            )
+        self.assertEqual(terminal.exception.status_code, 401)
+
+    async def test_output_resource_is_opaque_scoped_and_ranged(self):
+        task, _ = await self._create(
+            key="output-resource",
+            chat_id=None,
+            user_message=None,
+            resource_ids=[],
+        )
+        self.client.add_resource(
+            task["task_id"],
+            b"0123456789",
+            expires_at=...,
+        )
+        self.client.set_state(task["task_id"], "succeeded")
+        current = await self.service.get(
+            task["task_id"],
+            principal_user_id=self.creator,
+            principal_role="member",
+        )
+        resource = current["resources"][0]
+        self.assertNotEqual(resource["resource_ref"], "resource-output")
+        self.assertIsNone(resource["expires_at"])
+        with self.assertRaises(ModuleTaskError) as viewer:
+            async with self.service.task_resource_stream(
+                task["task_id"],
+                resource["resource_ref"],
+                principal_user_id=self.viewer,
+                principal_role="member",
+                method="GET",
+                range_header=None,
+            ):
+                pass
+        self.assertEqual(viewer.exception.status_code, 403)
+        async with self.service.task_resource_stream(
+            task["task_id"],
+            resource["resource_ref"],
+            principal_user_id=self.creator,
+            principal_role="member",
+            method="GET",
+            range_header="bytes=2-5",
+        ) as proxied:
+            chunks = [
+                chunk
+                async for chunk in proxied["body"].iter_chunked(64 * 1024)
+            ]
+        self.assertEqual(proxied["status"], 206)
+        self.assertEqual(b"".join(chunks), b"2345")
+        self.assertEqual(proxied["headers"]["content-range"], "bytes 2-5/10")
+        async with self.service.task_resource_stream(
+            task["task_id"],
+            resource["resource_ref"],
+            principal_user_id=self.admin,
+            principal_role="admin",
+            method="HEAD",
+            range_header=None,
+        ) as head:
+            self.assertEqual(head["status"], 200)
+
+    async def test_output_resource_registration_is_atomic_with_terminal_state(self):
+        task, _ = await self._create(
+            key="atomic-output-resource",
+            chat_id=None,
+            user_message=None,
+            resource_ids=[],
+        )
+        self.client.add_resource(task["task_id"], b"<html></html>")
+        remote_resource = self.client.tasks[task["task_id"]]["resources"][
+            "resource-output"
+        ]
+        remote_resource["media_type"] = "text/html"
+        current = await self.service.get(
+            task["task_id"],
+            principal_user_id=self.creator,
+            principal_role="member",
+        )
+        self.assertEqual(current["resources"][0]["media_type"], "text/html")
+        remote_resource["filename"] = "changed.html"
+        self.client.set_state(task["task_id"], "succeeded")
+        await self.service.get(
+            task["task_id"],
+            principal_user_id=self.creator,
+            principal_role="member",
+        )
+        with self.database.connection() as connection:
+            stored = connection.execute(
+                "SELECT state FROM module_tasks WHERE id = ?",
+                (task["task_id"],),
+            ).fetchone()
+        self.assertEqual(stored["state"], "failed")
 
     async def test_response_loss_and_both_crash_windows_reuse_stable_task(self):
         self.client.lose_after_accept = True
@@ -1042,8 +1532,40 @@ class ModuleArtifactTransportTests(unittest.IsolatedAsyncioTestCase):
                 content_type="text/plain",
             )
 
+        async def resource(request):
+            body = b"0123456789"
+            if request.headers.get("Range") == "bytes=2-5":
+                return web.Response(
+                    status=206,
+                    body=b"" if request.method == "HEAD" else body[2:6],
+                    headers={
+                        "Content-Length": "4",
+                        "Content-Range": "bytes 2-5/10",
+                        "Content-Type": "application/pdf",
+                    },
+                )
+            return web.Response(
+                body=b"" if request.method == "HEAD" else body,
+                headers={
+                    "Content-Length": str(len(body)),
+                    "Content-Type": "application/pdf",
+                },
+            )
+
+        async def slow_resource(_request):
+            await asyncio.sleep(0.1)
+            return web.Response(
+                body=b"slow",
+                headers={
+                    "Content-Length": "4",
+                    "Content-Type": "application/pdf",
+                },
+            )
+
         application.router.add_get("/redirect", redirect)
         application.router.add_get("/artifact", oversized)
+        application.router.add_route("*", "/resource", resource)
+        application.router.add_get("/slow-resource", slow_resource)
         self.runner = web.AppRunner(application)
         await self.runner.setup()
         self.site = web.TCPSite(self.runner, "127.0.0.1", 0)
@@ -1081,6 +1603,51 @@ class ModuleArtifactTransportTests(unittest.IsolatedAsyncioTestCase):
             oversized.exception.code,
             "module_response_too_large",
         )
+
+    async def test_resource_stream_forwards_method_and_single_range(self):
+        async with self.client.stream_bytes(
+            self.origin,
+            "/resource",
+            method="GET",
+            token="module-token",
+            range_header="bytes=2-5",
+        ) as response:
+            self.assertEqual(response.status, 206)
+            self.assertEqual(
+                await response.read(),
+                b"2345",
+            )
+        async with self.client.stream_bytes(
+            self.origin,
+            "/resource",
+            method="HEAD",
+            token="module-token",
+        ) as response:
+            self.assertEqual(response.status, 200)
+            self.assertEqual(response.headers["Content-Length"], "10")
+        with self.assertRaises(ModuleTransportError) as redirected:
+            async with self.client.stream_bytes(
+                self.origin,
+                "/redirect",
+                method="GET",
+                token="module-token",
+            ):
+                pass
+        self.assertEqual(
+            redirected.exception.code,
+            "module_redirect_forbidden",
+        )
+        short_json_timeout_client = ModuleHttpClient(
+            ModuleAddressPolicy(),
+            timeout_seconds=0.05,
+        )
+        async with short_json_timeout_client.stream_bytes(
+            self.origin,
+            "/slow-resource",
+            method="GET",
+            token="module-token",
+        ) as response:
+            self.assertEqual(await response.read(), b"slow")
 
 
 def _load_reference_module(data_dir, pairing_code, ttl_seconds=600):
@@ -1123,6 +1690,9 @@ class ModuleTaskApiTests(unittest.TestCase):
         async def invoke(_prompt):
             return "host model output"
 
+        self.resource_temp = tempfile.TemporaryDirectory(
+            prefix="chatraw-t4-api-resources-"
+        )
         main.module_task_service = ModuleTaskService(
             main.db.db_path,
             busy_timeout_ms=main.db.busy_timeout_ms,
@@ -1130,6 +1700,7 @@ class ModuleTaskApiTests(unittest.TestCase):
             audit=main.auth_service.audit,
             chat_generation_active=main._chat_generation_active,
             model_invoke=invoke,
+            resource_dir=self.resource_temp.name,
         )
         self.client = TestClient(main.app)
 
@@ -1174,6 +1745,7 @@ class ModuleTaskApiTests(unittest.TestCase):
                 "DELETE FROM users WHERE id = ?",
                 [(user_id,) for user_id in self.created_user_ids],
             )
+        self.resource_temp.cleanup()
 
     def _login(self, label, role):
         username = f"t4-{label}-{self.username_suffix}"
@@ -1271,6 +1843,154 @@ class ModuleTaskApiTests(unittest.TestCase):
             json={},
         )
         self.assertEqual(admin.status_code, 202, admin.text)
+
+    def test_task_resource_upload_stream_and_output_proxy(self):
+        unauthenticated = self.client.post(
+            "/api/module-task-resources",
+            files={"file": ("source.pdf", b"%PDF-secret", "application/pdf")},
+        )
+        self.assertEqual(unauthenticated.status_code, 401)
+        uploaded_response = self.client.post(
+            "/api/module-task-resources",
+            headers=self._headers(self.creator_token),
+            files={"file": ("source.pdf", b"%PDF-secret", "application/pdf")},
+        )
+        self.assertEqual(
+            uploaded_response.status_code,
+            201,
+            uploaded_response.text,
+        )
+        uploaded = uploaded_response.json()
+        self.assertNotIn("creator_user_id", uploaded_response.text)
+        self.assertNotIn("capability", uploaded_response.text.lower())
+
+        payload = self._payload()
+        payload.update(
+            {
+                "chat_id": None,
+                "user_message": None,
+                "resource_ids": [uploaded["resource_id"]],
+            }
+        )
+        cross_user = self.client.post(
+            "/api/module-tasks",
+            headers=self._headers(self.viewer_token, key="api-cross-user"),
+            json=payload,
+        )
+        self.assertEqual(cross_user.status_code, 403, cross_user.text)
+        created = self.client.post(
+            "/api/module-tasks",
+            headers=self._headers(self.creator_token, key="api-uploaded"),
+            json=payload,
+        )
+        self.assertEqual(created.status_code, 202, created.text)
+        task = created.json()
+        remote = self.client_backend.tasks[task["task_id"]]
+        capabilities = {
+            item["capability"]: item
+            for item in remote["host_capabilities"]
+        }
+        self.assertIn("resource.stream", capabilities)
+        self.assertNotIn("resource.read", capabilities)
+        stream = self.client.get(
+            (
+                "/api/module-capabilities/v1/resource-stream/"
+                f"{uploaded['resource_id']}"
+            ),
+            headers={
+                "Authorization": (
+                    f"Bearer {capabilities['resource.stream']['token']}"
+                )
+            },
+        )
+        self.assertEqual(stream.status_code, 200, stream.text)
+        self.assertEqual(stream.content, b"%PDF-secret")
+        self.assertEqual(
+            stream.headers["x-content-sha256"],
+            uploaded["sha256"],
+        )
+        reused = self.client.post(
+            "/api/module-tasks",
+            headers=self._headers(
+                self.creator_token,
+                key="api-uploaded-reused",
+            ),
+            json=payload,
+        )
+        self.assertEqual(reused.status_code, 409, reused.text)
+
+        self.client_backend.add_resource(task["task_id"], b"0123456789")
+        self.client_backend.set_state(task["task_id"], "succeeded")
+        current = self.client.get(
+            f"/api/module-tasks/{task['task_id']}",
+            headers=self._headers(self.creator_token),
+        )
+        self.assertEqual(current.status_code, 200, current.text)
+        resource = current.json()["resources"][0]
+        denied = self.client.get(
+            (
+                f"/api/module-tasks/{task['task_id']}/resources/"
+                f"{resource['resource_ref']}"
+            ),
+            headers=self._headers(self.viewer_token),
+        )
+        self.assertEqual(denied.status_code, 403, denied.text)
+        ranged = self.client.get(
+            (
+                f"/api/module-tasks/{task['task_id']}/resources/"
+                f"{resource['resource_ref']}"
+            ),
+            headers={
+                **self._headers(self.creator_token),
+                "Range": "bytes=2-5",
+            },
+        )
+        self.assertEqual(ranged.status_code, 206, ranged.text)
+        self.assertEqual(ranged.content, b"2345")
+        self.assertEqual(ranged.headers["content-range"], "bytes 2-5/10")
+        self.assertEqual(ranged.headers["content-security-policy"], "sandbox")
+        head = self.client.head(
+            (
+                f"/api/module-tasks/{task['task_id']}/resources/"
+                f"{resource['resource_ref']}"
+            ),
+            headers=self._headers(self.admin_token),
+        )
+        self.assertEqual(head.status_code, 200, head.text)
+        self.assertEqual(head.headers["content-length"], "10")
+
+    def test_task_resource_upload_rejects_extra_parts_and_oversize_while_parsing(self):
+        headers = self._headers(self.creator_token)
+        extra_file = self.client.post(
+            "/api/module-task-resources",
+            headers=headers,
+            files=[
+                ("file", ("one.pdf", b"one", "application/pdf")),
+                ("other", ("two.pdf", b"two", "application/pdf")),
+            ],
+        )
+        self.assertEqual(extra_file.status_code, 400, extra_file.text)
+        extra_field = self.client.post(
+            "/api/module-task-resources",
+            headers=headers,
+            files={"file": ("one.pdf", b"one", "application/pdf")},
+            data={"note": "not allowed"},
+        )
+        self.assertEqual(extra_field.status_code, 400, extra_field.text)
+        wrong_name = self.client.post(
+            "/api/module-task-resources",
+            headers=headers,
+            files={"document": ("one.pdf", b"one", "application/pdf")},
+        )
+        self.assertEqual(wrong_name.status_code, 400, wrong_name.text)
+        main.module_task_service.max_input_resource_bytes = 4
+        oversized = self.client.post(
+            "/api/module-task-resources",
+            headers=headers,
+            files={"file": ("large.pdf", b"12345", "application/pdf")},
+        )
+        self.assertEqual(oversized.status_code, 413, oversized.text)
+        self.assertEqual(list(Path(self.resource_temp.name).iterdir()), [])
 
     def test_browser_cannot_supply_authority_or_internal_connection_fields(self):
         for field, value in (

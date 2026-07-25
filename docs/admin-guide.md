@@ -143,6 +143,26 @@ docker compose exec chatraw \
 ./scripts/create-module-network.sh
 ```
 
+### 7.1 模块任务临时资源
+
+Module SDK 的临时输入资源与普通文档上传完全独立：它没有核心页面入口，不进入文档表、解析器或
+索引。任何已登录用户都可以通过同源 Module SDK 上传临时资源；是否展示上传操作由插件决定，
+不是 Server 对插件启用状态的额外授权。默认单文件上限为 100 MiB，可通过
+`CHATRAW_MODULE_TASK_RESOURCE_MAX_BYTES` 调整；未设置时使用默认值，显式设置为非法值会使
+Server 启动失败，不会静默回退。
+
+未绑定任务的临时文件在 24 小时后清理。文件绑定任务后不能再次绑定；任务进入终态后保留 24 小时，
+随后清理 Server 的临时输入文件及其记录。模块自己的输出文件仍由模块负责保存、过期和备份，Server
+只保存授权所需的引用。
+
+管理员应把 Server 数据目录视为敏感数据，不要公开临时资源目录。反向代理必须允许 `GET`、`HEAD`
+和单段 Range，并保留 `Content-Length`、`Content-Range`、`Content-Type` 和
+`Content-Disposition`；不要缓存带登录态的任务资源响应。
+
+单文件上限不是按用户或全站累计配额。未绑定资源在清理期限内仍占用磁盘，因此管理员还应在反向代理
+设置与 Server 一致或更小的请求体上限，并监控临时资源目录和数据卷剩余空间。不要通过增大单文件
+上限代替容量规划。
+
 ### 8. 经典数据导入
 
 先停止经典 ChatRaw。导入工具：
@@ -326,6 +346,18 @@ Drain, disable, back up, disconnect, and stop in that order. Purge only for an e
 ### Network boundary
 
 Only Server is browser-facing. Server and modules share the external `chatraw-modules` bridge. A module's databases and private dependencies belong on a separate internal network. Do not publish module or private-dependency ports by default.
+
+Module task inputs use a dedicated temporary store and do not enter the normal document upload,
+parser, or index. Any signed-in user can call the same-origin SDK upload; a plugin decides whether
+to expose that operation, but its enabled state is not an additional Server authorization check.
+The default limit is 100 MiB per file and can be changed with
+`CHATRAW_MODULE_TASK_RESOURCE_MAX_BYTES`; an explicitly invalid value prevents startup instead of
+falling back. Unbound inputs expire after 24 hours, and task-bound inputs become eligible for
+cleanup 24 hours after the task reaches a terminal state. Preserve `GET`, `HEAD`, single-range, and
+content metadata headers at the reverse proxy, and do not cache authenticated task resource
+responses. The per-file limit is not a per-user or aggregate quota: set an equal or smaller request
+body limit at the reverse proxy and monitor temporary storage and free disk space. Module-owned
+output files require their own backup and retention policy.
 
 ### Classic import
 

@@ -103,6 +103,8 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.middleware.gzip import GZipMiddleware
+from starlette.datastructures import UploadFile as StarletteUploadFile
+from starlette.formparsers import MultiPartException, MultiPartParser
 from pydantic import BaseModel, ConfigDict, Field
 import sqlite3
 import math
@@ -343,6 +345,27 @@ class ModuleArtifactApiView(BaseModel):
     created_at: str
 
 
+class ModuleTaskResourceUploadApiView(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    resource_id: str
+    filename: str
+    media_type: str
+    size: int
+    sha256: str
+    expires_at: str
+
+
+class ModuleTaskResourceApiView(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    resource_ref: str
+    filename: str
+    media_type: str
+    size: int
+    expires_at: Optional[str]
+
+
 class ModuleTaskApiView(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -372,6 +395,7 @@ class ModuleTaskApiView(BaseModel):
     is_creator: bool
     can_control: bool
     artifacts: List[ModuleArtifactApiView]
+    resources: List[ModuleTaskResourceApiView]
     result: Any = None
 
 
@@ -384,7 +408,7 @@ class ModuleTaskListApiResponse(BaseModel):
 class ModuleFeatureApiResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    sdk_version: Literal["1.1.0"]
+    sdk_version: Literal["1.2.0"]
     module_id: str
     name: str
     module_version: Optional[str]
@@ -2174,10 +2198,29 @@ rag_service = RAGService(db, llm_service)
 async def lifespan(app: FastAPI):
     """App lifecycle: startup and shutdown"""
     logger.info("Starting ChatRaw service")
-    yield
-    # Cleanup on shutdown
-    logger.info("Shutting down ChatRaw service")
-    await close_http_session()
+    stop_resource_cleanup = asyncio.Event()
+
+    async def clean_expired_module_resources():
+        while not stop_resource_cleanup.is_set():
+            service = globals().get("module_task_service")
+            if service is not None:
+                await asyncio.to_thread(service.cleanup_input_resources)
+            try:
+                await asyncio.wait_for(
+                    stop_resource_cleanup.wait(),
+                    timeout=60 * 60,
+                )
+            except asyncio.TimeoutError:
+                continue
+
+    cleanup_task = asyncio.create_task(clean_expired_module_resources())
+    try:
+        yield
+    finally:
+        stop_resource_cleanup.set()
+        await cleanup_task
+        logger.info("Shutting down ChatRaw service")
+        await close_http_session()
 
 app = FastAPI(
     title="ChatRaw",
@@ -8060,6 +8103,81 @@ MODULE_API_ERROR_RESPONSES = {
     502: {"model": ModuleErrorResponse},
     503: {"model": ModuleErrorResponse},
 }
+MODULE_RESOURCE_API_ERROR_RESPONSES = {
+    **MODULE_API_ERROR_RESPONSES,
+    410: {"model": ModuleErrorResponse},
+    416: {"model": ModuleErrorResponse},
+}
+MODULE_RESOURCE_RESPONSE_HEADERS = {
+    "Accept-Ranges": {
+        "description": "Supported byte range unit when provided by the module",
+        "schema": {"type": "string"},
+    },
+    "Content-Length": {
+        "description": "Response body length in bytes",
+        "schema": {"type": "integer"},
+    },
+    "Content-Range": {
+        "description": "Selected or unsatisfied byte range",
+        "schema": {"type": "string"},
+    },
+    "Content-Disposition": {
+        "description": "Effective inline or attachment disposition and filename",
+        "schema": {"type": "string"},
+    },
+}
+MODULE_RESOURCE_GET_RESPONSES = {
+    200: {
+        "description": "Complete task resource",
+        "headers": MODULE_RESOURCE_RESPONSE_HEADERS,
+        "content": {
+            "application/octet-stream": {
+                "schema": {"type": "string", "format": "binary"}
+            }
+        },
+    },
+    206: {
+        "description": "Single byte range of the task resource",
+        "headers": MODULE_RESOURCE_RESPONSE_HEADERS,
+        "content": {
+            "application/octet-stream": {
+                "schema": {"type": "string", "format": "binary"}
+            }
+        },
+    },
+    **MODULE_RESOURCE_API_ERROR_RESPONSES,
+    416: {
+        "model": ModuleErrorResponse,
+        "description": "Unsatisfied or invalid single byte range",
+        "headers": MODULE_RESOURCE_RESPONSE_HEADERS,
+    },
+}
+MODULE_RESOURCE_HEAD_RESPONSES = {
+    200: {
+        "description": "Task resource metadata",
+        "headers": MODULE_RESOURCE_RESPONSE_HEADERS,
+    },
+    206: {
+        "description": "Single byte range metadata",
+        "headers": MODULE_RESOURCE_RESPONSE_HEADERS,
+    },
+    **MODULE_RESOURCE_API_ERROR_RESPONSES,
+    416: {
+        "model": ModuleErrorResponse,
+        "description": "Unsatisfied or invalid single byte range",
+        "headers": MODULE_RESOURCE_RESPONSE_HEADERS,
+    },
+}
+MODULE_RESOURCE_DISPOSITION_PARAMETER = {
+    "name": "disposition",
+    "in": "query",
+    "required": False,
+    "schema": {
+        "type": "string",
+        "enum": ["inline", "attachment"],
+        "default": "inline",
+    },
+}
 
 
 @app.get(
@@ -8113,7 +8231,7 @@ async def get_module_feature_status(module_id: str, request: Request):
     except ModuleRegistryError as error:
         if error.code == "module_not_found":
             return {
-                "sdk_version": "1.1.0",
+                "sdk_version": "1.2.0",
                 "module_id": module_id,
                 "name": module_id,
                 "module_version": None,
@@ -8141,6 +8259,147 @@ def _module_capability_bearer(request: Request) -> str:
             status_code=401,
         )
     return authorization[7:]
+
+
+class _TaskResourceMultipartError(MultiPartException):
+    def __init__(self, error: ModuleTaskError):
+        super().__init__(error.public_message)
+        self.error = error
+
+
+class _TaskResourceMultipartParser(MultiPartParser):
+    def __init__(self, request: Request, max_file_bytes: int):
+        super().__init__(
+            request.headers,
+            request.stream(),
+            max_files=1,
+            max_fields=0,
+        )
+        self._max_file_bytes = max_file_bytes
+        self._current_file_bytes = 0
+
+    def on_part_begin(self) -> None:
+        super().on_part_begin()
+        self._current_file_bytes = 0
+
+    def on_headers_finished(self) -> None:
+        super().on_headers_finished()
+        if (
+            self._current_part.file is None
+            or self._current_part.field_name != "file"
+        ):
+            raise _TaskResourceMultipartError(
+                ModuleTaskError(
+                    "invalid_task_resource_upload",
+                    "The upload must contain exactly one file field",
+                )
+            )
+
+    def on_part_data(self, data: bytes, start: int, end: int) -> None:
+        if self._current_part.file is not None:
+            self._current_file_bytes += end - start
+            if self._current_file_bytes > self._max_file_bytes:
+                raise _TaskResourceMultipartError(
+                    ModuleTaskError(
+                        "task_resource_too_large",
+                        "Task resource exceeds the size limit",
+                        status_code=413,
+                    )
+                )
+        super().on_part_data(data, start, end)
+
+
+async def _parse_task_resource_upload(request: Request) -> StarletteUploadFile:
+    if not request.headers.get("content-type", "").lower().startswith(
+        "multipart/form-data"
+    ):
+        raise ModuleTaskError(
+            "invalid_task_resource_upload",
+            "The upload must use multipart/form-data",
+        )
+    parser = _TaskResourceMultipartParser(
+        request,
+        module_task_service.max_input_resource_bytes,
+    )
+    try:
+        form = await parser.parse()
+    except _TaskResourceMultipartError as error:
+        raise error.error from None
+    except MultiPartException:
+        raise ModuleTaskError(
+            "invalid_task_resource_upload",
+            "The upload must contain exactly one file field",
+        ) from None
+    items = list(form.multi_items())
+    if (
+        len(items) != 1
+        or items[0][0] != "file"
+        or not isinstance(items[0][1], StarletteUploadFile)
+    ):
+        await form.close()
+        raise ModuleTaskError(
+            "invalid_task_resource_upload",
+            "The upload must contain exactly one file field",
+        )
+    return items[0][1]
+
+
+@app.post(
+    "/api/module-task-resources",
+    response_model=ModuleTaskResourceUploadApiView,
+    status_code=201,
+    responses=MODULE_API_ERROR_RESPONSES,
+    openapi_extra={
+        "security": [{"ChatRawSession": []}],
+        "requestBody": {
+            "required": True,
+            "content": {
+                "multipart/form-data": {
+                    "schema": {
+                        "type": "object",
+                        "additionalProperties": False,
+                        "required": ["file"],
+                        "properties": {
+                            "file": {"type": "string", "format": "binary"}
+                        },
+                    }
+                }
+            },
+        },
+    },
+)
+async def upload_module_task_resource(
+    request: Request,
+):
+    principal = current_principal(request)
+    try:
+        file = await _parse_task_resource_upload(request)
+        resource = await module_task_service.upload_input_resource(
+            file,
+            creator_user_id=principal.id,
+        )
+        auth_service.audit(
+            principal.id,
+            "module.task.resource.upload",
+            "module_task_resource",
+            resource["resource_id"],
+            "success",
+            {
+                "size": resource["size"],
+                "media_type": resource["media_type"],
+            },
+        )
+        return resource
+    except ModuleTaskError as error:
+        auth_service.audit(
+            principal.id,
+            "module.task.resource.upload",
+            "module_task_resource",
+            None,
+            "failure",
+            {"error_code": error.code},
+        )
+        return _module_task_error_response(error)
 
 
 @app.post(
@@ -8445,6 +8704,161 @@ async def get_module_task_artifact(
         return _module_task_error_response(error)
 
 
+def _valid_single_byte_range(value: str) -> bool:
+    if len(value) > 128:
+        return False
+    match = re.fullmatch(r"bytes=(\d*)-(\d*)", value)
+    if match is None or not any(match.groups()):
+        return False
+    start_text, end_text = match.groups()
+    if not start_text:
+        return int(end_text) > 0
+    if end_text and int(end_text) < int(start_text):
+        return False
+    return True
+
+
+async def _proxy_module_task_resource(
+    task_id: str,
+    resource_ref: str,
+    request: Request,
+    disposition: str,
+):
+    principal = current_principal(request)
+    if disposition not in {"inline", "attachment"}:
+        return _module_task_error_response(
+            ModuleTaskError(
+                "invalid_resource_disposition",
+                "Resource disposition is invalid",
+            )
+        )
+    range_header = request.headers.get("range")
+    if range_header is not None and not _valid_single_byte_range(
+        range_header
+    ):
+        return _module_task_error_response(
+            ModuleTaskError(
+                "invalid_resource_range",
+                "Resource range is invalid",
+                status_code=416,
+            )
+        )
+    context = module_task_service.task_resource_stream(
+        task_id,
+        resource_ref,
+        principal_user_id=principal.id,
+        principal_role=principal.role,
+        method=request.method,
+        range_header=range_header,
+    )
+    try:
+        resource = await context.__aenter__()
+    except ModuleTaskError as error:
+        return _module_task_error_response(error)
+    filename = resource["filename"]
+    ascii_filename = "".join(
+        character
+        if 0x20 <= ord(character) < 0x7F
+        and character not in {'"', "\\"}
+        else "_"
+        for character in filename
+    )
+    encoded_filename = quote(filename, safe="")
+    inline_media_types = {
+        "application/pdf",
+        "image/gif",
+        "image/jpeg",
+        "image/png",
+        "image/webp",
+        "text/csv",
+        "text/markdown",
+        "text/plain",
+    }
+    effective_disposition = (
+        disposition
+        if disposition == "attachment"
+        or resource["media_type"].lower() in inline_media_types
+        else "attachment"
+    )
+    headers = {
+        "Cache-Control": "private, no-store",
+        "Content-Disposition": (
+            f'{effective_disposition}; filename="{ascii_filename}"; '
+            f"filename*=UTF-8''{encoded_filename}"
+        ),
+        "Content-Security-Policy": "sandbox",
+        "X-Content-Type-Options": "nosniff",
+    }
+    for name in ("accept-ranges", "content-length", "content-range"):
+        if name in resource["headers"]:
+            headers[name.title()] = resource["headers"][name]
+    if request.method == "HEAD" or resource["status"] == 416:
+        await context.__aexit__(None, None, None)
+        return Response(
+            status_code=resource["status"],
+            media_type=resource["media_type"],
+            headers=headers,
+        )
+
+    async def generate():
+        try:
+            async for chunk in resource["body"].iter_chunked(64 * 1024):
+                yield chunk
+        finally:
+            await context.__aexit__(None, None, None)
+
+    return StreamingResponse(
+        generate(),
+        status_code=resource["status"],
+        media_type=resource["media_type"],
+        headers=headers,
+    )
+
+
+@app.get(
+    "/api/module-tasks/{task_id}/resources/{resource_ref}",
+    response_class=Response,
+    responses=MODULE_RESOURCE_GET_RESPONSES,
+    openapi_extra={
+        "security": [{"ChatRawSession": []}],
+        "parameters": [MODULE_RESOURCE_DISPOSITION_PARAMETER],
+    },
+)
+async def get_module_task_resource(
+    task_id: str,
+    resource_ref: str,
+    request: Request,
+):
+    return await _proxy_module_task_resource(
+        task_id,
+        resource_ref,
+        request,
+        request.query_params.get("disposition", "inline"),
+    )
+
+
+@app.head(
+    "/api/module-tasks/{task_id}/resources/{resource_ref}",
+    response_class=Response,
+    responses=MODULE_RESOURCE_HEAD_RESPONSES,
+    openapi_extra={
+        "security": [{"ChatRawSession": []}],
+        "parameters": [MODULE_RESOURCE_DISPOSITION_PARAMETER],
+    },
+)
+async def head_module_task_resource(
+    task_id: str,
+    resource_ref: str,
+    request: Request,
+):
+    return await _proxy_module_task_resource(
+        task_id,
+        resource_ref,
+        request,
+        request.query_params.get("disposition", "inline"),
+    )
+
+
 @app.get(
     "/api/module-capabilities/v1/chat",
     response_model=ModuleChatCapabilityApiResponse,
@@ -8471,6 +8885,34 @@ async def module_capability_resource(resource_id: str, request: Request):
         return await module_task_service.capability_resource_read(
             _module_capability_bearer(request),
             resource_id,
+        )
+    except ModuleTaskError as error:
+        return _module_task_error_response(error)
+
+
+@app.get(
+    "/api/module-capabilities/v1/resource-stream/{resource_id}",
+    responses=MODULE_API_ERROR_RESPONSES,
+    openapi_extra={"security": [{"ModuleCapabilityBearer": []}]},
+)
+async def module_capability_resource_stream(
+    resource_id: str,
+    request: Request,
+):
+    try:
+        resource = await module_task_service.capability_resource_stream(
+            _module_capability_bearer(request),
+            resource_id,
+        )
+        return FileResponse(
+            path=resource["path"],
+            media_type=resource["media_type"],
+            filename=resource["filename"],
+            headers={
+                "Cache-Control": "private, no-store",
+                "X-Content-SHA256": resource["sha256"],
+                "X-Content-Type-Options": "nosniff",
+            },
         )
     except ModuleTaskError as error:
         return _module_task_error_response(error)

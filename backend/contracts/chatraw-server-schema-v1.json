@@ -1,5 +1,5 @@
 {
-  "latest_schema_version": 8,
+  "latest_schema_version": 9,
   "migrations": [
     {
       "version": 1,
@@ -32,6 +32,10 @@
     {
       "version": 8,
       "name": "frontend_integrations"
+    },
+    {
+      "version": 9,
+      "name": "module_task_resources"
     }
   ],
   "new_tables": {
@@ -173,6 +177,28 @@
       "decision",
       "actor_user_id",
       "resolved_at"
+    ],
+    "module_task_input_resources": [
+      "resource_id",
+      "creator_user_id",
+      "filename",
+      "media_type",
+      "size",
+      "sha256",
+      "storage_name",
+      "created_at",
+      "expires_at",
+      "bound_task_id"
+    ],
+    "module_task_output_resources": [
+      "resource_ref",
+      "task_id",
+      "resource_id",
+      "filename",
+      "media_type",
+      "size",
+      "expires_at",
+      "created_at"
     ]
   },
   "added_columns": {
@@ -204,7 +230,9 @@
     "idx_module_tasks_creator",
     "idx_module_task_resources_resource",
     "idx_module_capability_task",
-    "idx_module_task_approvals_actor"
+    "idx_module_task_approvals_actor",
+    "idx_module_task_input_resources_expiry",
+    "idx_module_task_output_resources_task"
   ],
   "legacy_invariants": {
     "ownership_fields_remain_null": true,

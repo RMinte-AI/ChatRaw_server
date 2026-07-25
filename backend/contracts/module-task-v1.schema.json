@@ -69,6 +69,40 @@
         }
       }
     },
+    "resource": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "resource_id",
+        "filename",
+        "media_type",
+        "size"
+      ],
+      "properties": {
+        "resource_id": {"$ref": "#/$defs/identifier"},
+        "filename": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 255,
+          "not": {"pattern": "[/\\\\\\u0000-\\u001f\\u007f]"}
+        },
+        "media_type": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 127
+        },
+        "size": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "expires_at": {
+          "oneOf": [
+            {"$ref": "#/$defs/timestamp"},
+            {"type": "null"}
+          ]
+        }
+      }
+    },
     "hostCapability": {
       "type": "object",
       "additionalProperties": false,
@@ -81,7 +115,12 @@
       ],
       "properties": {
         "capability": {
-          "enum": ["chat.read", "resource.read", "model.invoke"]
+          "enum": [
+            "chat.read",
+            "resource.read",
+            "resource.stream",
+            "model.invoke"
+          ]
         },
         "endpoint": {
           "type": "string",
@@ -133,7 +172,7 @@
         "input": {"type": "object"},
         "host_capabilities": {
           "type": "array",
-          "maxItems": 3,
+          "maxItems": 4,
           "items": {"$ref": "#/$defs/hostCapability"}
         }
       }
@@ -180,6 +219,11 @@
           "type": "array",
           "maxItems": 128,
           "items": {"$ref": "#/$defs/artifact"}
+        },
+        "resources": {
+          "type": "array",
+          "maxItems": 128,
+          "items": {"$ref": "#/$defs/resource"}
         }
       },
       "allOf": [

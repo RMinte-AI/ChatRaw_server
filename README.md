@@ -18,6 +18,7 @@ ChatRaw Server 只做两件核心事情：
 - **模块**是独立后端服务，负责长任务、私有依赖、数据库或高权限能力。
 - **ChatRaw Server**负责登录、授权、模块生命周期、任务转发和安全边界。
 - 模块功能可以通过配套插件或 Resident Integration 扩展 ChatRaw 前端；独立运行的模块进程不能在运行时改写 ChatRaw Core，也不能向浏览器下发可执行界面代码。
+- Module SDK 支持面向模块任务的临时输入文件和可按 Range 读取的输出资源。
 
 ```text
 用户
@@ -211,6 +212,7 @@ ChatRaw Server has two primary responsibilities:
 - A **module** is an independent backend service.
 - **ChatRaw Server** owns authentication, authorization, lifecycle management, task forwarding, and the security boundary.
 - A module-backed feature may extend the ChatRaw UI through a companion plugin or source-built Resident Integration. The independent module process cannot rewrite ChatRaw Core at runtime or deliver executable UI code to the browser.
+- The Module SDK supports temporary task input files and Range-readable output resources.
 
 ```text
 User → ChatRaw UI → companion plugin or Resident Integration → generic module gateway

@@ -36,6 +36,8 @@ Thumbs.db
 
 # Node.js
 node_modules/
+test-results/
+playwright-report/
 
 # Local documentation
 FIX_SUMMARY.md

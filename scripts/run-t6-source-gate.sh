@@ -131,6 +131,13 @@ wait_for_tcp 127.0.0.1 "$module_port"
     --frontend-mode "$frontend_mode" \
     --state-file "$state_file"
 
+if [ "${T6_SOURCE_HOLD_AFTER_BOOTSTRAP:-0}" = "1" ]; then
+    echo "T6 browser fixture ready at http://127.0.0.1:$server_port"
+    while :; do
+        sleep 30
+    done
+fi
+
 kill "$module_pid"
 wait "$module_pid" 2>/dev/null || true
 module_pid=""

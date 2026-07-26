@@ -42,6 +42,13 @@ To exercise the same module with its source-built Resident entry, set
 is compiled into the Server image or source deployment; changing it requires a
 Server rebuild and redeployment, not a WebUI install action.
 
+Treat the Server source tree and generated frontend as one release. Build a new
+release directory, run `npm ci`, `npm run build:frontend`, and
+`npm run check:frontend`, then switch the service to that complete directory.
+Never copy `index.html`, JavaScript, CSS, Resident output, or SDK contracts one
+file at a time. Startup validates `frontend-assets.json` and refuses a release
+whose entrypoint, source, or generated asset hashes do not agree.
+
 ## Docker Compose deployment
 
 The administrator creates the shared northbound bridge once:
@@ -215,6 +222,12 @@ python -m uvicorn --app-dir examples/reference-module app:app \
 要让同一参考模块使用源码级常驻入口，启动模块前设置
 `REFERENCE_MODULE_FRONTEND_MODE=resident`。Resident 源码随 Server 镜像或
 源码部署一起构建；修改后需要重新构建和部署 Server，不能在 WebUI 动态安装。
+
+Server 源码和生成前端必须作为同一个 release 部署。在新 release 目录中依次执行
+`npm ci`、`npm run build:frontend` 和 `npm run check:frontend`，全部通过后再把
+服务原子切换到该完整目录。禁止逐个复制 `index.html`、JavaScript、CSS、Resident
+产物或 SDK Contract。Server 启动时会校验 `frontend-assets.json`；入口、源码或
+生成产物的哈希不一致时拒绝启动。
 
 ## Docker Compose 部署
 

@@ -55,7 +55,7 @@ class ModelHandler(BaseHTTPRequestHandler):
             self._json(400, {"error": "invalid_json"})
             return
         messages = payload.get("messages")
-        tools = payload.get("tools")
+        tools = payload.get("tools", [])
         if not isinstance(messages, list) or not isinstance(tools, list):
             self._json(400, {"error": "invalid_request"})
             return
@@ -175,26 +175,69 @@ class ModelHandler(BaseHTTPRequestHandler):
                 "content": "T7 deterministic model response.",
             }
             finish_reason = "stop"
+        response_payload = {
+            "id": f"chatcmpl-{uuid.uuid4().hex}",
+            "object": "chat.completion",
+            "created": int(time.time()),
+            "model": payload.get("model", "t7-model"),
+            "choices": [
+                {
+                    "index": 0,
+                    "message": message,
+                    "finish_reason": finish_reason,
+                }
+            ],
+            "usage": {
+                "prompt_tokens": 32,
+                "completion_tokens": 16,
+                "total_tokens": 48,
+            },
+        }
+        if payload.get("stream") is True and isinstance(
+            message.get("content"), str
+        ):
+            chunks = [
+                {
+                    "id": response_payload["id"],
+                    "object": "chat.completion.chunk",
+                    "created": response_payload["created"],
+                    "model": response_payload["model"],
+                    "choices": [
+                        {
+                            "index": 0,
+                            "delta": {"content": message["content"]},
+                            "finish_reason": None,
+                        }
+                    ],
+                },
+                {
+                    "id": response_payload["id"],
+                    "object": "chat.completion.chunk",
+                    "created": response_payload["created"],
+                    "model": response_payload["model"],
+                    "choices": [
+                        {
+                            "index": 0,
+                            "delta": {},
+                            "finish_reason": "stop",
+                        }
+                    ],
+                },
+            ]
+            body = "".join(
+                f"data: {json.dumps(chunk, ensure_ascii=False)}\n\n"
+                for chunk in chunks
+            ) + "data: [DONE]\n\n"
+            raw = body.encode("utf-8")
+            self.send_response(200)
+            self.send_header("Content-Type", "text/event-stream")
+            self.send_header("Content-Length", str(len(raw)))
+            self.end_headers()
+            self.wfile.write(raw)
+            return
         self._json(
             200,
-            {
-                "id": f"chatcmpl-{uuid.uuid4().hex}",
-                "object": "chat.completion",
-                "created": int(time.time()),
-                "model": payload.get("model", "t7-model"),
-                "choices": [
-                    {
-                        "index": 0,
-                        "message": message,
-                        "finish_reason": finish_reason,
-                    }
-                ],
-                "usage": {
-                    "prompt_tokens": 32,
-                    "completion_tokens": 16,
-                    "total_tokens": 48,
-                },
-            },
+            response_payload,
         )
 
     def log_message(self, _format, *_args):

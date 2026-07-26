@@ -1447,6 +1447,72 @@ class ModuleTaskServiceTests(unittest.IsolatedAsyncioTestCase):
             2,
         )
 
+    async def test_tool_activity_call_id_keeps_task_and_tokens_active(self):
+        task, _ = await self._create()
+        remote = self.client.tasks[task["task_id"]]
+        remote["state"] = "running"
+        remote["last_event_id"] = 2
+        remote["events"] = [
+            {
+                "id": 1,
+                "event": "task.status",
+                "data": {"state": "running"},
+            },
+            {
+                "id": 2,
+                "event": "activity.updated",
+                "data": {
+                    "schema_version": "1",
+                    "run_id": "11111111-1111-4111-8111-111111111111",
+                    "activity_id": (
+                        "22222222-2222-4222-8222-222222222222"
+                    ),
+                    "kind": "tool",
+                    "state": "started",
+                    "title": "query_entry_transaction",
+                    "detail": {
+                        "tool_name": "query_entry_transaction",
+                        "tool_call_id": "provider tool/call #1",
+                        "arguments_preview": (
+                            '{"page_number":1,"page_size":20}'
+                        ),
+                        "arguments_truncated": False,
+                    },
+                },
+            },
+        ]
+
+        observed = [
+            event
+            async for event in self.service.stream_events(
+                task["task_id"],
+                last_event_id=0,
+            )
+            if event is not None
+        ]
+
+        self.assertEqual(
+            [event["event"] for event in observed],
+            ["task.status", "activity.updated"],
+        )
+        current = self.service._task_row(task["task_id"])
+        self.assertEqual(current["state"], "running")
+        self.assertEqual(current["status_sync"], "current")
+        self.assertEqual(current["last_cursor"], 2)
+        with self.service._connection() as connection:
+            capability_rows = connection.execute(
+                """
+                SELECT revoked_at
+                FROM module_capability_tokens
+                WHERE task_id = ?
+                """,
+                (task["task_id"],),
+            ).fetchall()
+        self.assertTrue(capability_rows)
+        self.assertTrue(
+            all(row["revoked_at"] is None for row in capability_rows)
+        )
+
     async def test_cancel_completion_race_allows_succeeded_terminal(self):
         task, _ = await self._create()
         first_cancel = await self.service.cancel(
@@ -2174,6 +2240,7 @@ class ModuleTaskMachineContractTests(unittest.TestCase):
                     "summary": "Returned 20 rows",
                     "detail": {
                         "tool_name": "station_records",
+                        "tool_call_id": "provider tool/call #1",
                         "arguments_preview": '{"page":1,"size":20}',
                         "arguments_truncated": False,
                         "result_preview": '{"row_count":20}',
@@ -2184,8 +2251,31 @@ class ModuleTaskMachineContractTests(unittest.TestCase):
             },
             previous_event_id=0,
         )
-        invalid_activity = {
+        invalid_tool_call_id = {
             "id": 2,
+            "event": "activity.updated",
+            "data": {
+                "schema_version": "1",
+                "run_id": "11111111-1111-4111-8111-111111111111",
+                "activity_id": "33333333-3333-4333-8333-333333333333",
+                "kind": "tool",
+                "state": "started",
+                "title": "Query page 2",
+                "detail": {
+                    "tool_name": "station_records",
+                    "tool_call_id": "x" * 513,
+                    "arguments_preview": '{"page":2,"size":20}',
+                    "arguments_truncated": False,
+                },
+            },
+        }
+        with self.assertRaises(ModuleTaskProtocolError):
+            validate_task_event(
+                invalid_tool_call_id,
+                previous_event_id=1,
+            )
+        invalid_activity = {
+            "id": 3,
             "event": "activity.updated",
             "data": {
                 "schema_version": "1",
@@ -2205,7 +2295,7 @@ class ModuleTaskMachineContractTests(unittest.TestCase):
         with self.assertRaises(ModuleTaskProtocolError):
             validate_task_event(
                 invalid_activity,
-                previous_event_id=1,
+                previous_event_id=2,
             )
         with self.assertRaises(ModuleTaskProtocolError):
             validate_task_event(

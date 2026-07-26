@@ -12,8 +12,8 @@
     
     <!-- Performance: Preload Critical Resources -->
     <link rel="preload" href="fonts/remixicon/remixicon.woff2?t=1769685282643" as="font" type="font/woff2" crossorigin>
-    <link rel="preload" href="styles.min.css?v=7995a6c09e620e201b15b1e40270b3919d8ef7e11bd882844d484a5db1fb0854" as="style">
-    <link rel="preload" href="app.min.js?v=968cc864e094e0bc37ad7e8c7eab4cc6149b4cf457f2aafeca0378826a12e7ea" as="script">
+    <link rel="preload" href="styles.min.css?v=55ec28bf5876a84c7ba225f980b47ed78506eff1abb36512c4de7d0b4e5a8f8d" as="style">
+    <link rel="preload" href="app.min.js?v=3d473a377bbc3b1966d6d0c17146cfd6d9172ce876ce62e5cc717479283604d7" as="script">
     <link rel="preload" href="vendor/alpine.min.js?v=c8fa8ff457abdcd212f37a07ef2f292c999011dffabcaa577fb1e1e0076ca658" as="script">
     <link rel="preload" href="vendor/marked.min.js?v=6002af63485b043fa60ddaba1b34363b98d2a8b2c63b607004f3a2405a8a053a" as="script">
     <link rel="preload" href="vendor/purify.min.js?v=c45ba939765574f96cbf35ee9b6d89f73756a17921814425e74b82f7c54603ce" as="script">
@@ -146,7 +146,7 @@
     <script defer src="vendor/alpine.min.js?v=c8fa8ff457abdcd212f37a07ef2f292c999011dffabcaa577fb1e1e0076ca658"></script>
     <!-- highlight.js is lazy-loaded in app.min.js when needed -->
     <link rel="stylesheet" href="fonts/remixicon/remixicon.css">
-    <link rel="stylesheet" href="styles.min.css?v=7995a6c09e620e201b15b1e40270b3919d8ef7e11bd882844d484a5db1fb0854">
+    <link rel="stylesheet" href="styles.min.css?v=55ec28bf5876a84c7ba225f980b47ed78506eff1abb36512c4de7d0b4e5a8f8d">
 </head>
 <body x-data="app()" :data-theme="settings.ui_settings.theme_mode">
     <!-- Sidebar Overlay for Mobile -->
@@ -176,7 +176,7 @@
 
         <!-- Stable sidebar mount for source-built Resident Integrations. -->
         <div class="resident-sidebar-entries"
-             x-show="!sidebarCollapsed && (residentEntries('sidebar').length > 0 || sidebarPluginButtons.length > 0)"
+             x-show="!sidebarCollapsed && (residentEntries('sidebar').length > 0 || pluginWorkspaceCollections.length > 0 || sidebarPluginButtons.length > 0)"
              x-cloak>
             <template x-for="entry in residentEntries('sidebar')"
                       :key="entry.integration.id + ':' + entry.id">
@@ -190,6 +190,18 @@
                     <i :class="entry.icon"></i>
                     <span x-text="residentText(entry.label)"></span>
                     <small x-show="!entry.integration.feature?.available" x-text="t('unavailable')"></small>
+                </button>
+            </template>
+            <template x-for="collection in pluginWorkspaceCollections"
+                      :key="'workspace-collection:' + collection.id">
+                <button class="plugin-sidebar-entry"
+                        type="button"
+                        :title="getLocalizedText(collection.title, collection.id)"
+                        :class="{ 'active': pluginWorkspace.show && pluginWorkspace.collectionId === collection.id }"
+                        @click="openPluginWorkspaceCollection(collection.id)">
+                    <i :class="collection.icon"></i>
+                    <span x-text="getLocalizedText(collection.title, collection.id)"></span>
+                    <small x-text="collection.panels.length"></small>
                 </button>
             </template>
             <template x-for="btn in sidebarPluginButtons" :key="btn.fullId">
@@ -206,7 +218,7 @@
             </template>
         </div>
         <div class="resident-sidebar-collapsed"
-             x-show="sidebarCollapsed && (residentEntries('sidebar').length > 0 || sidebarPluginButtons.length > 0)"
+             x-show="sidebarCollapsed && (residentEntries('sidebar').length > 0 || pluginWorkspaceCollections.length > 0 || sidebarPluginButtons.length > 0)"
              x-cloak>
             <template x-for="entry in residentEntries('sidebar')"
                       :key="entry.integration.id + ':' + entry.id">
@@ -216,6 +228,16 @@
                         :title="residentText(entry.label)"
                         @click="openResidentIntegration(entry.integration)">
                     <i :class="entry.icon"></i>
+                </button>
+            </template>
+            <template x-for="collection in pluginWorkspaceCollections"
+                      :key="'workspace-collection-collapsed:' + collection.id">
+                <button class="btn-icon plugin-sidebar-entry-collapsed"
+                        type="button"
+                        :title="getLocalizedText(collection.title, collection.id)"
+                        :class="{ 'active': pluginWorkspace.show && pluginWorkspace.collectionId === collection.id }"
+                        @click="openPluginWorkspaceCollection(collection.id)">
+                    <i :class="collection.icon"></i>
                 </button>
             </template>
             <template x-for="btn in sidebarPluginButtons" :key="btn.fullId">
@@ -795,9 +817,13 @@
                  @keydown.escape.stop="closeActivePluginWorkspace()">
             <header class="plugin-workspace-header">
                 <div class="plugin-workspace-heading">
-                    <i :class="pluginWorkspace.icon" aria-hidden="true"></i>
+                    <i :class="pluginWorkspace.collectionIcon || pluginWorkspace.icon"
+                       aria-hidden="true"></i>
                     <h2 id="plugin-workspace-title"
-                        x-text="getLocalizedText(pluginWorkspace.title, pluginWorkspace.panelId || '')"></h2>
+                        x-text="getLocalizedText(
+                            pluginWorkspace.collectionTitle || pluginWorkspace.title,
+                            pluginWorkspace.collectionId || pluginWorkspace.panelId || ''
+                        )"></h2>
                 </div>
                 <button id="plugin-workspace-close"
                         class="btn-icon"
@@ -807,6 +833,32 @@
                     <i class="ri-close-line"></i>
                 </button>
             </header>
+            <nav class="plugin-workspace-tabs"
+                 x-show="pluginWorkspace.collectionId"
+                 x-cloak
+                 role="tablist"
+                 :aria-label="getLocalizedText(
+                     pluginWorkspace.collectionTitle,
+                     pluginWorkspace.collectionId || ''
+                 )">
+                <template x-for="panel in activePluginWorkspaceCollectionPanels()"
+                          :key="panel.pluginId + ':' + panel.panelId">
+                    <button type="button"
+                            role="tab"
+                            :aria-selected="String(
+                                pluginWorkspace.pluginId === panel.pluginId
+                                && pluginWorkspace.panelId === panel.panelId
+                            )"
+                            :class="{ 'active':
+                                pluginWorkspace.pluginId === panel.pluginId
+                                && pluginWorkspace.panelId === panel.panelId
+                            }"
+                            @click="switchPluginWorkspaceCollectionPanel(panel)">
+                        <i :class="panel.icon" aria-hidden="true"></i>
+                        <span x-text="getLocalizedText(panel.title, panel.panelId)"></span>
+                    </button>
+                </template>
+            </nav>
             <div id="plugin-workspace-mount"
                  class="plugin-workspace-mount"
                  x-ignore></div>
@@ -1367,13 +1419,6 @@
                         </div>
                         <div class="model-card">
                             <div class="form-group">
-                                <label class="form-label" x-text="t('language')"></label>
-                                <div class="theme-grid">
-                                    <div class="theme-option" :class="{ 'active': lang === 'en' }" @click="setLanguage('en')" x-text="t('english')"></div>
-                                    <div class="theme-option" :class="{ 'active': lang === 'zh' }" @click="setLanguage('zh')" x-text="t('chinese')"></div>
-                                </div>
-                            </div>
-                            <div class="form-group">
                                 <label class="form-label" x-text="t('currentPassword')"></label>
                                 <input class="input-minimal" type="password" x-model="passwordForm.current_password" autocomplete="current-password">
                             </div>
@@ -1880,6 +1925,6 @@
         <div class="plugin-fullscreen-content" x-html="pluginFullscreenModal.content"></div>
     </div>
 
-    <script src="app.min.js?v=968cc864e094e0bc37ad7e8c7eab4cc6149b4cf457f2aafeca0378826a12e7ea"></script>
+    <script src="app.min.js?v=3d473a377bbc3b1966d6d0c17146cfd6d9172ce876ce62e5cc717479283604d7"></script>
 </body>
 </html>

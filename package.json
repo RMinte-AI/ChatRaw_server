@@ -3,9 +3,11 @@
     "build:frontend": "node scripts/build-frontend.mjs --write",
     "check:frontend": "node scripts/build-frontend.mjs --check",
     "test:frontend": "node --test frontend-tests/*.test.mjs ResidentIntegrations/*/tests/*.test.mjs",
+    "test:browser": "playwright test",
     "build:markmap": "node Plugins/Plugin_market/mindmap-renderer/build-markmap.js"
   },
   "devDependencies": {
+    "@playwright/test": "^1.62.0",
     "cssnano": "^7.1.2",
     "esbuild": "0.28.1",
     "jsdom": "26.1.0",

@@ -220,6 +220,7 @@ select:focus:not(:focus-visible),
     align-items: center;
     justify-content: space-between;
     height: 80px;
+    flex-shrink: 0;
 }
 
 .logo {
@@ -291,6 +292,7 @@ select:focus:not(:focus-visible),
     font-weight: 600;
     transition: var(--transition);
     box-shadow: var(--shadow-sm);
+    flex-shrink: 0;
 }
 
 .btn-new-chat:hover {
@@ -313,6 +315,7 @@ select:focus:not(:focus-visible),
     gap: 8px;
     font-size: 0.85rem;
     transition: var(--transition);
+    flex-shrink: 0;
 }
 
 .btn-clear-all:hover {
@@ -338,9 +341,44 @@ select:focus:not(:focus-visible),
     cursor: pointer;
     color: var(--text-primary);
     transition: var(--transition);
+    flex-shrink: 0;
 }
 .btn-new-chat-collapsed:hover {
     border-color: var(--text-primary);
+}
+
+.sidebar-section-divider {
+    height: 1px;
+    margin: 8px 20px 16px;
+    background: var(--border-color);
+    flex-shrink: 0;
+}
+
+.sidebar-feature-area {
+    flex: 0 1 auto;
+    min-height: 0;
+    max-height: 40%;
+    overflow-x: hidden;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    -webkit-overflow-scrolling: touch;
+}
+
+.sidebar-feature-area::-webkit-scrollbar {
+    width: 6px;
+}
+
+.sidebar-feature-area::-webkit-scrollbar-thumb {
+    background: transparent;
+    border-radius: 6px;
+}
+
+.sidebar-feature-area:hover::-webkit-scrollbar-thumb {
+    background: var(--border-color);
+}
+
+.sidebar.collapsed .sidebar-section-divider {
+    margin-inline: 14px;
 }
 
 /* Chat List */
@@ -351,7 +389,7 @@ select:focus:not(:focus-visible),
     padding: 0 12px;
     -webkit-overflow-scrolling: touch;
     overscroll-behavior: contain;
-    min-height: 0;
+    min-height: 48px;
 }
 
 .chat-list::-webkit-scrollbar { width: 6px; }
@@ -410,6 +448,7 @@ select:focus:not(:focus-visible),
 .sidebar-footer {
     padding: 20px;
     border-top: 1px solid var(--border-color);
+    flex-shrink: 0;
 }
 
 .btn-settings {

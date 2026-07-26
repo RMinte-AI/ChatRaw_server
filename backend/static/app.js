@@ -4838,6 +4838,12 @@ function app() {
             return this.getSortedPluginButtons('sidebar');
         },
 
+        get hasSidebarFeatureEntries() {
+            return this.residentEntries('sidebar').length > 0
+                || this.pluginWorkspaceCollections.length > 0
+                || this.sidebarPluginButtons.length > 0;
+        },
+
         get pluginWorkspaceCollections() {
             const collections = new Map();
             for (const definition of Object.values(this.pluginWorkspaceDefinitions)) {

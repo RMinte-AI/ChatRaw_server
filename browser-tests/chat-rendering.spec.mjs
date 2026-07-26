@@ -206,6 +206,184 @@ async function assertRoleLayout(page) {
 }
 
 
+async function setSidebarFeatureStressState(page, {
+    collapsed = false,
+    count = 24
+} = {}) {
+    await page.evaluate(({ collapsed: nextCollapsed, count: entryCount }) => {
+        const state = document.body._x_dataStack[0];
+        state.sidebarCollapsed = nextCollapsed;
+        state.residentIntegrations = [];
+        state.pluginWorkspaceDefinitions = {};
+        state.pluginToolbarButtons = Array.from(
+            { length: entryCount },
+            (_, index) => ({
+                fullId: `browser-sidebar:entry-${index}`,
+                pluginId: 'browser-sidebar',
+                id: `entry-${index}`,
+                icon: 'ri-tools-line',
+                label: { en: `Browser feature ${index}` },
+                onClick: () => {},
+                order: index,
+                placement: 'sidebar',
+                status: null,
+                disabled: false,
+                active: false,
+                loading: false
+            })
+        );
+        state.chats = [{
+            id: 'sidebar-layout-chat',
+            title: 'Sidebar layout chat'
+        }];
+    }, { collapsed, count });
+    await page.waitForFunction(
+        ({ collapsed: nextCollapsed, count: entryCount }) => {
+            const container = document.querySelector(
+                nextCollapsed
+                    ? '.resident-sidebar-collapsed'
+                    : '.resident-sidebar-entries'
+            );
+            return (
+                document.body._x_dataStack[0].sidebarCollapsed
+                    === nextCollapsed
+                && container?.querySelectorAll(
+                    '.plugin-sidebar-entry, .plugin-sidebar-entry-collapsed'
+                ).length === entryCount
+            );
+        },
+        { collapsed, count }
+    );
+}
+
+async function measureSidebarFeatureLayout(page, collapsed = false) {
+    return page.evaluate(nextCollapsed => {
+        const rectangle = selector => {
+            const element = document.querySelector(selector);
+            const box = element?.getBoundingClientRect();
+            return box
+                ? {
+                    top: box.top,
+                    bottom: box.bottom,
+                    height: box.height
+                }
+                : null;
+        };
+        const featureArea = document.querySelector('.sidebar-feature-area');
+        return {
+            sidebar: rectangle('.sidebar'),
+            feature: {
+                ...rectangle('.sidebar-feature-area'),
+                clientHeight: featureArea.clientHeight,
+                scrollHeight: featureArea.scrollHeight,
+                overflowY: getComputedStyle(featureArea).overflowY
+            },
+            firstFeatureEntry: rectangle(
+                nextCollapsed
+                    ? '.resident-sidebar-collapsed .plugin-sidebar-entry-collapsed'
+                    : '.resident-sidebar-entries .plugin-sidebar-entry'
+            ),
+            divider: rectangle('.sidebar-section-divider'),
+            newChat: rectangle(
+                nextCollapsed
+                    ? '.btn-new-chat-collapsed'
+                    : '.btn-new-chat'
+            ),
+            chatList: nextCollapsed ? null : rectangle('.chat-list'),
+            clearAll: nextCollapsed ? null : rectangle('.btn-clear-all'),
+            footer: nextCollapsed ? null : rectangle('.sidebar-footer'),
+            collapsedPlugins: nextCollapsed
+                ? rectangle('.sidebar-plugins-collapsed')
+                : null
+        };
+    }, collapsed);
+}
+
+function expectContained(inner, outer) {
+    expect(inner.top).toBeGreaterThanOrEqual(outer.top - 1);
+    expect(inner.bottom).toBeLessThanOrEqual(outer.bottom + 1);
+}
+
+
+test('sidebar feature overflow keeps chat controls reachable', async ({
+    page,
+    request
+}) => {
+    const consoleErrors = await loginAndConfigureModel(page, request);
+    await page.setViewportSize({ width: 900, height: 600 });
+
+    await setSidebarFeatureStressState(page, { count: 0 });
+    await expect(page.locator('.sidebar-feature-area')).toBeHidden();
+    await expect(page.locator('.sidebar-section-divider')).toBeHidden();
+    await expect(page.locator('.btn-new-chat')).toBeVisible();
+
+    await setSidebarFeatureStressState(page);
+    await expect(page.locator('.sidebar-feature-area')).toBeVisible();
+    const desktop = await measureSidebarFeatureLayout(page);
+    expect(desktop.feature.scrollHeight).toBeGreaterThan(
+        desktop.feature.clientHeight
+    );
+    expect(desktop.feature.overflowY).toBe('auto');
+    expectContained(desktop.firstFeatureEntry, desktop.feature);
+    expect(desktop.feature.bottom).toBeLessThanOrEqual(desktop.divider.top);
+    expect(desktop.divider.bottom).toBeLessThanOrEqual(desktop.newChat.top);
+    expect(desktop.chatList.height).toBeGreaterThanOrEqual(47);
+    for (const element of [
+        desktop.newChat,
+        desktop.chatList,
+        desktop.clearAll,
+        desktop.footer
+    ]) {
+        expectContained(element, desktop.sidebar);
+    }
+
+    await setSidebarFeatureStressState(page, { collapsed: true });
+    await expect(page.locator('.btn-new-chat-collapsed')).toBeVisible();
+    const collapsed = await measureSidebarFeatureLayout(page, true);
+    expect(collapsed.feature.scrollHeight).toBeGreaterThan(
+        collapsed.feature.clientHeight
+    );
+    expect(collapsed.feature.overflowY).toBe('auto');
+    expectContained(collapsed.firstFeatureEntry, collapsed.feature);
+    expect(collapsed.feature.bottom).toBeLessThanOrEqual(
+        collapsed.divider.top
+    );
+    expect(collapsed.divider.bottom).toBeLessThanOrEqual(
+        collapsed.newChat.top
+    );
+    expectContained(collapsed.newChat, collapsed.sidebar);
+    expectContained(collapsed.collapsedPlugins, collapsed.sidebar);
+    expect(collapsed.newChat.bottom).toBeLessThanOrEqual(
+        collapsed.collapsedPlugins.top
+    );
+
+    await page.setViewportSize({ width: 390, height: 500 });
+    await page.waitForFunction(() => {
+        const state = document.body._x_dataStack[0];
+        return state.isMobileView && state.sidebarCollapsed;
+    });
+    await setSidebarFeatureStressState(page, { collapsed: true });
+    await page.locator('.mobile-header .btn-icon').click();
+    await expect(page.locator('.btn-new-chat')).toBeVisible();
+    const mobile = await measureSidebarFeatureLayout(page);
+    expect(mobile.feature.scrollHeight).toBeGreaterThan(
+        mobile.feature.clientHeight
+    );
+    expect(mobile.feature.overflowY).toBe('auto');
+    expectContained(mobile.firstFeatureEntry, mobile.feature);
+    expect(mobile.chatList.height).toBeGreaterThanOrEqual(47);
+    for (const element of [
+        mobile.newChat,
+        mobile.chatList,
+        mobile.clearAll,
+        mobile.footer
+    ]) {
+        expectContained(element, mobile.sidebar);
+    }
+    expect(consoleErrors).toEqual([]);
+});
+
+
 test('direct chat renders, titles, aligns, and survives reload', async ({
     page,
     request

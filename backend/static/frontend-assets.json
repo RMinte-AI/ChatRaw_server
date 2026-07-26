@@ -3,12 +3,12 @@
   "entrypoint": "index.html",
   "assets": {
     "app.js": {
-      "sha256": "741e87f7f160ae5b836acaba938b528fb823854b4f704a34281c814b3389b31c",
-      "version": "741e87f7f160ae5b836acaba938b528fb823854b4f704a34281c814b3389b31c"
+      "sha256": "24cee4e65915ada35c357337e85036c502dccd29c49571b3dbbff32e0dc8a898",
+      "version": "24cee4e65915ada35c357337e85036c502dccd29c49571b3dbbff32e0dc8a898"
     },
     "app.min.js": {
-      "sha256": "3d473a377bbc3b1966d6d0c17146cfd6d9172ce876ce62e5cc717479283604d7",
-      "version": "3d473a377bbc3b1966d6d0c17146cfd6d9172ce876ce62e5cc717479283604d7"
+      "sha256": "81981b786aa9177c44717b414a34db4774f88fd2508e2013c88aaa2f548ad054",
+      "version": "81981b786aa9177c44717b414a34db4774f88fd2508e2013c88aaa2f548ad054"
     },
     "auth.css": {
       "sha256": "e097f4d5880397cedfb4fdbf9caf7770e39bd1bdc11826d724890b879b6749ae",
@@ -55,8 +55,8 @@
       "version": "e92dc38bfb1d15dbb9d9ca9e645754f68e7c5b224e33c45a17048bd0cf2407a6"
     },
     "index.html": {
-      "sha256": "9a1caade2d62ad3889b60fa97b76c0fdcff60edbce264c380291fd7996f742a8",
-      "version": "9a1caade2d62ad3889b60fa97b76c0fdcff60edbce264c380291fd7996f742a8"
+      "sha256": "2d4305a6cbc293d101b1fde2b750de7c8e0725009c9efd62399cdc1fe8b78ebb",
+      "version": "2d4305a6cbc293d101b1fde2b750de7c8e0725009c9efd62399cdc1fe8b78ebb"
     },
     "login.html": {
       "sha256": "1488341d125e7101ce309b11d16b16abcea858e6ade4c4cddf565484dccd5942",
@@ -79,12 +79,12 @@
       "version": "3f024322ba1e4dd3529d37a6e526ed79e343eef2538bb54ff971f7108fed6752"
     },
     "styles.css": {
-      "sha256": "2c359d590aff17a6fb6a0a66ea45f44c640692679d290441305928a07e6fd1f6",
-      "version": "2c359d590aff17a6fb6a0a66ea45f44c640692679d290441305928a07e6fd1f6"
+      "sha256": "6f6d7f7cc349dc69788fc890e5c22790de245b8c3845214b1dea02e67242ad6c",
+      "version": "6f6d7f7cc349dc69788fc890e5c22790de245b8c3845214b1dea02e67242ad6c"
     },
     "styles.min.css": {
-      "sha256": "a852738ff16305e31bcc3cf2daad7bcb105164881529eb7e0e88eb4002f599ae",
-      "version": "a852738ff16305e31bcc3cf2daad7bcb105164881529eb7e0e88eb4002f599ae"
+      "sha256": "dbc02d234add9fa3ad2c576492af352da78cf84c1899a7d4fa07692198972bf1",
+      "version": "dbc02d234add9fa3ad2c576492af352da78cf84c1899a7d4fa07692198972bf1"
     },
     "vendor/alpine-collapse.min.js": {
       "sha256": "2bd5d9719b537cdd83b80e171fd725da9cddaf9943d510fcb4ac0140db39a47a",

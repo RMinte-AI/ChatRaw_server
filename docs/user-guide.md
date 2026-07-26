@@ -67,6 +67,10 @@ Magic Mouse 的横向手势，或按住 Shift 使用鼠标滚轮。ChatRaw 会�
 
 普通用户不需要分别配置它们。管理员完成安装和连接后，功能入口会自动可用。
 
+已启用的侧边栏功能入口位于对话区顶部，并由分隔线与“新对话”和对话列表分开。没有可用的
+侧边栏功能时，不显示空功能区或分隔线，侧栏直接从“新对话”开始。功能入口较多时，仅顶部
+功能区独立滚动，“新对话”、对话列表和底部操作保持可访问。
+
 配套插件可以在主内容区打开交互工作台。工作台可能出现在聊天右侧、上侧、下侧，或占据整个
 主区域；右、上、下模式不会阻止继续操作聊天。窄屏设备会统一显示为主区域；高度很低时，
 上、下模式也会显示为主区域。工作台关闭后，
@@ -207,6 +211,12 @@ A large feature has a backend module and one frontend integration:
 - a **backend module** that performs the task in an independent service.
 
 Members do not connect these pieces manually. Once the administrator completes installation and pairing, the feature entry point becomes available.
+
+Enabled sidebar feature entries appear above the chat controls, separated from **New Chat** and
+the chat list by a divider. When no sidebar feature is available, ChatRaw omits the empty feature
+section and divider, so the sidebar starts with **New Chat**. When feature entries exceed the
+available space, only the feature section scrolls; **New Chat**, the chat list, and footer actions
+remain accessible.
 
 A companion plugin may open an interactive workspace in the main content area. It can appear to
 the right, above, below, or in place of the visible chat surface. Right, top, and bottom workspaces

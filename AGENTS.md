@@ -36,6 +36,7 @@
 |---|---|---|
 | `docs/api/openapi.json` | Server HTTP API 快照 | **修改 API 时必须同步；通过生成脚本更新** |
 | `backend/contracts/module-*.json` | Module Manifest、管理、任务、SDK 和 conformance 契约 | **修改模块行为前必读** |
+| `backend/contracts/plugin-ui-sdk-v1.json` | Plugin 工具栏、弹窗与主内容区 Workspace 契约 | **修改插件 UI 公共接口前必读** |
 | `backend/contracts/resident-*.json` | Resident 描述文件与 Host SDK 契约 | **修改 Resident 行为前必读** |
 | `backend/contracts/chatraw-server-schema-v1.json` | Server 数据库版本和表结构契约 | 修改数据库迁移时必读并同步 |
 | `backend/contracts/chatraw-v2.2.1.json` | 经典版导入兼容契约 | 修改经典版兼容时阅读 |

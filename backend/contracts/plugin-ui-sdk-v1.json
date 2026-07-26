@@ -1,0 +1,221 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://chatraw.local/contracts/plugin-ui-sdk-v1.json",
+  "contract": "ChatRaw Plugin UI SDK",
+  "version": "1.0.0",
+  "global": "window.ChatRawPlugin.ui",
+  "runtime": {
+    "plugin_code_trust": "administrator-installed trusted frontend code",
+    "workspace_owner": "ChatRaw Server",
+    "workspace_concurrency": 1,
+    "workspace_persistence": false,
+    "responsive_main_max_width_px": 1024
+  },
+  "methods": {
+    "registerToolbarButton": {
+      "arguments": [
+        {"name": "definition", "type": "ToolbarButtonDefinition", "required": true},
+        {"name": "pluginId", "type": "string", "required": false}
+      ],
+      "returns": "boolean"
+    },
+    "unregisterToolbarButton": {
+      "arguments": [
+        {"name": "buttonId", "type": "string", "required": true},
+        {"name": "pluginId", "type": "string", "required": false}
+      ],
+      "returns": "boolean"
+    },
+    "setButtonState": {
+      "arguments": [
+        {"name": "buttonId", "type": "string", "required": true},
+        {"name": "state", "type": "ToolbarButtonState", "required": true},
+        {"name": "pluginId", "type": "string", "required": false}
+      ],
+      "returns": "boolean"
+    },
+    "openFullscreenModal": {
+      "arguments": [
+        {"name": "options", "type": "FullscreenModalOptions | string", "required": true},
+        {"name": "pluginId", "type": "string", "required": false}
+      ],
+      "returns": "boolean",
+      "compatibility": "legacy API preserved"
+    },
+    "closeFullscreenModal": {
+      "arguments": [],
+      "returns": "void",
+      "compatibility": "legacy API preserved"
+    },
+    "registerWorkspacePanel": {
+      "arguments": [
+        {"name": "definition", "type": "WorkspacePanelDefinition", "required": true},
+        {"name": "pluginId", "type": "string", "required": true}
+      ],
+      "returns": "true",
+      "side_effect": "registers or replaces one panel in the plugin-owned namespace; replacing an active panel disposes it first"
+    },
+    "unregisterWorkspacePanel": {
+      "arguments": [
+        {"name": "panelId", "type": "string", "required": true},
+        {"name": "pluginId", "type": "string", "required": true}
+      ],
+      "returns": "boolean",
+      "side_effect": "disposes and closes the matching active panel before removing its definition"
+    },
+    "openWorkspacePanel": {
+      "arguments": [
+        {"name": "panelId", "type": "string", "required": true},
+        {"name": "options", "type": "WorkspaceOpenOptions | undefined", "required": false},
+        {"name": "pluginId", "type": "string", "required": true}
+      ],
+      "returns": "true",
+      "side_effect": "opens one interactive Server-owned workspace; another active workspace is disposed before replacement"
+    },
+    "closeWorkspacePanel": {
+      "arguments": [
+        {"name": "panelId", "type": "string", "required": true},
+        {"name": "pluginId", "type": "string", "required": true}
+      ],
+      "returns": "boolean",
+      "side_effect": "disposes and clears the matching active panel"
+    }
+  },
+  "$defs": {
+    "LocalizedText": {
+      "oneOf": [
+        {"type": "string", "minLength": 1},
+        {
+          "type": "object",
+          "additionalProperties": {"type": "string"},
+          "minProperties": 1
+        }
+      ]
+    },
+    "ToolbarButtonDefinition": {
+      "type": "object",
+      "required": ["id", "icon", "onClick"],
+      "properties": {
+        "id": {"type": "string"},
+        "icon": {"type": "string", "pattern": "^ri-[a-z0-9-]+$"},
+        "label": {"$ref": "#/$defs/LocalizedText"},
+        "placement": {"enum": ["toolbar", "sidebar"]},
+        "order": {"type": "number"},
+        "onClick": {"x-javascript-type": "function"}
+      }
+    },
+    "ToolbarButtonState": {
+      "type": "object",
+      "properties": {
+        "active": {"type": "boolean"},
+        "loading": {"type": "boolean"},
+        "disabled": {"type": "boolean"},
+        "status": {"$ref": "#/$defs/LocalizedText"}
+      }
+    },
+    "FullscreenModalOptions": {
+      "type": "object",
+      "required": ["content"],
+      "properties": {
+        "content": {"type": "string", "minLength": 1},
+        "closable": {"type": "boolean"},
+        "onClose": {"x-javascript-type": "function"}
+      }
+    },
+    "WorkspacePanelDefinition": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "title",
+        "icon",
+        "placements",
+        "defaultPlacement",
+        "mount"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-z0-9](?:[a-z0-9._-]{0,62}[a-z0-9])?$"
+        },
+        "title": {"$ref": "#/$defs/LocalizedText"},
+        "icon": {"type": "string", "pattern": "^ri-[a-z0-9-]+$"},
+        "placements": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {"enum": ["right", "top", "bottom", "main"]}
+        },
+        "defaultPlacement": {"enum": ["right", "top", "bottom", "main"]},
+        "mount": {"x-javascript-type": "function"}
+      }
+    },
+    "WorkspaceOpenOptions": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "placement": {"enum": ["right", "top", "bottom", "main"]}
+      }
+    },
+    "WorkspaceMountContext": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["container", "placement"],
+      "properties": {
+        "container": {"x-javascript-type": "HTMLElement"},
+        "placement": {"enum": ["right", "top", "bottom", "main"]}
+      }
+    }
+  },
+  "workspace_mount_contract": {
+    "mount_argument": "WorkspaceMountContext",
+    "mount_return": "dispose function",
+    "mount_return_timing": "synchronous",
+    "same_panel_same_placement": "idempotent without remount",
+    "same_panel_new_placement": "dispose then remount",
+    "switch_panel": "dispose old panel then mount new panel",
+    "plugin_reload_disable_uninstall": "dispose active panel and unregister all plugin-owned panels",
+    "reentrant_lifecycle_calls": "throw; mount and dispose must not call registerWorkspacePanel, unregisterWorkspacePanel, openWorkspacePanel, or closeWorkspacePanel",
+    "invalid_behavior": "throw; never fall back to a modal, toolbar, or another placement"
+  },
+  "layout": {
+    "right": "chat and workspace remain visible and interactive",
+    "top": "workspace above interactive chat",
+    "bottom": "workspace below interactive chat",
+    "main": "chat DOM and state remain mounted but are visually hidden",
+    "narrow_screen": "all requested placements render as main at 1024px or narrower"
+  },
+  "performance": {
+    "host_polling": false,
+    "host_timers": false,
+    "host_mutation_observer": false,
+    "host_resize_observer": false,
+    "layout_animation": false,
+    "hidden_plugin_dom_after_close": false,
+    "simultaneous_workspaces": 1
+  },
+  "security": {
+    "workspace_is_sandbox": false,
+    "ownership": "lifecycle namespace, not a security sandbox",
+    "forbidden": [
+      "direct module address access",
+      "module credentials in browser state",
+      "ChatRaw private DOM or Alpine internals",
+      "HTML received from a module",
+      "unscoped plugin CSS"
+    ],
+    "required": [
+      "module calls through window.ChatRaw.modules",
+      "plugin-owned event and subscription cleanup in dispose",
+      "styles scoped below the assigned workspace container"
+    ]
+  },
+  "compatibility": {
+    "preserve_extension_points": [
+      "hooks",
+      "toolbar buttons",
+      "sidebar buttons",
+      "plugin fullscreen modal"
+    ]
+  }
+}

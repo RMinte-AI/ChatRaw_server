@@ -18,6 +18,7 @@ REQUIRED = [
     ROOT / "docs" / "user-guide.md",
     ROOT / "docs" / "admin-guide.md",
     ROOT / "docs" / "plugin-developer-guide.md",
+    ROOT / "docs" / "plugin-workspace-ui-guide.md",
     ROOT / "docs" / "module-developer-guide.md",
     ROOT / "docs" / "resident-module-integration-guide.md",
     ROOT / "docs" / "human-ai-development-guide.md",
@@ -30,6 +31,7 @@ REQUIRED = [
     ROOT / "backend" / "contracts" / "module-task-v1.schema.json",
     ROOT / "backend" / "contracts" / "module-conformance-fixture-v1.schema.json",
     ROOT / "backend" / "contracts" / "module-plugin-sdk-v1.json",
+    ROOT / "backend" / "contracts" / "plugin-ui-sdk-v1.json",
     ROOT / "backend" / "contracts" / "resident-integration-v1.schema.json",
     ROOT / "backend" / "contracts" / "resident-integration-sdk-v1.json",
     ROOT / "examples" / "reference-module" / "manifest.example.json",
@@ -39,6 +41,7 @@ REQUIRED = [
     ROOT / "ResidentIntegrations" / "reference-module-workbench" / "main.js",
 ]
 PUBLIC_MODULE_FILES = [
+    ROOT / "docs" / "plugin-workspace-ui-guide.md",
     ROOT / "docs" / "module-developer-guide.md",
     ROOT / "docs" / "resident-module-integration-guide.md",
     ROOT / "docs" / "human-ai-development-guide.md",
@@ -47,6 +50,7 @@ PUBLIC_MODULE_FILES = [
     ROOT / "backend" / "contracts" / "module-task-v1.schema.json",
     ROOT / "backend" / "contracts" / "module-conformance-fixture-v1.schema.json",
     ROOT / "backend" / "contracts" / "module-plugin-sdk-v1.json",
+    ROOT / "backend" / "contracts" / "plugin-ui-sdk-v1.json",
     ROOT / "backend" / "contracts" / "resident-integration-v1.schema.json",
     ROOT / "backend" / "contracts" / "resident-integration-sdk-v1.json",
     ROOT / "examples" / "reference-module" / "manifest.example.json",
@@ -119,6 +123,7 @@ def main() -> int:
     schema_paths.extend(
         [
             ROOT / "backend" / "contracts" / "module-plugin-sdk-v1.json",
+            ROOT / "backend" / "contracts" / "plugin-ui-sdk-v1.json",
             ROOT / "backend" / "contracts" / "resident-integration-sdk-v1.json",
         ]
     )

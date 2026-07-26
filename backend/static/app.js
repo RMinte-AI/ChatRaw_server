@@ -861,6 +861,13 @@ const SKILL_NAME_PATTERN = /^[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?$/;
 const MODULE_SDK_VERSION = '1.2.0';
 const MODULE_TASK_STORAGE_KEY = 'chatraw_module_tasks_v1';
 const MODULE_TERMINAL_STATES = new Set(['succeeded', 'failed', 'cancelled']);
+const PLUGIN_WORKSPACE_PLACEMENTS = Object.freeze([
+    'right',
+    'top',
+    'bottom',
+    'main'
+]);
+const PLUGIN_WORKSPACE_PANEL_ID_PATTERN = /^[a-z0-9](?:[a-z0-9._-]{0,62}[a-z0-9])?$/;
 
 function app() {
     const initialDesktopCollapsed = localStorage.getItem('chatraw_sidebar_collapsed') === '1';
@@ -993,6 +1000,18 @@ function app() {
             onClose: null,
             pluginId: null
         },
+        pluginWorkspaceDefinitions: {},
+        pluginWorkspace: {
+            show: false,
+            pluginId: null,
+            panelId: null,
+            title: null,
+            icon: '',
+            placement: null,
+            dispose: null
+        },
+        _pluginWorkspaceReturnFocus: null,
+        _pluginWorkspaceTransition: null,
         
         // Plugin hooks system
         pluginHooks: {
@@ -4400,6 +4419,291 @@ function app() {
             if (typeof btn.status === 'string') return btn.status;
             return btn.status?.[lang] || btn.status?.en || '';
         },
+
+        pluginWorkspaceKey(pluginId, panelId) {
+            return `${pluginId}:${panelId}`;
+        },
+
+        assertPluginWorkspaceOwner(pluginId) {
+            if (typeof pluginId !== 'string' || !pluginId.trim()) {
+                throw new TypeError('Plugin Workspace requires an explicit pluginId');
+            }
+            const plugin = this.installedPlugins.find(item => item.id === pluginId);
+            if (!plugin || plugin.enabled === false) {
+                throw new Error(`Plugin Workspace owner is not enabled: ${pluginId}`);
+            }
+            return pluginId;
+        },
+
+        assertPluginWorkspaceTransitionAvailable() {
+            if (this._pluginWorkspaceTransition) {
+                throw new Error(
+                    'Plugin Workspace lifecycle cannot change during '
+                    + this._pluginWorkspaceTransition
+                );
+            }
+        },
+
+        validatePluginWorkspaceDefinition(definition) {
+            const allowedKeys = new Set([
+                'id',
+                'title',
+                'icon',
+                'placements',
+                'defaultPlacement',
+                'mount'
+            ]);
+            if (
+                !definition
+                || typeof definition !== 'object'
+                || Array.isArray(definition)
+                || Object.keys(definition).some(key => !allowedKeys.has(key))
+                || typeof definition.id !== 'string'
+                || !PLUGIN_WORKSPACE_PANEL_ID_PATTERN.test(definition.id)
+                || !definition.title
+                || !definition.icon
+                || !/^ri-[a-z0-9-]+$/.test(definition.icon)
+                || !Array.isArray(definition.placements)
+                || definition.placements.length === 0
+                || new Set(definition.placements).size !== definition.placements.length
+                || definition.placements.some(
+                    placement => !PLUGIN_WORKSPACE_PLACEMENTS.includes(placement)
+                )
+                || !definition.placements.includes(definition.defaultPlacement)
+                || typeof definition.mount !== 'function'
+            ) {
+                throw new TypeError('Invalid Plugin Workspace definition');
+            }
+            if (
+                typeof definition.title !== 'string'
+                && (
+                    typeof definition.title !== 'object'
+                    || Array.isArray(definition.title)
+                    || Object.keys(definition.title).length === 0
+                    || !Object.values(definition.title).every(
+                        value => typeof value === 'string'
+                    )
+                    || !Object.values(definition.title).some(
+                        value => value.trim()
+                    )
+                )
+            ) {
+                throw new TypeError('Invalid Plugin Workspace title');
+            }
+            return definition;
+        },
+
+        registerPluginWorkspacePanel(definition, pluginId) {
+            this.assertPluginWorkspaceTransitionAvailable();
+            const owner = this.assertPluginWorkspaceOwner(pluginId);
+            this.validatePluginWorkspaceDefinition(definition);
+            const key = this.pluginWorkspaceKey(owner, definition.id);
+            if (
+                this.pluginWorkspace.show
+                && this.pluginWorkspace.pluginId === owner
+                && this.pluginWorkspace.panelId === definition.id
+            ) {
+                const disposeError = this.teardownPluginWorkspace();
+                if (disposeError) throw disposeError;
+            }
+            this.pluginWorkspaceDefinitions[key] = Object.freeze({
+                id: definition.id,
+                title: definition.title,
+                icon: definition.icon,
+                placements: Object.freeze([...definition.placements]),
+                defaultPlacement: definition.defaultPlacement,
+                mount: definition.mount
+            });
+            return true;
+        },
+
+        unregisterPluginWorkspacePanel(panelId, pluginId) {
+            this.assertPluginWorkspaceTransitionAvailable();
+            const owner = this.assertPluginWorkspaceOwner(pluginId);
+            if (
+                typeof panelId !== 'string'
+                || !PLUGIN_WORKSPACE_PANEL_ID_PATTERN.test(panelId)
+            ) {
+                throw new TypeError('Invalid Plugin Workspace panelId');
+            }
+            const key = this.pluginWorkspaceKey(owner, panelId);
+            if (!this.pluginWorkspaceDefinitions[key]) return false;
+            if (
+                this.pluginWorkspace.show
+                && this.pluginWorkspace.pluginId === owner
+                && this.pluginWorkspace.panelId === panelId
+            ) {
+                const disposeError = this.teardownPluginWorkspace();
+                if (disposeError) throw disposeError;
+            }
+            delete this.pluginWorkspaceDefinitions[key];
+            return true;
+        },
+
+        openPluginWorkspacePanel(panelId, options, pluginId) {
+            this.assertPluginWorkspaceTransitionAvailable();
+            const owner = this.assertPluginWorkspaceOwner(pluginId);
+            if (
+                typeof panelId !== 'string'
+                || !PLUGIN_WORKSPACE_PANEL_ID_PATTERN.test(panelId)
+                || (options !== undefined && (
+                    !options
+                    || typeof options !== 'object'
+                    || Array.isArray(options)
+                    || Object.keys(options).some(key => key !== 'placement')
+                ))
+            ) {
+                throw new TypeError('Invalid Plugin Workspace open request');
+            }
+            const key = this.pluginWorkspaceKey(owner, panelId);
+            const definition = this.pluginWorkspaceDefinitions[key];
+            if (!definition) {
+                throw new Error(`Plugin Workspace panel is not registered: ${panelId}`);
+            }
+            const placement = options?.placement || definition.defaultPlacement;
+            if (!definition.placements.includes(placement)) {
+                throw new TypeError(`Unsupported Plugin Workspace placement: ${placement}`);
+            }
+            if (
+                this.pluginWorkspace.show
+                && this.pluginWorkspace.pluginId === owner
+                && this.pluginWorkspace.panelId === panelId
+                && this.pluginWorkspace.placement === placement
+            ) {
+                return true;
+            }
+            const previousReturnFocus = this._pluginWorkspaceReturnFocus;
+            if (this.pluginWorkspace.show) {
+                const disposeError = this.teardownPluginWorkspace(false);
+                if (disposeError) throw disposeError;
+            }
+            const container = document.getElementById('plugin-workspace-mount');
+            if (!container) {
+                throw new Error('Plugin Workspace mount container is unavailable');
+            }
+            this._pluginWorkspaceReturnFocus = (
+                previousReturnFocus?.isConnected
+                    ? previousReturnFocus
+                    : (
+                        document.activeElement instanceof HTMLElement
+                        && document.activeElement.isConnected
+                    ) ? document.activeElement : null
+            );
+            container.replaceChildren();
+            this.pluginWorkspace = {
+                show: true,
+                pluginId: owner,
+                panelId,
+                title: definition.title,
+                icon: definition.icon,
+                placement,
+                dispose: null
+            };
+            try {
+                this._pluginWorkspaceTransition = 'mount';
+                const dispose = definition.mount({ container, placement });
+                if (typeof dispose !== 'function') {
+                    throw new TypeError(
+                        'Plugin Workspace mount must synchronously return dispose()'
+                    );
+                }
+                this.pluginWorkspace.dispose = dispose;
+            } catch (error) {
+                container.replaceChildren();
+                this.pluginWorkspace = {
+                    show: false,
+                    pluginId: null,
+                    panelId: null,
+                    title: null,
+                    icon: '',
+                    placement: null,
+                    dispose: null
+                };
+                const returnFocus = this._pluginWorkspaceReturnFocus;
+                this._pluginWorkspaceReturnFocus = null;
+                returnFocus?.focus();
+                throw error;
+            } finally {
+                this._pluginWorkspaceTransition = null;
+            }
+            this.$nextTick(() => {
+                document.getElementById('plugin-workspace-close')?.focus();
+            });
+            return true;
+        },
+
+        teardownPluginWorkspace(restoreFocus = true) {
+            this.assertPluginWorkspaceTransitionAvailable();
+            if (!this.pluginWorkspace.show) return null;
+            const dispose = this.pluginWorkspace.dispose;
+            this.pluginWorkspace.dispose = null;
+            let disposeError = null;
+            try {
+                this._pluginWorkspaceTransition = 'dispose';
+                dispose?.();
+            } catch (error) {
+                disposeError = error;
+            } finally {
+                this._pluginWorkspaceTransition = null;
+            }
+            document.getElementById('plugin-workspace-mount')?.replaceChildren();
+            this.pluginWorkspace = {
+                show: false,
+                pluginId: null,
+                panelId: null,
+                title: null,
+                icon: '',
+                placement: null,
+                dispose: null
+            };
+            const returnFocus = this._pluginWorkspaceReturnFocus;
+            this._pluginWorkspaceReturnFocus = null;
+            if (restoreFocus && returnFocus?.isConnected) returnFocus.focus();
+            return disposeError;
+        },
+
+        closeActivePluginWorkspace() {
+            const disposeError = this.teardownPluginWorkspace();
+            if (disposeError) {
+                console.error('[Plugin Workspace dispose]', disposeError);
+            }
+        },
+
+        closePluginWorkspacePanel(panelId, pluginId) {
+            this.assertPluginWorkspaceTransitionAvailable();
+            const owner = this.assertPluginWorkspaceOwner(pluginId);
+            if (
+                typeof panelId !== 'string'
+                || !PLUGIN_WORKSPACE_PANEL_ID_PATTERN.test(panelId)
+            ) {
+                throw new TypeError('Invalid Plugin Workspace panelId');
+            }
+            if (!this.pluginWorkspace.show) return false;
+            if (
+                this.pluginWorkspace.pluginId !== owner
+                || this.pluginWorkspace.panelId !== panelId
+            ) {
+                throw new Error('Plugin Workspace ownership mismatch');
+            }
+            const disposeError = this.teardownPluginWorkspace();
+            if (disposeError) throw disposeError;
+            return true;
+        },
+
+        unregisterPluginWorkspacePanels(pluginId) {
+            if (this.pluginWorkspace.pluginId === pluginId) {
+                const disposeError = this.teardownPluginWorkspace();
+                if (disposeError) {
+                    console.error('[Plugin Workspace dispose]', disposeError);
+                }
+            }
+            const prefix = `${pluginId}:`;
+            for (const key of Object.keys(this.pluginWorkspaceDefinitions)) {
+                if (key.startsWith(prefix)) {
+                    delete this.pluginWorkspaceDefinitions[key];
+                }
+            }
+        },
         
         // Handle plugin button click
         async handlePluginButtonClick(btn) {
@@ -5275,7 +5579,7 @@ function app() {
                     }
                 },
                 
-                // UI Extension API for toolbar buttons and fullscreen modal
+                // UI Extension API for toolbar buttons, modal, and workspace panels
                 ui: {
                     // Register a toolbar button
                     // config: { id, icon, label, onClick, order? }, pluginId (optional)
@@ -5385,7 +5689,36 @@ function app() {
                     // Close fullscreen modal
                     closeFullscreenModal: () => {
                         appInstance.closePluginFullscreenModal();
-                    }
+                    },
+
+                    registerWorkspacePanel: (definition, pluginId) => (
+                        appInstance.registerPluginWorkspacePanel(
+                            definition,
+                            pluginId
+                        )
+                    ),
+
+                    unregisterWorkspacePanel: (panelId, pluginId) => (
+                        appInstance.unregisterPluginWorkspacePanel(
+                            panelId,
+                            pluginId
+                        )
+                    ),
+
+                    openWorkspacePanel: (panelId, options, pluginId) => (
+                        appInstance.openPluginWorkspacePanel(
+                            panelId,
+                            options,
+                            pluginId
+                        )
+                    ),
+
+                    closeWorkspacePanel: (panelId, pluginId) => (
+                        appInstance.closePluginWorkspacePanel(
+                            panelId,
+                            pluginId
+                        )
+                    )
                 }
             };
 
@@ -5417,14 +5750,7 @@ function app() {
         // Load a plugin's JS file
         async loadPluginJS(plugin) {
             try {
-                this.unregisterPluginHooks(plugin.id);
-                this.unregisterPluginCompletions(plugin.id);
-                this.pluginToolbarButtons = this.pluginToolbarButtons.filter(
-                    button => button.pluginId !== plugin.id
-                );
-                if (this.pluginFullscreenModal?.pluginId === plugin.id) {
-                    this.closePluginFullscreenModal();
-                }
+                this.cleanupPluginRuntime(plugin.id);
 
                 // First load dependencies
                 if (plugin.dependencies) {
@@ -5474,6 +5800,18 @@ function app() {
                 this._currentLoadingPlugin = null;
                 console.error(`[Plugin] Failed to load ${plugin.id}:`, e);
             }
+        },
+
+        cleanupPluginRuntime(pluginId) {
+            this.unregisterPluginHooks(pluginId);
+            this.unregisterPluginCompletions(pluginId);
+            this.pluginToolbarButtons = this.pluginToolbarButtons.filter(
+                button => button.pluginId !== pluginId
+            );
+            if (this.pluginFullscreenModal?.pluginId === pluginId) {
+                this.closePluginFullscreenModal();
+            }
+            this.unregisterPluginWorkspacePanels(pluginId);
         },
         
         // Load external script
@@ -5820,20 +6158,7 @@ function app() {
                         await this.loadPluginJS(plugin);
                         this.showToast(this.t('settingsSaved'), 'success');
                     } else {
-                        // Unregister hooks when disabled
-                        this.unregisterPluginHooks(plugin.id);
-                        this.unregisterPluginCompletions(plugin.id);
-                        
-                        // Clean up toolbar buttons registered by this plugin
-                        this.pluginToolbarButtons = this.pluginToolbarButtons.filter(
-                            btn => btn.pluginId !== plugin.id
-                        );
-                        
-                        // If this plugin has a fullscreen modal open, close it
-                        if (this.pluginFullscreenModal.pluginId === plugin.id) {
-                            this.closePluginFullscreenModal();
-                        }
-                        
+                        this.cleanupPluginRuntime(plugin.id);
                         this.showToast(this.t('pluginDisabled'), 'success');
                     }
                 }
@@ -5939,25 +6264,12 @@ function app() {
             if (!plugin || !confirm(this.t('confirmUninstall'))) return;
             
             try {
-                // First unregister hooks
-                this.unregisterPluginHooks(plugin.id);
-                this.unregisterPluginCompletions(plugin.id);
-                
-                // Clean up toolbar buttons registered by this plugin
-                this.pluginToolbarButtons = this.pluginToolbarButtons.filter(
-                    btn => btn.pluginId !== plugin.id
-                );
-                
-                // If this plugin has a fullscreen modal open, close it
-                if (this.pluginFullscreenModal.pluginId === plugin.id) {
-                    this.closePluginFullscreenModal();
-                }
-                
                 const res = await fetch(`/api/plugins/${encodeURIComponent(plugin.id)}`, {
                     method: 'DELETE'
                 });
                 
                 if (res.ok) {
+                    this.cleanupPluginRuntime(plugin.id);
                     this.showPluginSettings = false;
                     this.currentPluginSettings = null;
                     this.showToast(this.t('uninstallSuccess'), 'success');

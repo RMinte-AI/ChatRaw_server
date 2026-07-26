@@ -196,6 +196,8 @@ Workspace 规则：
 - `pluginId` 必须显式提供；它是生命周期归属命名空间，不是浏览器安全沙箱。
 - `mount` 必须同步返回一个 `dispose()` 函数。异步请求可以在 mount 内启动，但关闭时必须取消
   订阅、事件监听和仍可取消的请求。
+- `mount()` 和 `dispose()` 执行期间不得递归调用 Workspace 的注册、注销、打开或关闭 API；
+  Host 会直接抛错，避免重入覆盖当前面板的生命周期状态。
 - Plugin 只能修改传入的 `container`，不能查找 ChatRaw 私有 DOM、读取 Alpine 内部状态或向
   Server 挂载点写入模块返回的 HTML。
 - 同一时刻只有一个 Workspace。打开另一面板或切换位置时，旧面板先执行一次 `dispose()`。

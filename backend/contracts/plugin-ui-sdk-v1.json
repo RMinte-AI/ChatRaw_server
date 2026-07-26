@@ -175,6 +175,7 @@
     "same_panel_new_placement": "dispose then remount",
     "switch_panel": "dispose old panel then mount new panel",
     "plugin_reload_disable_uninstall": "dispose active panel and unregister all plugin-owned panels",
+    "reentrant_lifecycle_calls": "throw; mount and dispose must not call registerWorkspacePanel, unregisterWorkspacePanel, openWorkspacePanel, or closeWorkspacePanel",
     "invalid_behavior": "throw; never fall back to a modal, toolbar, or another placement"
   },
   "layout": {

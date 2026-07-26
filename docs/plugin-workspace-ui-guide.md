@@ -371,6 +371,10 @@ reference-workspace-companion/
 - 中止 Plugin 自己创建且仍可取消的请求；
 - 设置 disposed 标记，阻止已经返回的异步结果继续更新 DOM。
 
+`mount()` 和 `dispose()` 都不能递归调用 Workspace 的注册、注销、打开或关闭 API。需要切换
+面板时，应由当前回调返回后的用户操作或异步流程发起；Host 会拒绝同步重入，防止新面板的
+`dispose()` 被旧回调覆盖。
+
 Server 会在 `dispose()` 返回后清空挂载容器。Plugin 不需要删除 Server 的标题栏或关闭按钮。
 
 ## 5. 样式和性能

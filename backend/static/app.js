@@ -1011,6 +1011,7 @@ function app() {
             dispose: null
         },
         _pluginWorkspaceReturnFocus: null,
+        _pluginWorkspaceTransition: null,
         
         // Plugin hooks system
         pluginHooks: {
@@ -4434,6 +4435,15 @@ function app() {
             return pluginId;
         },
 
+        assertPluginWorkspaceTransitionAvailable() {
+            if (this._pluginWorkspaceTransition) {
+                throw new Error(
+                    'Plugin Workspace lifecycle cannot change during '
+                    + this._pluginWorkspaceTransition
+                );
+            }
+        },
+
         validatePluginWorkspaceDefinition(definition) {
             const allowedKeys = new Set([
                 'id',
@@ -4484,6 +4494,7 @@ function app() {
         },
 
         registerPluginWorkspacePanel(definition, pluginId) {
+            this.assertPluginWorkspaceTransitionAvailable();
             const owner = this.assertPluginWorkspaceOwner(pluginId);
             this.validatePluginWorkspaceDefinition(definition);
             const key = this.pluginWorkspaceKey(owner, definition.id);
@@ -4507,6 +4518,7 @@ function app() {
         },
 
         unregisterPluginWorkspacePanel(panelId, pluginId) {
+            this.assertPluginWorkspaceTransitionAvailable();
             const owner = this.assertPluginWorkspaceOwner(pluginId);
             if (
                 typeof panelId !== 'string'
@@ -4529,6 +4541,7 @@ function app() {
         },
 
         openPluginWorkspacePanel(panelId, options, pluginId) {
+            this.assertPluginWorkspaceTransitionAvailable();
             const owner = this.assertPluginWorkspaceOwner(pluginId);
             if (
                 typeof panelId !== 'string'
@@ -4587,6 +4600,7 @@ function app() {
                 dispose: null
             };
             try {
+                this._pluginWorkspaceTransition = 'mount';
                 const dispose = definition.mount({ container, placement });
                 if (typeof dispose !== 'function') {
                     throw new TypeError(
@@ -4609,6 +4623,8 @@ function app() {
                 this._pluginWorkspaceReturnFocus = null;
                 returnFocus?.focus();
                 throw error;
+            } finally {
+                this._pluginWorkspaceTransition = null;
             }
             this.$nextTick(() => {
                 document.getElementById('plugin-workspace-close')?.focus();
@@ -4617,14 +4633,18 @@ function app() {
         },
 
         teardownPluginWorkspace(restoreFocus = true) {
+            this.assertPluginWorkspaceTransitionAvailable();
             if (!this.pluginWorkspace.show) return null;
             const dispose = this.pluginWorkspace.dispose;
             this.pluginWorkspace.dispose = null;
             let disposeError = null;
             try {
+                this._pluginWorkspaceTransition = 'dispose';
                 dispose?.();
             } catch (error) {
                 disposeError = error;
+            } finally {
+                this._pluginWorkspaceTransition = null;
             }
             document.getElementById('plugin-workspace-mount')?.replaceChildren();
             this.pluginWorkspace = {
@@ -4650,6 +4670,7 @@ function app() {
         },
 
         closePluginWorkspacePanel(panelId, pluginId) {
+            this.assertPluginWorkspaceTransitionAvailable();
             const owner = this.assertPluginWorkspaceOwner(pluginId);
             if (
                 typeof panelId !== 'string'

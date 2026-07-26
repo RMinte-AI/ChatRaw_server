@@ -220,6 +220,120 @@ test('workspace registration and mount failures are explicit and leave no DOM', 
     );
 });
 
+test('workspace lifecycle mutations fail closed during mount and dispose', () => {
+    const operations = {
+        register(ui) {
+            return ui.registerWorkspacePanel(
+                panelDefinition('replacement', counters()),
+                'plugin-one'
+            );
+        },
+        unregister(ui) {
+            return ui.unregisterWorkspacePanel('target', 'plugin-one');
+        },
+        open(ui) {
+            return ui.openWorkspacePanel('target', undefined, 'plugin-one');
+        },
+        close(ui) {
+            return ui.closeWorkspacePanel('target', 'plugin-one');
+        }
+    };
+
+    for (const [name, operation] of Object.entries(operations)) {
+        const mountHost = createHost();
+        const mountState = counters();
+        mountHost.ui.registerWorkspacePanel(
+            panelDefinition('target', counters()),
+            'plugin-one'
+        );
+        mountHost.ui.registerWorkspacePanel(
+            {
+                ...panelDefinition(`mount-${name}`, mountState),
+                mount() {
+                    operation(mountHost.ui);
+                    return () => {
+                        mountState.disposals += 1;
+                    };
+                }
+            },
+            'plugin-one'
+        );
+        assert.throws(
+            () => mountHost.ui.openWorkspacePanel(
+                `mount-${name}`,
+                undefined,
+                'plugin-one'
+            ),
+            /lifecycle cannot change during mount/
+        );
+        assert.equal(mountHost.host.pluginWorkspace.show, false);
+        assert.equal(mountState.disposals, 0);
+        assert.ok(
+            mountHost.host.pluginWorkspaceDefinitions['plugin-one:target']
+        );
+        assert.equal(
+            mountHost.ui.openWorkspacePanel(
+                'target',
+                undefined,
+                'plugin-one'
+            ),
+            true
+        );
+        assert.equal(
+            mountHost.ui.closeWorkspacePanel('target', 'plugin-one'),
+            true
+        );
+
+        const disposeHost = createHost();
+        const disposeState = counters();
+        disposeHost.ui.registerWorkspacePanel(
+            panelDefinition('target', counters()),
+            'plugin-one'
+        );
+        disposeHost.ui.registerWorkspacePanel(
+            {
+                ...panelDefinition(`dispose-${name}`, disposeState),
+                mount() {
+                    return () => {
+                        disposeState.disposals += 1;
+                        operation(disposeHost.ui);
+                    };
+                }
+            },
+            'plugin-one'
+        );
+        disposeHost.ui.openWorkspacePanel(
+            `dispose-${name}`,
+            undefined,
+            'plugin-one'
+        );
+        assert.throws(
+            () => disposeHost.ui.closeWorkspacePanel(
+                `dispose-${name}`,
+                'plugin-one'
+            ),
+            /lifecycle cannot change during dispose/
+        );
+        assert.equal(disposeState.disposals, 1);
+        assert.equal(disposeHost.host.pluginWorkspace.show, false);
+        assert.ok(
+            disposeHost.host.pluginWorkspaceDefinitions['plugin-one:target']
+        );
+        assert.equal(
+            disposeHost.ui.openWorkspacePanel(
+                'target',
+                undefined,
+                'plugin-one'
+            ),
+            true
+        );
+        assert.equal(
+            disposeHost.ui.closeWorkspacePanel('target', 'plugin-one'),
+            true
+        );
+    }
+});
+
 test('workspace layout is non-modal, responsive, and isolated from Alpine', () => {
     assert.match(appHtml, /class="plugin-workspace-layout"/);
     assert.match(appHtml, /role="region"/);

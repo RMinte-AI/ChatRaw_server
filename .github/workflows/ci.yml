@@ -9,11 +9,13 @@ on:
       - 'backend/requirements-dev.txt'
       - 'backend/static/**'
       - 'backend/contracts/**'
+      - 'browser-tests/**'
       - 'examples/reference-module/**'
       - 'ResidentIntegrations/**'
       - 'Plugins/Plugin_market/reference-module-companion/**'
       - 'package.json'
       - 'package-lock.json'
+      - 'playwright.config.mjs'
       - 'scripts/**'
       - 'Dockerfile'
       - 'docker-compose.yml'
@@ -27,11 +29,13 @@ on:
       - 'backend/requirements-dev.txt'
       - 'backend/static/**'
       - 'backend/contracts/**'
+      - 'browser-tests/**'
       - 'examples/reference-module/**'
       - 'ResidentIntegrations/**'
       - 'Plugins/Plugin_market/reference-module-companion/**'
       - 'package.json'
       - 'package-lock.json'
+      - 'playwright.config.mjs'
       - 'scripts/**'
       - 'Dockerfile'
       - 'docker-compose.yml'
@@ -101,6 +105,12 @@ jobs:
 
       - name: Verify frontend build artifacts
         run: npm run check:frontend
+
+      - name: Install browser engines
+        run: npx playwright install --with-deps chromium webkit
+
+      - name: Real browser chat regression
+        run: npm run test:browser
 
   docker-build:
     name: Docker Build

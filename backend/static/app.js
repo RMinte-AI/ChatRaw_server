@@ -1030,6 +1030,9 @@ function app() {
             panelId: null,
             title: null,
             icon: '',
+            collectionId: null,
+            collectionTitle: null,
+            collectionIcon: '',
             placement: null,
             dispose: null
         },
@@ -4834,6 +4837,45 @@ function app() {
         get sidebarPluginButtons() {
             return this.getSortedPluginButtons('sidebar');
         },
+
+        get pluginWorkspaceCollections() {
+            const collections = new Map();
+            for (const definition of Object.values(this.pluginWorkspaceDefinitions)) {
+                const collection = definition.collection;
+                if (!collection) continue;
+                const plugin = this.installedPlugins?.find(
+                    item => item.id === definition.pluginId
+                );
+                if (plugin?.enabled === false) continue;
+                if (!collections.has(collection.id)) {
+                    collections.set(collection.id, {
+                        id: collection.id,
+                        title: collection.title,
+                        icon: collection.icon,
+                        order: collection.order,
+                        panels: []
+                    });
+                }
+                collections.get(collection.id).panels.push({
+                    pluginId: definition.pluginId,
+                    panelId: definition.id,
+                    title: definition.title,
+                    icon: definition.icon,
+                    order: collection.tabOrder
+                });
+            }
+            return [...collections.values()]
+                .map(collection => ({
+                    ...collection,
+                    panels: collection.panels.sort(
+                        (a, b) => a.order - b.order
+                            || `${a.pluginId}:${a.panelId}`.localeCompare(
+                                `${b.pluginId}:${b.panelId}`
+                            )
+                    )
+                }))
+                .sort((a, b) => a.order - b.order || a.id.localeCompare(b.id));
+        },
         
         // Get localized button label
         getPluginButtonLabel(btn) {
@@ -4845,6 +4887,50 @@ function app() {
             const lang = this.lang || 'en';
             if (typeof btn.status === 'string') return btn.status;
             return btn.status?.[lang] || btn.status?.en || '';
+        },
+
+        getPluginWorkspaceCollection(collectionId) {
+            return this.pluginWorkspaceCollections.find(
+                collection => collection.id === collectionId
+            ) || null;
+        },
+
+        activePluginWorkspaceCollectionPanels() {
+            return this.getPluginWorkspaceCollection(
+                this.pluginWorkspace.collectionId
+            )?.panels || [];
+        },
+
+        openPluginWorkspaceCollection(collectionId) {
+            const collection = this.getPluginWorkspaceCollection(collectionId);
+            if (!collection?.panels.length) return false;
+            const active = collection.panels.find(panel => (
+                panel.pluginId === this.pluginWorkspace.pluginId
+                && panel.panelId === this.pluginWorkspace.panelId
+            ));
+            const panel = active || collection.panels[0];
+            return this.openPluginWorkspacePanel(
+                panel.panelId,
+                { placement: 'main' },
+                panel.pluginId
+            );
+        },
+
+        switchPluginWorkspaceCollectionPanel(panel) {
+            const collection = this.getPluginWorkspaceCollection(
+                this.pluginWorkspace.collectionId
+            );
+            if (!collection?.panels.some(item => (
+                item.pluginId === panel?.pluginId
+                && item.panelId === panel?.panelId
+            ))) {
+                throw new Error('Plugin Workspace collection panel mismatch');
+            }
+            return this.openPluginWorkspacePanel(
+                panel.panelId,
+                { placement: 'main' },
+                panel.pluginId
+            );
         },
 
         pluginWorkspaceKey(pluginId, panelId) {
@@ -4892,6 +4978,7 @@ function app() {
                 'icon',
                 'placements',
                 'defaultPlacement',
+                'collection',
                 'mount'
             ]);
             if (
@@ -4931,6 +5018,82 @@ function app() {
             ) {
                 throw new TypeError('Invalid Plugin Workspace title');
             }
+            if (definition.collection !== undefined) {
+                const collection = definition.collection;
+                const allowedCollectionKeys = new Set([
+                    'id',
+                    'title',
+                    'icon',
+                    'order',
+                    'tabOrder'
+                ]);
+                if (
+                    !collection
+                    || typeof collection !== 'object'
+                    || Array.isArray(collection)
+                    || Object.keys(collection).some(
+                        key => !allowedCollectionKeys.has(key)
+                    )
+                    || typeof collection.id !== 'string'
+                    || !PLUGIN_WORKSPACE_PANEL_ID_PATTERN.test(collection.id)
+                    || !collection.title
+                    || typeof collection.icon !== 'string'
+                    || !/^ri-[a-z0-9-]+$/.test(collection.icon)
+                    || !Number.isFinite(collection.order)
+                    || !Number.isFinite(collection.tabOrder)
+                    || definition.defaultPlacement !== 'main'
+                    || !definition.placements.includes('main')
+                ) {
+                    throw new TypeError(
+                        'Invalid Plugin Workspace collection definition'
+                    );
+                }
+                if (
+                    typeof collection.title !== 'string'
+                    && (
+                        typeof collection.title !== 'object'
+                        || Array.isArray(collection.title)
+                        || Object.keys(collection.title).length === 0
+                        || !Object.values(collection.title).every(
+                            value => typeof value === 'string'
+                        )
+                        || !Object.values(collection.title).some(
+                            value => value.trim()
+                        )
+                    )
+                ) {
+                    throw new TypeError(
+                        'Invalid Plugin Workspace collection title'
+                    );
+                }
+                const localizedSignature = value => (
+                    typeof value === 'string'
+                        ? value
+                        : JSON.stringify(
+                            Object.fromEntries(
+                                Object.entries(value).sort(([a], [b]) => (
+                                    a.localeCompare(b)
+                                ))
+                            )
+                        )
+                );
+                const conflict = Object.values(
+                    this.pluginWorkspaceDefinitions
+                ).find(existing => (
+                    existing.collection?.id === collection.id
+                    && (
+                        existing.collection.icon !== collection.icon
+                        || existing.collection.order !== collection.order
+                        || localizedSignature(existing.collection.title)
+                            !== localizedSignature(collection.title)
+                    )
+                ));
+                if (conflict) {
+                    throw new Error(
+                        `Plugin Workspace collection metadata mismatch: ${collection.id}`
+                    );
+                }
+            }
             return definition;
         },
 
@@ -4965,11 +5128,21 @@ function app() {
                 if (disposeError) throw disposeError;
             }
             this.pluginWorkspaceDefinitions[key] = Object.freeze({
+                pluginId: owner,
                 id: definition.id,
                 title: definition.title,
                 icon: definition.icon,
                 placements: Object.freeze([...definition.placements]),
                 defaultPlacement: definition.defaultPlacement,
+                collection: definition.collection
+                    ? Object.freeze({
+                        id: definition.collection.id,
+                        title: definition.collection.title,
+                        icon: definition.collection.icon,
+                        order: definition.collection.order,
+                        tabOrder: definition.collection.tabOrder
+                    })
+                    : null,
                 mount: definition.mount
             });
             return true;
@@ -5077,6 +5250,9 @@ function app() {
                 panelId,
                 title: definition.title,
                 icon: definition.icon,
+                collectionId: definition.collection?.id || null,
+                collectionTitle: definition.collection?.title || null,
+                collectionIcon: definition.collection?.icon || '',
                 placement,
                 dispose: null
             };
@@ -5097,6 +5273,9 @@ function app() {
                     panelId: null,
                     title: null,
                     icon: '',
+                    collectionId: null,
+                    collectionTitle: null,
+                    collectionIcon: '',
                     placement: null,
                     dispose: null
                 };
@@ -5159,6 +5338,9 @@ function app() {
                 panelId: null,
                 title: null,
                 icon: '',
+                collectionId: null,
+                collectionTitle: null,
+                collectionIcon: '',
                 placement: null,
                 dispose: null
             };

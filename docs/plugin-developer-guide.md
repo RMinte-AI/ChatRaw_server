@@ -203,6 +203,24 @@ ChatRawPlugin.ui.registerToolbarButton(
 );
 ```
 
+多个只在 `main` 位置显示的相关面板可以声明同一个可选 `collection`。Server 会为该
+collection 只渲染一个侧栏入口，并在 Workspace 标题下渲染面板标签：
+
+```js
+collection: {
+    id: 'operations',
+    title: { en: 'Operations', zh: '运营' },
+    icon: 'ri-dashboard-line',
+    order: 20,
+    tabOrder: 10
+}
+```
+
+collection 面板必须包含 `main`，且 `defaultPlacement` 必须是 `main`。不同 Plugin 可以
+加入同一 collection，但 `id` 相同时 `title`、`icon` 和 `order` 必须完全一致；Server
+按 `order` 排 collection，按 `tabOrder` 排标签，相同序号再按 Plugin ID 和面板 ID
+稳定排序。切换标签仍遵循“先 dispose 旧面板，再 mount 新面板”的单 Workspace 生命周期。
+
 Workspace 规则：
 
 - `pluginId` 必须显式提供；它是生命周期归属命名空间，不是浏览器安全沙箱。
@@ -372,7 +390,9 @@ await window.ChatRaw.modules.downloadTaskResource(
 
 每次 `startTask` 都会登记一个独立任务。插件不要自己复制任务列表、执行时间线、审批界面或产物凭证。
 使用 `conversation` 的 `send_intercept` 成功后必须返回 `userMessage: false`，因为任务接受事务已经
-持久化用户消息。
+持久化用户消息。conversation 消息只有 `content` 是可渲染、可复制的答案正文：流式 task output
+更新 Core 管理的虚拟助手消息，终态 projection 持久化后再按消息 ID 替换它。插件不得把
+`task.result` 或 `chat_projection` 再渲染成第二份答案。
 
 ### 9. 错误处理
 
@@ -471,6 +491,15 @@ Host decision with an option. If data is asynchronous, open synchronously, rende
 [Plugin UI SDK Contract](../backend/contracts/plugin-ui-sdk-v1.json) and the
 [complete implementation guide](plugin-workspace-ui-guide.md).
 
+Related panels that render only in `main` may declare the same optional
+`collection` object with `id`, localized `title`, `icon`, `order`, and
+`tabOrder`. The Host renders one sidebar entry for the collection and a tab for
+each enabled panel. Collection panels must include `main` and use it as
+`defaultPlacement`. Panels from different plugins may share an ID only when
+their title, icon, and collection order are identical. Collection order and tab
+order are deterministic, and switching tabs still disposes the old panel
+before mounting the new one.
+
 The Host consumes horizontal wheel, trackpad, and Magic Mouse gestures at the page root to prevent
 Safari history rubber-banding. A plugin-owned horizontal region must explicitly use
 `overflow-x: auto` or `scroll`; the Host routes the gesture to the nearest such overflow container
@@ -483,11 +512,15 @@ Companion plugins use only `window.ChatRaw.modules`. The machine-readable contra
 
 SDK 1.5 adds the `conversation` presentation. It requires `chat_id` and
 `user_message`; Core owns the inline activity timeline, subscription, recovery,
-approval, and artifacts without opening the task center. `task_center` remains
-the default and `embedded` remains caller-owned. Resource uploads and downloads
-remain same-origin and session-protected. Plugins must not persist task content
-or resource URLs, infer module endpoints, guess media types, or fall back to
-another upload path.
+approval, and artifacts without opening the task center. A conversation
+message's `content` is the only rendered and copied answer body. Streaming task
+output updates a Core-owned virtual assistant message; after terminal
+projection, the persisted assistant message replaces that virtual message by
+ID. Plugins must not render `task.result` or `chat_projection` as a second
+answer. `task_center` remains the default and `embedded` remains caller-owned.
+Resource uploads and downloads remain same-origin and session-protected.
+Plugins must not persist task content or resource URLs, infer module endpoints,
+guess media types, or fall back to another upload path.
 
 ### Compatibility and acceptance
 

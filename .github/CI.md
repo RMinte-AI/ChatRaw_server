@@ -24,14 +24,14 @@
 
 | 工作流 | 文件 | 触发 | 功能 |
 |--------|------|------|------|
-| CI | `ci.yml` | `main` 推送、PR 创建/更新 | 代码检查、后端回归、源码部署验收、前端依赖审计与构建校验、Docker 构建 |
+| CI | `ci.yml` | `main` 推送、PR 创建/更新 | 代码检查、后端回归、源码部署验收、前端依赖审计与构建校验、Chromium/WebKit 聊天回归、Docker 构建 |
 | PR Review | `pr-review.yml` | PR 创建/更新 | 安全检查、静态检查、AI 代码审查、自动标签、审查报告 |
 
 ### 触发路径
 
 | 工作流 | 监听的路径 |
 |--------|------------|
-| CI | `backend/**/*.py`, `backend/requirements*.txt`, `backend/static/**`, `backend/contracts/**`, `examples/reference-module/**`, `package*.json`, `scripts/**`, `Dockerfile`, `docker-compose.yml`, `docs/**`, `.github/workflows/**` |
+| CI | `backend/**/*.py`, `backend/requirements*.txt`, `backend/static/**`, `backend/contracts/**`, `browser-tests/**`, `examples/reference-module/**`, `package*.json`, `playwright.config.mjs`, `scripts/**`, `Dockerfile`, `docker-compose.yml`, `docs/**`, `.github/workflows/**` |
 | PR Review | 同上，外加 `.github/scripts/**` |
 
 ---
@@ -149,7 +149,7 @@ mkdir -p .github/workflows .github/scripts
 
 参考 `.github/workflows/ci.yml`，包含：
 - 触发：`pull_request`，路径为 `backend/**/*.py` 等
-- `code-check`：从 `backend/requirements-dev.txt` 安装锁定依赖，运行 compileall、Flake8 E9/F63/F7/F82、模块导入、后端回归、源码部署验收、npm 生产依赖审计与前端构建产物校验
+- `code-check`：从 `backend/requirements-dev.txt` 安装锁定依赖，运行 compileall、Flake8 E9/F63/F7/F82、模块导入、后端回归、源码部署验收、npm 生产依赖审计与前端构建产物校验，并在真实 Chromium、WebKit 和移动 WebKit 中验证普通聊天、Module conversation、标题、刷新恢复及模型左/用户右布局
 - `docker-build`：`docker build` + 冒烟测试
 
 ### 3. 创建 `pr-review.yml`

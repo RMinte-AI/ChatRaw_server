@@ -558,6 +558,45 @@ select:focus:not(:focus-visible),
     white-space: nowrap;
 }
 
+.plugin-workspace-tabs {
+    flex: 0 0 auto;
+    display: flex;
+    gap: 8px;
+    min-width: 0;
+    padding: 8px 14px;
+    overflow-x: auto;
+    border-bottom: 1px solid var(--border-color);
+    background: var(--bg-primary);
+    scrollbar-width: thin;
+}
+
+.plugin-workspace-tabs button {
+    min-height: 34px;
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    flex: 0 0 auto;
+    padding: 7px 12px;
+    border: 1px solid transparent;
+    border-radius: var(--radius-sm);
+    background: transparent;
+    color: var(--text-secondary);
+    cursor: pointer;
+    font: inherit;
+}
+
+.plugin-workspace-tabs button:hover {
+    background: var(--bg-hover);
+    color: var(--text-primary);
+}
+
+.plugin-workspace-tabs button.active {
+    border-color: var(--border-color);
+    background: var(--bg-secondary);
+    color: var(--text-primary);
+    font-weight: 650;
+}
+
 .plugin-workspace-mount {
     flex: 1;
     min-height: 0;
@@ -729,11 +768,11 @@ select:focus:not(:focus-visible),
 .message.user {
     flex-direction: row-reverse;
     justify-content: flex-start;
+    max-width: 100%;
 }
 
 .message.user .message-content {
     flex: 0 1 auto;
-    max-width: calc(100% - 60px);
 }
 
 .message.assistant {

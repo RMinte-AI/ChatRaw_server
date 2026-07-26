@@ -30,17 +30,20 @@
 ### 发布前
 
 1. 确认工作树只包含本次发布范围。
-2. 运行：
+2. 在完整 release 目录运行 `npm run build:frontend` 与
+   `npm run check:frontend`，确认 `frontend-assets.json`、HTML 引用和全部生成
+   文件一致；禁止从其他 commit 单独复制静态文件。
+3. 运行：
 
 ```bash
 ./scripts/run-t8-release-gate.sh
 ```
 
-3. 运行真实浏览器双角色验收。
-4. Drain 高价值模块并停止写入。
-5. 分别备份 Server、Agent 和其他模块。
-6. 对每份备份执行校验和一次隔离恢复。
-7. 记录当前可回滚 commit/镜像和数据快照。
+4. 运行真实浏览器双角色验收。
+5. Drain 高价值模块并停止写入。
+6. 分别备份 Server、Agent 和其他模块。
+7. 对每份备份执行校验和一次隔离恢复。
+8. 记录当前可回滚 commit/镜像、完整 release 目录和数据快照。
 
 T8 release gate 是本地工程验收，不自动等于客户或生产验收。
 
@@ -128,6 +131,11 @@ contains both `linux/amd64` and `linux/arm64`. Stable releases publish the exact
 semantic version and `latest`; prereleases do not update `latest`.
 
 Prefer a new directory, Compose project, or volume. Verify Server readiness, module health/readiness, admin management, member use, normal chat, Agent, audit output, and browser secret-negative checks before switching traffic.
+
+For Source releases, build and verify `frontend-assets.json` in the new release
+directory and switch the complete directory atomically. Never combine an HTML
+entrypoint, generated JavaScript, CSS, Resident output, or SDK contract from
+different commits; frontend integrity failure prevents Server startup.
 
 Rollback always restores matching code and data together. Preserve the failed instance for diagnosis; never let older code open a newer migrated database.
 

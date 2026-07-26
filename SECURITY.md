@@ -116,9 +116,13 @@ ChatRaw 会在配置的 `DATA_DIR` 下保存设置、聊天、插件、skills �
 - Keep API keys scoped to the minimum provider permissions needed.
 - Avoid exposing a local ChatRaw backend to untrusted networks.
 - Keep backups of important local data before testing third-party extensions.
+- Deploy the Server frontend as one verified release; never mix HTML,
+  JavaScript, CSS, Resident output, or SDK contracts from different commits.
 
 - 只从可信来源安装插件和 skills。
 - 启用或信任 skill 前先查看 Skill 管理器诊断信息。
 - API keys 应尽量使用最小权限范围。
 - 不要把本地 ChatRaw 后端暴露给不可信网络。
 - 测试第三方扩展前，请备份重要本地数据。
+- Server 前端必须按完整、已校验的 release 部署；不得混用不同 commit 的 HTML、
+  JavaScript、CSS、Resident 产物或 SDK Contract。

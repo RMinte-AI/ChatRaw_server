@@ -659,6 +659,11 @@
               ],
               "properties": {
                 "tool_name": {"$ref": "#/$defs/identifier"},
+                "tool_call_id": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 512
+                },
                 "arguments_preview": {
                   "type": "string",
                   "maxLength": 8192

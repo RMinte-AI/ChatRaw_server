@@ -100,6 +100,26 @@ function panelDefinition(id, counters) {
     };
 }
 
+function collectionPanelDefinition(id, counters, {
+    tabOrder,
+    title = { en: 'Operations', zh: '运营' },
+    icon = 'ri-dashboard-line',
+    order = 20
+}) {
+    return {
+        ...panelDefinition(id, counters),
+        placements: ['main'],
+        defaultPlacement: 'main',
+        collection: {
+            id: 'operations',
+            title,
+            icon,
+            order,
+            tabOrder
+        }
+    };
+}
+
 function counters() {
     return { mounts: 0, disposals: 0, clicks: 0, placements: [] };
 }
@@ -181,6 +201,136 @@ test('workspace open options distinguish omission from invalid explicit values',
         );
         assert.equal(host.pluginWorkspace.show, false);
     }
+});
+
+test('workspace collections group, order, open, switch, and filter panels', () => {
+    const { host, ui } = createHost();
+    const first = counters();
+    const second = counters();
+    ui.registerWorkspacePanel(
+        collectionPanelDefinition('finance', first, { tabOrder: 20 }),
+        'plugin-one'
+    );
+    ui.registerWorkspacePanel(
+        collectionPanelDefinition('video', second, {
+            tabOrder: 10,
+            title: { zh: '运营', en: 'Operations' }
+        }),
+        'plugin-two'
+    );
+
+    const collection = host.pluginWorkspaceCollections[0];
+    assert.equal(collection.id, 'operations');
+    assert.deepEqual(
+        [...collection.panels].map(
+            panel => `${panel.pluginId}:${panel.panelId}`
+        ),
+        ['plugin-two:video', 'plugin-one:finance']
+    );
+    assert.equal(host.openPluginWorkspaceCollection('operations'), true);
+    assert.equal(host.pluginWorkspace.pluginId, 'plugin-two');
+    assert.equal(host.pluginWorkspace.panelId, 'video');
+    assert.equal(host.pluginWorkspace.collectionId, 'operations');
+    assert.equal(host.pluginWorkspace.placement, 'main');
+    assert.equal(second.mounts, 1);
+
+    host.switchPluginWorkspaceCollectionPanel(collection.panels[1]);
+    assert.equal(second.disposals, 1);
+    assert.equal(first.mounts, 1);
+    assert.equal(host.pluginWorkspace.pluginId, 'plugin-one');
+    assert.equal(host.pluginWorkspace.panelId, 'finance');
+
+    host.installedPlugins.find(plugin => plugin.id === 'plugin-two').enabled = false;
+    assert.deepEqual(
+        [...host.pluginWorkspaceCollections[0].panels].map(
+            panel => `${panel.pluginId}:${panel.panelId}`
+        ),
+        ['plugin-one:finance']
+    );
+    assert.equal(host.openPluginWorkspaceCollection('missing'), false);
+});
+
+test('workspace collection definitions and tab switches fail closed', () => {
+    const { host, ui } = createHost();
+    const valid = collectionPanelDefinition(
+        'finance',
+        counters(),
+        { tabOrder: 10 }
+    );
+
+    for (const collection of [
+        { ...valid.collection, unexpected: true },
+        { ...valid.collection, id: '../operations' },
+        { ...valid.collection, icon: 'dashboard' },
+        { ...valid.collection, order: Number.NaN }
+    ]) {
+        assert.throws(
+            () => ui.registerWorkspacePanel(
+                { ...valid, collection },
+                'plugin-one'
+            ),
+            /Invalid Plugin Workspace collection definition/
+        );
+    }
+    assert.throws(
+        () => ui.registerWorkspacePanel(
+            {
+                ...valid,
+                placements: ['right', 'main'],
+                defaultPlacement: 'right'
+            },
+            'plugin-one'
+        ),
+        /Invalid Plugin Workspace collection definition/
+    );
+
+    ui.registerWorkspacePanel(valid, 'plugin-one');
+    assert.throws(
+        () => ui.registerWorkspacePanel(
+            collectionPanelDefinition('video', counters(), {
+                tabOrder: 20,
+                title: 'Different title'
+            }),
+            'plugin-two'
+        ),
+        /collection metadata mismatch/
+    );
+    assert.throws(
+        () => host.switchPluginWorkspaceCollectionPanel({
+            pluginId: 'plugin-two',
+            panelId: 'missing'
+        }),
+        /collection panel mismatch/
+    );
+});
+
+test('workspace collection runtime and machine contract stay aligned', () => {
+    const definition = pluginUiContract.$defs.WorkspacePanelDefinition;
+    const collection = pluginUiContract.$defs.WorkspaceCollectionDefinition;
+    assert.equal(
+        definition.properties.collection.$ref,
+        '#/$defs/WorkspaceCollectionDefinition'
+    );
+    assert.deepEqual(
+        collection.required,
+        ['id', 'title', 'icon', 'order', 'tabOrder']
+    );
+    assert.equal(collection.additionalProperties, false);
+    assert.equal(
+        definition.allOf[0].then.properties.defaultPlacement.const,
+        'main'
+    );
+    assert.equal(
+        definition.allOf[0].then.properties.placements.contains.const,
+        'main'
+    );
+    assert.match(
+        pluginUiContract.workspace_collections.lifecycle,
+        /dispose-before-mount/
+    );
+    assert.match(appHtml, /class="plugin-workspace-tabs"/);
+    assert.match(appHtml, /openPluginWorkspaceCollection\(collection\.id\)/);
+    assert.match(appCss, /\.plugin-workspace-tabs button\.active/);
 });
 
 test('workspace focus moves only for a synchronous Host entry activation', async () => {

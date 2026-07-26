@@ -27,9 +27,9 @@ ChatRaw Server 的所有用户使用同一个平台。聊天、文档、模型�
 - 退出登录。
 
 登录页和首次初始化页右上角可直接选择 `English` 或 `中文`。进入主界面后，
-在“设置 → 账户（Account）”中也可以切换语言；选择会保存在当前浏览器中，并应用到
-核心界面的标签、按钮、状态、确认提示、警告和错误消息。插件或 Resident Integration
-提供的功能也应跟随同一语言设置；模块协议返回的机器状态值不会直接作为界面文案显示。
+只有管理员可以在“设置 → 界面设置”中切换语言；选择会保存在当前浏览器中，并应用到核心界面的
+标签、按钮、状态、确认提示、警告和错误消息。插件或 Resident Integration 提供的功能也应跟随
+同一语言设置；模块协议返回的机器状态值不会直接作为界面文案显示。
 
 修改密码后现有会话会失效，需要使用新密码重新登录。不要共享账号，不要把浏览器 Cookie 当作 API Token 保存。
 
@@ -47,6 +47,10 @@ ChatRaw Server 的所有用户使用同一个平台。聊天、文档、模型�
 如果你已经手动改名，自动命名不会覆盖该标题。
 
 平台用户可以看到共享聊天和文档。你可以管理自己创建的聊天和文档；经典版导入的无归属数据只能由管理员管理。
+
+模型消息和所有模块 conversation 结果显示在左侧，模型头像位于正文左边。用户消息显示在右侧，
+用户头像位于正文右边；多行 Markdown 和代码仍在各自消息内部左对齐。刷新或重新打开聊天后，
+正文从 Server 已保存的消息恢复，模块执行过程不会复制最终答案。
 
 消息中的宽 Markdown 表格会限制在消息区域内，并提供独立的横向滚动。可以在表格上使用触控板、
 Magic Mouse 的横向手势，或按住 Shift 使用鼠标滚轮。ChatRaw 会在整个页面接管横向手势：
@@ -182,6 +186,12 @@ back to a summary of the first message. Automatic naming never overwrites a manu
 rename.
 
 Platform users can see shared chats and documents. You can manage resources you created; only administrators can manage ownerless classic resources.
+
+Model messages and module conversation results appear on the left, with the
+model avatar before the content. User messages appear on the right, with the
+user avatar after the content. Multiline Markdown and code remain left-aligned
+inside each message. Reopening a chat restores persisted message bodies without
+duplicating a module's final answer.
 
 Wide Markdown tables stay inside the message surface and provide their own horizontal scroll.
 Use a trackpad or Magic Mouse horizontal gesture, or hold Shift while using a mouse wheel. ChatRaw

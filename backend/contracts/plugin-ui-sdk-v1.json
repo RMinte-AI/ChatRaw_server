@@ -148,7 +148,34 @@
           "items": {"enum": ["right", "top", "bottom", "main"]}
         },
         "defaultPlacement": {"enum": ["right", "top", "bottom", "main"]},
+        "collection": {"$ref": "#/$defs/WorkspaceCollectionDefinition"},
         "mount": {"x-javascript-type": "function"}
+      },
+      "allOf": [
+        {
+          "if": {"required": ["collection"]},
+          "then": {
+            "properties": {
+              "placements": {"contains": {"const": "main"}},
+              "defaultPlacement": {"const": "main"}
+            }
+          }
+        }
+      ]
+    },
+    "WorkspaceCollectionDefinition": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "title", "icon", "order", "tabOrder"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-z0-9](?:[a-z0-9._-]{0,62}[a-z0-9])?$"
+        },
+        "title": {"$ref": "#/$defs/LocalizedText"},
+        "icon": {"type": "string", "pattern": "^ri-[a-z0-9-]+$"},
+        "order": {"type": "number"},
+        "tabOrder": {"type": "number"}
       }
     },
     "WorkspaceOpenOptions": {
@@ -181,6 +208,15 @@
     "plugin_reload_disable_uninstall": "dispose active panel and unregister all plugin-owned panels",
     "reentrant_lifecycle_calls": "throw; mount and dispose must not call registerWorkspacePanel, unregisterWorkspacePanel, openWorkspacePanel, or closeWorkspacePanel",
     "invalid_behavior": "throw; never fall back to a modal, toolbar, or another placement"
+  },
+  "workspace_collections": {
+    "purpose": "group related main-placement panels under one Server-rendered sidebar entry and tab list",
+    "membership": "optional collection metadata on WorkspacePanelDefinition; collected panels may belong to different enabled plugins",
+    "metadata_consistency": "panels sharing one collection id must use identical title, icon, and order",
+    "placement": "collection panels must include main and use main as defaultPlacement",
+    "ordering": "collections sort by order then id; tabs sort by tabOrder then pluginId and panelId",
+    "lifecycle": "switching tabs uses the normal single-workspace dispose-before-mount contract",
+    "focus": "collection and tab controls keep ordinary browser focus on the activated Host control; they do not grant plugin-scoped Host entry focus authorization"
   },
   "layout": {
     "right": "chat and workspace remain visible and interactive",

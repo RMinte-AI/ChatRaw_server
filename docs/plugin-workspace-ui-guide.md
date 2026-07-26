@@ -362,7 +362,30 @@ reference-workspace-companion/
 })();
 ```
 
-## 4. 生命周期要求
+## 4. 可选的面板集合
+
+如果多个相关面板都使用 `main`，可以在各自的
+`registerWorkspacePanel` definition 中加入：
+
+```js
+collection: {
+    id: 'operations',
+    title: { en: 'Operations', zh: '运营' },
+    icon: 'ri-dashboard-line',
+    order: 20,
+    tabOrder: 10
+}
+```
+
+Server 会为同一 `id` 渲染一个侧栏入口，并在主 Workspace 中渲染标签。所有成员都必须
+声明 `placements` 包含 `main`，且 `defaultPlacement: 'main'`。跨 Plugin 共享同一
+collection 时，`title`、`icon` 和 `order` 必须一致；每个面板用 `tabOrder` 决定标签
+顺序。切换标签不会并存两个 Workspace，而是先同步清理当前面板，再挂载目标面板。
+
+collection 入口和标签是 Server 自己的控件。点击后浏览器焦点保留在被点击的控件上；
+它们不会冒充某个 Plugin 的工具栏或侧栏入口来取得 Plugin 范围的焦点授权。
+
+## 5. 生命周期要求
 
 `mount` 本身必须同步结束，因此不能声明为 `async`。`dispose()` 同样必须同步结束并返回
 `undefined`，也不能声明为 `async`。需要加载状态时，先渲染 Loading，再启动异步函数。
@@ -387,7 +410,7 @@ Host 入口；溢出菜单入口统一返回稳定的“更多”按钮。直接
 模块回调、定时器或跨 Plugin 代开时，Host 不移动当前焦点。Plugin 无权通过参数伪造或覆盖
 这个判定。需要异步数据时，按本示例先同步打开并渲染 Loading，再启动异步工作。
 
-## 5. 样式和性能
+## 6. 样式和性能
 
 - 所有选择器必须从 Plugin 根类开始，例如 `.cr-reference-workspace`。
 - 使用容器自身滚动，不修改 `body`、`.main-content` 或 `.chat-container`。
@@ -397,7 +420,7 @@ Host 入口；溢出菜单入口统一返回稳定的“更多”按钮。直接
 - 长列表由 Plugin 分页或虚拟化；Server 不替 Plugin 管理业务列表。
 - 不依赖固定宽高。右侧、上下和窄屏主区域会提供不同尺寸的容器。
 
-## 6. 错误与兼容
+## 7. 错误与兼容
 
 - Workspace API 不存在：显示版本不兼容并停止注册，不打开旧弹窗。
 - Module 不可用：保留工作台，禁用业务操作，并显示 Module SDK 的安全错误说明。

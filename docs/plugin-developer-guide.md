@@ -155,7 +155,8 @@ const mode = settings.display_mode || 'compact';
 
 Workspace 是 Server 主内容区中的非模态交互区域，支持 `right`、`top`、`bottom` 和
 `main`。右、上、下位置不会阻止用户继续操作聊天；`main` 只隐藏聊天的视觉区域，不销毁
-聊天 DOM 和状态。屏幕宽度不超过 1024px 时，所有位置按 `main` 呈现。
+聊天 DOM 和状态。屏幕宽度不超过 1024px 时，所有位置按 `main` 呈现；屏幕高度不超过
+420px 时，上、下位置按 `main` 呈现。
 
 ```js
 const PLUGIN_ID = 'example-companion';
@@ -194,14 +195,17 @@ ChatRawPlugin.ui.openWorkspacePanel(
 Workspace 规则：
 
 - `pluginId` 必须显式提供；它是生命周期归属命名空间，不是浏览器安全沙箱。
-- `mount` 必须同步返回一个 `dispose()` 函数。异步请求可以在 mount 内启动，但关闭时必须取消
-  订阅、事件监听和仍可取消的请求。
+- `mount` 必须同步返回一个 `dispose()` 函数；`dispose()` 也必须同步执行并返回
+  `undefined`，不能声明为 `async`。异步请求可以在 mount 内启动，但关闭时必须取消订阅、
+  事件监听和仍可取消的请求。
 - `mount()` 和 `dispose()` 执行期间不得递归调用 Workspace 的注册、注销、打开或关闭 API；
   Host 会直接抛错，避免重入覆盖当前面板的生命周期状态。
 - Plugin 只能修改传入的 `container`，不能查找 ChatRaw 私有 DOM、读取 Alpine 内部状态或向
   Server 挂载点写入模块返回的 HTML。
 - 同一时刻只有一个 Workspace。打开另一面板或切换位置时，旧面板先执行一次 `dispose()`。
 - 同一面板以同一位置重复打开不会重复 mount。页面刷新后 Workspace 保持关闭。
+- Workspace 显示后，Host 会把焦点移到标题栏关闭按钮；关闭或替换失败后，焦点返回仍在页面中的
+  原触发入口。
 - 非法定义、未声明的位置、挂载异常或缺失 `dispose()` 会直接抛错；不得改用全屏弹窗兜底。
 - Plugin CSS 必须限定在自己的根节点内。不要使用影响 `body`、`.main-content` 或其他核心元素的
   全局选择器。
@@ -423,9 +427,12 @@ Use `ChatRawPlugin.hooks`, `ChatRawPlugin.ui`, `ChatRawPlugin.utils`, and docume
 `ChatRawPlugin.ui` also provides the Server-owned, non-modal Workspace API:
 `registerWorkspacePanel`, `unregisterWorkspacePanel`, `openWorkspacePanel`, and
 `closeWorkspacePanel`. A workspace can request `right`, `top`, `bottom`, or `main`; at
-1024px or narrower the host renders every placement as `main`. The plugin receives a real
-DOM container and must synchronously return one cleanup function from `mount`. It must not
-fall back to the legacy fullscreen modal when registration or mounting fails. See the
+1024px or narrower the host renders every placement as `main`; at 420px or shorter it also
+renders `top` and `bottom` as `main`. The plugin receives a real DOM container. `mount`
+must synchronously return one cleanup function, and that function must synchronously return
+`undefined`. It must not fall back to the legacy fullscreen modal when registration or
+mounting fails. After the workspace becomes visible, the Host focuses its close button; closing
+or a failed replacement restores the original connected trigger. See the
 [Plugin UI SDK Contract](../backend/contracts/plugin-ui-sdk-v1.json) and the
 [complete implementation guide](plugin-workspace-ui-guide.md).
 

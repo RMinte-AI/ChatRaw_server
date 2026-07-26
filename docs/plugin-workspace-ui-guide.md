@@ -11,6 +11,7 @@ ChatRaw 主内容区，而不是弹窗：
 - `right`、`top`、`bottom`：工作台和聊天同时可见、同时可操作；
 - `main`：工作台占据主区域，聊天 DOM 和当前消息仍然保留；
 - 宽度不超过 1024px：由 Server 统一按 `main` 呈现；
+- 高度不超过 420px：`top`、`bottom` 由 Server 按 `main` 呈现；
 - 关闭、停用、卸载或重载插件后，工作台 DOM 和监听器都会被清理。
 
 Server 只提供布局和真实 DOM 容器。表单、列表、折叠区域、Module SDK 状态和业务交互均由
@@ -363,8 +364,9 @@ reference-workspace-companion/
 
 ## 4. 生命周期要求
 
-`mount` 本身必须同步结束，因此不能声明为 `async`。需要加载状态时，先渲染 Loading，再启动
-异步函数。`dispose()` 至少负责：
+`mount` 本身必须同步结束，因此不能声明为 `async`。`dispose()` 同样必须同步结束并返回
+`undefined`，也不能声明为 `async`。需要加载状态时，先渲染 Loading，再启动异步函数。
+`dispose()` 至少负责：
 
 - 取消 `window.ChatRaw.modules.subscribe()`；
 - 移除 Plugin 自己注册的 DOM 或 Window 事件；
@@ -375,7 +377,11 @@ reference-workspace-companion/
 面板时，应由当前回调返回后的用户操作或异步流程发起；Host 会拒绝同步重入，防止新面板的
 `dispose()` 被旧回调覆盖。
 
-Server 会在 `dispose()` 返回后清空挂载容器。Plugin 不需要删除 Server 的标题栏或关闭按钮。
+Server 会在同步 `dispose()` 返回后清空挂载容器。返回 Promise 或其他值属于契约错误；
+Host 仍会关闭并清空面板；直接调用 `closeWorkspacePanel()` 会抛错，停用、卸载或重载触发的
+Host 清理会记录错误并继续注销面板。Plugin 不需要删除 Server 的标题栏或关闭按钮。
+Workspace 可见后，Host 会聚焦标题栏关闭按钮；正常关闭、挂载失败或替换失败后，Host 会在
+聊天布局恢复可见后把焦点交还仍连接在页面中的原触发入口。
 
 ## 5. 样式和性能
 

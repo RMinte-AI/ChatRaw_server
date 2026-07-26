@@ -4444,6 +4444,20 @@ function app() {
             }
         },
 
+        restorePluginWorkspaceFocus(returnFocus) {
+            if (!returnFocus?.isConnected) return;
+            this.$nextTick(() => {
+                requestAnimationFrame(() => {
+                    if (
+                        !this.pluginWorkspace.show
+                        && returnFocus.isConnected
+                    ) {
+                        returnFocus.focus();
+                    }
+                });
+            });
+        },
+
         validatePluginWorkspaceDefinition(definition) {
             const allowedKeys = new Set([
                 'id',
@@ -4560,7 +4574,13 @@ function app() {
             if (!definition) {
                 throw new Error(`Plugin Workspace panel is not registered: ${panelId}`);
             }
-            const placement = options?.placement || definition.defaultPlacement;
+            const hasExplicitPlacement = (
+                options !== undefined
+                && Object.prototype.hasOwnProperty.call(options, 'placement')
+            );
+            const placement = hasExplicitPlacement
+                ? options.placement
+                : definition.defaultPlacement;
             if (!definition.placements.includes(placement)) {
                 throw new TypeError(`Unsupported Plugin Workspace placement: ${placement}`);
             }
@@ -4575,10 +4595,14 @@ function app() {
             const previousReturnFocus = this._pluginWorkspaceReturnFocus;
             if (this.pluginWorkspace.show) {
                 const disposeError = this.teardownPluginWorkspace(false);
-                if (disposeError) throw disposeError;
+                if (disposeError) {
+                    this.restorePluginWorkspaceFocus(previousReturnFocus);
+                    throw disposeError;
+                }
             }
             const container = document.getElementById('plugin-workspace-mount');
             if (!container) {
+                this.restorePluginWorkspaceFocus(previousReturnFocus);
                 throw new Error('Plugin Workspace mount container is unavailable');
             }
             this._pluginWorkspaceReturnFocus = (
@@ -4621,13 +4645,22 @@ function app() {
                 };
                 const returnFocus = this._pluginWorkspaceReturnFocus;
                 this._pluginWorkspaceReturnFocus = null;
-                returnFocus?.focus();
+                this.restorePluginWorkspaceFocus(returnFocus);
                 throw error;
             } finally {
                 this._pluginWorkspaceTransition = null;
             }
             this.$nextTick(() => {
-                document.getElementById('plugin-workspace-close')?.focus();
+                requestAnimationFrame(() => {
+                    if (
+                        this.pluginWorkspace.show
+                        && this.pluginWorkspace.pluginId === owner
+                        && this.pluginWorkspace.panelId === panelId
+                        && this.pluginWorkspace.placement === placement
+                    ) {
+                        document.getElementById('plugin-workspace-close')?.focus();
+                    }
+                });
             });
             return true;
         },
@@ -4640,7 +4673,28 @@ function app() {
             let disposeError = null;
             try {
                 this._pluginWorkspaceTransition = 'dispose';
-                dispose?.();
+                const disposeResult = dispose?.();
+                if (disposeResult !== undefined) {
+                    if (
+                        disposeResult !== null
+                        && (
+                            typeof disposeResult === 'object'
+                            || typeof disposeResult === 'function'
+                        )
+                        && typeof disposeResult.then === 'function'
+                    ) {
+                        Promise.resolve(disposeResult).catch(error => {
+                            console.error(
+                                '[Plugin Workspace async dispose]',
+                                error
+                            );
+                        });
+                    }
+                    throw new TypeError(
+                        'Plugin Workspace dispose must complete synchronously '
+                        + 'and return undefined'
+                    );
+                }
             } catch (error) {
                 disposeError = error;
             } finally {
@@ -4658,7 +4712,9 @@ function app() {
             };
             const returnFocus = this._pluginWorkspaceReturnFocus;
             this._pluginWorkspaceReturnFocus = null;
-            if (restoreFocus && returnFocus?.isConnected) returnFocus.focus();
+            if (restoreFocus) {
+                this.restorePluginWorkspaceFocus(returnFocus);
+            }
             return disposeError;
         },
 

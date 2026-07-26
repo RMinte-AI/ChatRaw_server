@@ -603,6 +603,26 @@ select:focus:not(:focus-visible),
     }
 }
 
+@media (max-height: 420px) {
+    .plugin-workspace-layout.workspace-top,
+    .plugin-workspace-layout.workspace-bottom {
+        grid-template-columns: minmax(0, 1fr);
+        grid-template-rows: minmax(0, 1fr);
+    }
+
+    .plugin-workspace-layout.workspace-top > .chat-container,
+    .plugin-workspace-layout.workspace-bottom > .chat-container {
+        display: none;
+    }
+
+    .plugin-workspace-layout.workspace-top > .plugin-workspace-panel,
+    .plugin-workspace-layout.workspace-bottom > .plugin-workspace-panel {
+        grid-column: 1;
+        grid-row: 1;
+        border: 0;
+    }
+}
+
 /* Welcome Screen */
 .welcome {
     flex: 1;

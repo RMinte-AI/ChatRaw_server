@@ -9,7 +9,8 @@ const appSource = fs.readFileSync('backend/static/app.js', 'utf8');
 const appHtml = fs.readFileSync('backend/static/index.html', 'utf8');
 const appCss = fs.readFileSync('backend/static/styles.css', 'utf8');
 
-function createHost() {
+function createHost({ deferAnimationFrame = false } = {}) {
+    const animationFrames = [];
     const dom = new JSDOM(`<!doctype html><body>
         <button id="launcher">Open</button>
         <button id="plugin-workspace-close">Close</button>
@@ -19,6 +20,14 @@ function createHost() {
         url: 'http://chatraw.test/'
     });
     dom.window.matchMedia = () => ({ matches: false });
+    dom.window.requestAnimationFrame = callback => {
+        if (deferAnimationFrame) {
+            animationFrames.push(callback);
+            return animationFrames.length;
+        }
+        callback();
+        return 1;
+    };
     dom.window.marked = { setOptions() {} };
     dom.window.eval(appSource);
     const host = dom.window.app();
@@ -29,7 +38,16 @@ function createHost() {
         { id: 'plugin-one', enabled: true },
         { id: 'plugin-two', enabled: true }
     ];
-    return { dom, host, ui: dom.window.ChatRawPlugin.ui };
+    return {
+        dom,
+        host,
+        ui: dom.window.ChatRawPlugin.ui,
+        flushAnimationFrames() {
+            while (animationFrames.length > 0) {
+                animationFrames.shift()(0);
+            }
+        }
+    };
 }
 
 function panelDefinition(id, counters) {
@@ -98,6 +116,10 @@ test('workspace API mounts interactive DOM and closes with one disposal', () => 
     assert.equal(state.mounts, 1);
     assert.deepEqual(state.placements, ['right']);
     assert.equal(host.pluginWorkspace.show, true);
+    assert.equal(
+        dom.window.document.activeElement,
+        dom.window.document.getElementById('plugin-workspace-close')
+    );
 
     assert.equal(
         ui.closeWorkspacePanel('inspection', 'plugin-one'),
@@ -112,6 +134,241 @@ test('workspace API mounts interactive DOM and closes with one disposal', () => 
         false
     );
     assert.equal(state.disposals, 1);
+});
+
+test('workspace open options distinguish omission from invalid explicit values', () => {
+    const { host, ui } = createHost();
+    const state = counters();
+    ui.registerWorkspacePanel(
+        panelDefinition('placement-contract', state),
+        'plugin-one'
+    );
+
+    assert.equal(
+        ui.openWorkspacePanel(
+            'placement-contract',
+            {},
+            'plugin-one'
+        ),
+        true
+    );
+    assert.equal(host.pluginWorkspace.placement, 'right');
+    ui.closeWorkspacePanel('placement-contract', 'plugin-one');
+
+    for (const placement of ['', null, false, 0, undefined, 'side']) {
+        assert.throws(
+            () => ui.openWorkspacePanel(
+                'placement-contract',
+                { placement },
+                'plugin-one'
+            ),
+            /Unsupported Plugin Workspace placement/
+        );
+        assert.equal(host.pluginWorkspace.show, false);
+    }
+});
+
+test('workspace focus moves only after visibility updates and ignores stale opens', () => {
+    const {
+        dom,
+        ui,
+        flushAnimationFrames
+    } = createHost({ deferAnimationFrame: true });
+    const launcher = dom.window.document.getElementById('launcher');
+    launcher.focus();
+    ui.registerWorkspacePanel(
+        panelDefinition('deferred-focus', counters()),
+        'plugin-one'
+    );
+
+    ui.openWorkspacePanel('deferred-focus', undefined, 'plugin-one');
+    assert.equal(dom.window.document.activeElement, launcher);
+    flushAnimationFrames();
+    assert.equal(
+        dom.window.document.activeElement,
+        dom.window.document.getElementById('plugin-workspace-close')
+    );
+
+    ui.closeWorkspacePanel('deferred-focus', 'plugin-one');
+    assert.notEqual(dom.window.document.activeElement, launcher);
+    flushAnimationFrames();
+    assert.equal(dom.window.document.activeElement, launcher);
+
+    ui.openWorkspacePanel('deferred-focus', undefined, 'plugin-one');
+    ui.closeWorkspacePanel('deferred-focus', 'plugin-one');
+    flushAnimationFrames();
+    assert.equal(dom.window.document.activeElement, launcher);
+});
+
+test('workspace disposer must complete synchronously and return undefined', async () => {
+    const { dom, host, ui } = createHost();
+    const loggedErrors = [];
+    let asyncDisposeCalls = 0;
+    dom.window.console.error = (...args) => {
+        loggedErrors.push(args);
+    };
+    ui.registerWorkspacePanel(
+        {
+            ...panelDefinition('async-dispose', counters()),
+            mount() {
+                return async () => {
+                    asyncDisposeCalls += 1;
+                    throw new Error('async dispose failed');
+                };
+            }
+        },
+        'plugin-one'
+    );
+    ui.openWorkspacePanel('async-dispose', undefined, 'plugin-one');
+    assert.throws(
+        () => ui.closeWorkspacePanel(
+            'async-dispose',
+            'plugin-one'
+        ),
+        /dispose must complete synchronously and return undefined/
+    );
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(host.pluginWorkspace.show, false);
+    assert.equal(asyncDisposeCalls, 1);
+    assert.equal(
+        ui.closeWorkspacePanel('async-dispose', 'plugin-one'),
+        false
+    );
+    assert.equal(asyncDisposeCalls, 1);
+    assert.match(
+        String(loggedErrors[0]?.[1]),
+        /async dispose failed/
+    );
+
+    ui.registerWorkspacePanel(
+        {
+            ...panelDefinition('non-void-dispose', counters()),
+            mount() {
+                return () => true;
+            }
+        },
+        'plugin-one'
+    );
+    ui.openWorkspacePanel('non-void-dispose', undefined, 'plugin-one');
+    assert.throws(
+        () => ui.closeWorkspacePanel(
+            'non-void-dispose',
+            'plugin-one'
+        ),
+        /dispose must complete synchronously and return undefined/
+    );
+    assert.equal(host.pluginWorkspace.show, false);
+
+    ui.registerWorkspacePanel(
+        {
+            ...panelDefinition('resolved-async-dispose', counters()),
+            mount() {
+                return async () => {};
+            }
+        },
+        'plugin-one'
+    );
+    ui.openWorkspacePanel(
+        'resolved-async-dispose',
+        undefined,
+        'plugin-one'
+    );
+    assert.throws(
+        () => ui.closeWorkspacePanel(
+            'resolved-async-dispose',
+            'plugin-one'
+        ),
+        /dispose must complete synchronously and return undefined/
+    );
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(host.pluginWorkspace.show, false);
+});
+
+test('plugin cleanup unregisters panels after an invalid async disposer', async () => {
+    const { dom, host, ui } = createHost();
+    const loggedErrors = [];
+    let disposeCalls = 0;
+    dom.window.console.error = (...args) => {
+        loggedErrors.push(args);
+    };
+    ui.registerWorkspacePanel(
+        {
+            ...panelDefinition('cleanup-async-dispose', counters()),
+            mount() {
+                return async () => {
+                    disposeCalls += 1;
+                    throw new Error('cleanup async dispose failed');
+                };
+            }
+        },
+        'plugin-one'
+    );
+    ui.openWorkspacePanel(
+        'cleanup-async-dispose',
+        undefined,
+        'plugin-one'
+    );
+
+    host.cleanupPluginRuntime('plugin-one');
+    await new Promise(resolve => setImmediate(resolve));
+
+    assert.equal(disposeCalls, 1);
+    assert.equal(host.pluginWorkspace.show, false);
+    assert.equal(
+        host.pluginWorkspaceDefinitions[
+            'plugin-one:cleanup-async-dispose'
+        ],
+        undefined
+    );
+    assert.ok(
+        loggedErrors.some(args => String(args[1]).includes(
+            'dispose must complete synchronously'
+        ))
+    );
+    assert.ok(
+        loggedErrors.some(args => String(args[1]).includes(
+            'cleanup async dispose failed'
+        ))
+    );
+});
+
+test('workspace replacement failure restores the original trigger focus', () => {
+    const { dom, host, ui } = createHost();
+    const launcher = dom.window.document.getElementById('launcher');
+    launcher.focus();
+    ui.registerWorkspacePanel(
+        {
+            ...panelDefinition('dispose-failure', counters()),
+            mount({ container }) {
+                const input = container.ownerDocument.createElement('input');
+                container.append(input);
+                return () => {
+                    throw new Error('dispose failed');
+                };
+            }
+        },
+        'plugin-one'
+    );
+    ui.registerWorkspacePanel(
+        panelDefinition('replacement', counters()),
+        'plugin-two'
+    );
+    ui.openWorkspacePanel('dispose-failure', undefined, 'plugin-one');
+    dom.window.document.querySelector(
+        '#plugin-workspace-mount input'
+    ).focus();
+
+    assert.throws(
+        () => ui.openWorkspacePanel(
+            'replacement',
+            undefined,
+            'plugin-two'
+        ),
+        /dispose failed/
+    );
+    assert.equal(host.pluginWorkspace.show, false);
+    assert.equal(host._pluginWorkspaceReturnFocus, null);
+    assert.equal(dom.window.document.activeElement, launcher);
 });
 
 test('workspace switching is idempotent and disposes before remount', () => {
@@ -160,6 +417,8 @@ test('workspace switching is idempotent and disposes before remount', () => {
 
 test('workspace registration and mount failures are explicit and leave no DOM', () => {
     const { dom, host, ui } = createHost();
+    const launcher = dom.window.document.getElementById('launcher');
+    launcher.focus();
     assert.throws(
         () => ui.registerWorkspacePanel({ id: 'broken' }, 'plugin-one'),
         /Invalid Plugin Workspace definition/
@@ -195,6 +454,7 @@ test('workspace registration and mount failures are explicit and leave no DOM', 
         dom.window.document.getElementById('plugin-workspace-mount').children.length,
         0
     );
+    assert.equal(dom.window.document.activeElement, launcher);
     assert.throws(
         () => ui.openWorkspacePanel('missing', undefined, 'plugin-one'),
         /not registered/
@@ -355,6 +615,7 @@ test('workspace layout is non-modal, responsive, and isolated from Alpine', () =
         /grid-template-rows:\s*clamp\(200px, 32vh, 360px\) minmax\(0, 1fr\)/
     );
     assert.match(appCss, /@media \(max-width: 1024px\)/);
+    assert.match(appCss, /@media \(max-height: 420px\)/);
     assert.match(appCss, /contain:\s*layout paint/);
     assert.match(appCss, /isolation:\s*isolate/);
 });

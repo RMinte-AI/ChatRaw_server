@@ -306,9 +306,15 @@ Server 创建任务时发送：
   "input": {
     "text": "hello"
   },
+  "active_skills": [],
+  "active_rules": [],
   "host_capabilities": []
 }
 ```
+
+`active_skills` 和 `active_rules` 是任务 envelope 的必填数组。未激活任何快照时也必须发送空数组；
+只有 action 分别声明 `supports_skills` 或 `supports_rules` 时，Server 才会填入创建任务时锁定的版本快照。
+模块应把这些快照视为只读执行上下文，并通过对应 Host Capability 读取内容，不能自行改写用户的 Skill 或规则文档。
 
 幂等规则：
 

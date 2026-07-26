@@ -158,6 +158,17 @@ class T6DeploymentTests(unittest.TestCase):
         self.assertIn(runner, source_gate)
         self.assertIn(runner, compose_gate)
 
+    def test_reference_module_accepts_the_current_task_envelope(self):
+        reference = (
+            ROOT / "examples/reference-module/app.py"
+        ).read_text(encoding="utf-8")
+        conformance = (
+            ROOT / "scripts/module-conformance.py"
+        ).read_text(encoding="utf-8")
+        for field in ("active_skills", "active_rules"):
+            self.assertIn(f'"{field}"', reference)
+            self.assertIn(f'"{field}": []', conformance)
+
 
 if __name__ == "__main__":
     unittest.main()

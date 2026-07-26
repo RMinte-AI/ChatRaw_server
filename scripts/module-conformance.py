@@ -718,6 +718,8 @@ def probe_tasks(
                     "action_version": action["action_version"],
                     "config_revision": config["revision"],
                     "input": case["input"],
+                    "active_skills": [],
+                    "active_rules": [],
                     "host_capabilities": capability_stub.issue(
                         task_id,
                         expected_capabilities,

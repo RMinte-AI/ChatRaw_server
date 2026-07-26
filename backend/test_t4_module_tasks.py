@@ -3047,6 +3047,8 @@ class ReferenceTaskConformanceTests(unittest.TestCase):
             "action_version": "1.0.0",
             "config_revision": "1",
             "input": {"text": "persistent", **task_input},
+            "active_skills": [],
+            "active_rules": [],
             "host_capabilities": [],
         }
         response = self.client.post(

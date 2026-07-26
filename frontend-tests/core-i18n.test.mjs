@@ -94,9 +94,12 @@ test('plugins can opt into the stable sidebar mount without DOM injection', () =
     assert.match(appHtml, /x-for="btn in sidebarPluginButtons"/);
     assert.match(appHtml, /class="plugin-sidebar-entry"/);
     assert.match(appHtml, /getSortedPluginButtons\('toolbar'\)/);
-    assert.match(appHtml, /app\.min\.js\?v=7\.19/);
-    assert.match(appHtml, /styles\.min\.css\?v=7\.12/);
-    assert.match(appHtml, /content-security\.min\.js\?v=2/);
+    assert.match(appHtml, /app\.min\.js\?v=[0-9a-f]{64}/);
+    assert.match(appHtml, /styles\.min\.css\?v=[0-9a-f]{64}/);
+    assert.match(
+        appHtml,
+        /content-security\.min\.js\?v=[0-9a-f]{64}/
+    );
     assert.match(appScript, /if \(btn\.loading \|\| btn\.disabled\) return false/);
     assert.match(appHtml, /:disabled="btn\.loading \|\| btn\.disabled"/);
     assert.match(

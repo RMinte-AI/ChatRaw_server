@@ -31,7 +31,12 @@ from datetime import datetime, timezone
 from pathlib import Path, PurePosixPath
 from typing import Optional, List, AsyncGenerator, Dict, Any, Tuple, Literal
 from contextlib import asynccontextmanager
-from urllib.parse import quote, urlparse
+from urllib.parse import parse_qs, quote, urlparse
+
+try:
+    from .frontend_assets import validate_frontend_assets
+except ImportError:
+    from frontend_assets import validate_frontend_assets
 
 # ============ Structured Logging Setup ============
 
@@ -101,6 +106,7 @@ DEFAULT_CHAT_TITLE = "New Chat"
 MAX_CHAT_TITLE_LENGTH = 200
 CHAT_TITLE_MAX_TOKENS = 64
 CHAT_TITLE_CONTEXT_TOKENS = 2048
+FRONTEND_ASSET_VERSIONS: dict[str, str] = {}
 
 from fastapi import FastAPI, HTTPException, UploadFile, File, Request, Form
 from fastapi.responses import StreamingResponse, JSONResponse, FileResponse, Response
@@ -2461,6 +2467,10 @@ rag_service = RAGService(db, llm_service)
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """App lifecycle: startup and shutdown"""
+    global FRONTEND_ASSET_VERSIONS
+    FRONTEND_ASSET_VERSIONS = validate_frontend_assets(
+        Path(BACKEND_DIR, "static")
+    )
     logger.info("Starting ChatRaw service")
     stop_resource_cleanup = asyncio.Event()
 
@@ -10466,12 +10476,17 @@ class CachedStaticFiles(StaticFiles):
         response.headers[
             "Content-Security-Policy"
         ] = DEFAULT_CONTENT_SECURITY_POLICY
-        # Add cache headers for versioned static files (js, css with ?v=)
-        if path.endswith(('.js', '.css', '.woff2', '.png', '.jpg', '.ico')):
-            # Long cache for static assets (1 year)
+        query = parse_qs(
+            scope.get("query_string", b"").decode("ascii", errors="ignore")
+        )
+        requested_version = query.get("v", [None])[-1]
+        expected_version = FRONTEND_ASSET_VERSIONS.get(path)
+        if (
+            expected_version is not None
+            and requested_version == expected_version
+        ):
             response.headers['Cache-Control'] = 'public, max-age=31536000, immutable'
-        elif path.endswith('.html') or path == '' or path == '/':
-            # No cache for HTML (always revalidate)
+        else:
             response.headers['Cache-Control'] = 'no-cache, must-revalidate'
         return response
 

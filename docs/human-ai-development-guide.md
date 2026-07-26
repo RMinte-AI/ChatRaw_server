@@ -213,7 +213,10 @@ ChatRaw_server/ResidentIntegrations/feature-workbench/
             request.chat_id = chatId;
             request.user_message = 'hello';
         }
-        await window.ChatRaw.modules.startTask(request);
+        await window.ChatRaw.modules.startTask(
+            request,
+            chatId ? { presentation: 'conversation' } : undefined
+        );
     }
 
     ChatRawPlugin.ui.registerToolbarButton(
@@ -401,6 +404,8 @@ AI 在报告完成前逐项给出命令、退出码和证据：
 - [ ] Resident 对符合角色但不可用的用户保持可见并置灰。
 - [ ] Resident 对低于 `minimum_role` 的用户隐藏。
 - [ ] Resident 的 `embedded` 任务不自动打开核心任务中心。
+- [ ] `conversation` 任务只在对话内显示，不进入全局任务提示。
+- [ ] 工具 Activity 按 `run_id + activity_id` 更新，最终 Markdown 只有一份。
 - [ ] 审批、取消、产物按声明展示。
 - [ ] 刷新后任务恢复。
 - [ ] 控制台无错误。

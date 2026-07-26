@@ -4,7 +4,7 @@ import struct
 from datetime import datetime, timezone
 
 
-LATEST_SCHEMA_VERSION = 9
+LATEST_SCHEMA_VERSION = 12
 
 
 class UnsupportedSchemaVersion(RuntimeError):
@@ -681,6 +681,275 @@ def _migration_9_module_task_resources(
     )
 
 
+def _migration_10_agent_host_capabilities(
+    connection: sqlite3.Connection,
+) -> None:
+    connection.execute(
+        "ALTER TABLE module_capability_tokens "
+        "RENAME TO module_capability_tokens_v9"
+    )
+    connection.execute(
+        """
+        CREATE TABLE module_capability_tokens (
+            token_digest TEXT PRIMARY KEY,
+            task_id TEXT NOT NULL,
+            registration_id TEXT NOT NULL,
+            capability TEXT NOT NULL
+                CHECK (
+                    capability IN (
+                        'chat.read',
+                        'principal.read',
+                        'resource.read',
+                        'resource.stream',
+                        'model.invoke',
+                        'model.chat.completions',
+                        'skill.read'
+                    )
+                ),
+            scope_json TEXT NOT NULL,
+            use_count INTEGER NOT NULL DEFAULT 0 CHECK (use_count >= 0),
+            max_uses INTEGER,
+            created_at TEXT NOT NULL,
+            expires_at TEXT NOT NULL,
+            revoked_at TEXT,
+            FOREIGN KEY (task_id)
+                REFERENCES module_tasks(id) ON DELETE CASCADE
+        )
+        """
+    )
+    connection.execute(
+        """
+        INSERT INTO module_capability_tokens (
+            token_digest, task_id, registration_id, capability,
+            scope_json, use_count, max_uses, created_at, expires_at,
+            revoked_at
+        )
+        SELECT token_digest, task_id, registration_id, capability,
+               scope_json, use_count, max_uses, created_at, expires_at,
+               revoked_at
+        FROM module_capability_tokens_v9
+        """
+    )
+    connection.execute("DROP TABLE module_capability_tokens_v9")
+    connection.execute(
+        "CREATE INDEX idx_module_capability_task "
+        "ON module_capability_tokens(task_id, capability)"
+    )
+
+
+def _migration_11_personal_agent_skills(
+    connection: sqlite3.Connection,
+) -> None:
+    connection.execute(
+        """
+        CREATE TABLE agent_skills (
+            id TEXT PRIMARY KEY,
+            owner_user_id TEXT NOT NULL,
+            target_module_id TEXT NOT NULL,
+            name TEXT NOT NULL,
+            description TEXT NOT NULL,
+            license TEXT NOT NULL DEFAULT '',
+            enabled INTEGER NOT NULL DEFAULT 1
+                CHECK (enabled IN (0, 1)),
+            active_version_id TEXT,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            UNIQUE (owner_user_id, target_module_id, name),
+            FOREIGN KEY (owner_user_id) REFERENCES users(id)
+        )
+        """
+    )
+    connection.execute(
+        """
+        CREATE TABLE agent_skill_versions (
+            id TEXT PRIMARY KEY,
+            skill_id TEXT NOT NULL,
+            commit_sha TEXT NOT NULL,
+            content_sha256 TEXT NOT NULL,
+            source_json TEXT NOT NULL,
+            skill_markdown TEXT NOT NULL,
+            resources_json TEXT NOT NULL,
+            package_path TEXT NOT NULL UNIQUE,
+            created_at TEXT NOT NULL,
+            UNIQUE (skill_id, content_sha256),
+            FOREIGN KEY (skill_id)
+                REFERENCES agent_skills(id) ON DELETE CASCADE
+        )
+        """
+    )
+    connection.execute(
+        """
+        CREATE TABLE module_task_skill_activations (
+            task_id TEXT NOT NULL,
+            ordinal INTEGER NOT NULL CHECK (ordinal >= 0),
+            skill_id TEXT NOT NULL,
+            version_id TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            PRIMARY KEY (task_id, skill_id),
+            UNIQUE (task_id, ordinal),
+            FOREIGN KEY (task_id)
+                REFERENCES module_tasks(id) ON DELETE CASCADE,
+            FOREIGN KEY (skill_id) REFERENCES agent_skills(id),
+            FOREIGN KEY (version_id) REFERENCES agent_skill_versions(id)
+        )
+        """
+    )
+    connection.execute(
+        "CREATE INDEX idx_agent_skills_owner_target "
+        "ON agent_skills(owner_user_id, target_module_id, updated_at)"
+    )
+    connection.execute(
+        "CREATE INDEX idx_agent_skill_versions_skill "
+        "ON agent_skill_versions(skill_id, created_at)"
+    )
+    connection.execute(
+        "CREATE INDEX idx_module_task_skill_activations_task "
+        "ON module_task_skill_activations(task_id, ordinal)"
+    )
+
+
+def _migration_12_agent_compiled_rules(
+    connection: sqlite3.Connection,
+) -> None:
+    connection.execute(
+        """
+        CREATE TABLE agent_rule_documents (
+            id TEXT PRIMARY KEY,
+            owner_user_id TEXT NOT NULL,
+            target_module_id TEXT NOT NULL,
+            name TEXT NOT NULL,
+            current_source_version_id TEXT NOT NULL,
+            active_compiled_version_id TEXT,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            UNIQUE (owner_user_id, target_module_id, name),
+            FOREIGN KEY (owner_user_id) REFERENCES users(id)
+        )
+        """
+    )
+    connection.execute(
+        """
+        CREATE TABLE agent_rule_source_versions (
+            id TEXT PRIMARY KEY,
+            document_id TEXT NOT NULL,
+            version_number INTEGER NOT NULL CHECK (version_number >= 1),
+            source_document TEXT NOT NULL,
+            content_sha256 TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            UNIQUE (document_id, version_number),
+            FOREIGN KEY (document_id)
+                REFERENCES agent_rule_documents(id) ON DELETE CASCADE
+        )
+        """
+    )
+    connection.execute(
+        """
+        CREATE TABLE agent_compiled_rule_versions (
+            id TEXT PRIMARY KEY,
+            document_id TEXT NOT NULL,
+            source_version_id TEXT NOT NULL,
+            specification_version TEXT NOT NULL,
+            status TEXT NOT NULL CHECK (status IN ('valid', 'invalid')),
+            content_sha256 TEXT NOT NULL,
+            compiled_json TEXT,
+            model_output TEXT NOT NULL,
+            validation_errors_json TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            FOREIGN KEY (document_id)
+                REFERENCES agent_rule_documents(id) ON DELETE CASCADE,
+            FOREIGN KEY (source_version_id)
+                REFERENCES agent_rule_source_versions(id)
+        )
+        """
+    )
+    connection.execute(
+        """
+        CREATE TABLE module_task_rule_activations (
+            task_id TEXT NOT NULL,
+            ordinal INTEGER NOT NULL CHECK (ordinal >= 0),
+            document_id TEXT NOT NULL,
+            compiled_version_id TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            PRIMARY KEY (task_id, document_id),
+            UNIQUE (task_id, ordinal),
+            FOREIGN KEY (task_id)
+                REFERENCES module_tasks(id) ON DELETE CASCADE,
+            FOREIGN KEY (document_id) REFERENCES agent_rule_documents(id),
+            FOREIGN KEY (compiled_version_id)
+                REFERENCES agent_compiled_rule_versions(id)
+        )
+        """
+    )
+    connection.execute(
+        "ALTER TABLE module_capability_tokens "
+        "RENAME TO module_capability_tokens_v11"
+    )
+    connection.execute(
+        """
+        CREATE TABLE module_capability_tokens (
+            token_digest TEXT PRIMARY KEY,
+            task_id TEXT NOT NULL,
+            registration_id TEXT NOT NULL,
+            capability TEXT NOT NULL
+                CHECK (
+                    capability IN (
+                        'chat.read',
+                        'principal.read',
+                        'resource.read',
+                        'resource.stream',
+                        'model.invoke',
+                        'model.chat.completions',
+                        'skill.read',
+                        'rule.read'
+                    )
+                ),
+            scope_json TEXT NOT NULL,
+            use_count INTEGER NOT NULL DEFAULT 0 CHECK (use_count >= 0),
+            max_uses INTEGER,
+            created_at TEXT NOT NULL,
+            expires_at TEXT NOT NULL,
+            revoked_at TEXT,
+            FOREIGN KEY (task_id)
+                REFERENCES module_tasks(id) ON DELETE CASCADE
+        )
+        """
+    )
+    connection.execute(
+        """
+        INSERT INTO module_capability_tokens (
+            token_digest, task_id, registration_id, capability,
+            scope_json, use_count, max_uses, created_at, expires_at,
+            revoked_at
+        )
+        SELECT token_digest, task_id, registration_id, capability,
+               scope_json, use_count, max_uses, created_at, expires_at,
+               revoked_at
+        FROM module_capability_tokens_v11
+        """
+    )
+    connection.execute("DROP TABLE module_capability_tokens_v11")
+    connection.execute(
+        "CREATE INDEX idx_module_capability_task "
+        "ON module_capability_tokens(task_id, capability)"
+    )
+    connection.execute(
+        "CREATE INDEX idx_agent_rule_documents_owner "
+        "ON agent_rule_documents(owner_user_id, target_module_id, updated_at)"
+    )
+    connection.execute(
+        "CREATE INDEX idx_agent_rule_sources_document "
+        "ON agent_rule_source_versions(document_id, version_number)"
+    )
+    connection.execute(
+        "CREATE INDEX idx_agent_compiled_rules_document "
+        "ON agent_compiled_rule_versions(document_id, created_at)"
+    )
+    connection.execute(
+        "CREATE INDEX idx_module_task_rule_activations_task "
+        "ON module_task_rule_activations(task_id, ordinal)"
+    )
+
+
 MIGRATIONS = (
     (1, "server_shared_data", _migration_1_server_shared_data),
     (2, "auth_and_audit", _migration_2_auth_and_audit),
@@ -706,6 +975,21 @@ MIGRATIONS = (
         9,
         "module_task_resources",
         _migration_9_module_task_resources,
+    ),
+    (
+        10,
+        "agent_host_capabilities",
+        _migration_10_agent_host_capabilities,
+    ),
+    (
+        11,
+        "personal_agent_skills",
+        _migration_11_personal_agent_skills,
+    ),
+    (
+        12,
+        "agent_compiled_rules",
+        _migration_12_agent_compiled_rules,
     ),
 )
 

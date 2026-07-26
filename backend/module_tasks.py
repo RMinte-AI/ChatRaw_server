@@ -4,10 +4,12 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import os
 import re
 import secrets
 import sqlite3
+import time
 import uuid
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
@@ -26,6 +28,7 @@ try:
         ACTIVE_TASK_STATES,
         CAPABILITY_TOKEN_TTL_SECONDS,
         HOST_CAPABILITIES,
+        MAX_CAPABILITY_TOKEN_TTL_SECONDS,
         MAX_ARTIFACT_BYTES,
         MAX_EVENT_BYTES,
         MAX_INPUT_RESOURCES,
@@ -53,6 +56,7 @@ except ImportError:
         ACTIVE_TASK_STATES,
         CAPABILITY_TOKEN_TTL_SECONDS,
         HOST_CAPABILITIES,
+        MAX_CAPABILITY_TOKEN_TTL_SECONDS,
         MAX_ARTIFACT_BYTES,
         MAX_EVENT_BYTES,
         MAX_INPUT_RESOURCES,
@@ -76,15 +80,31 @@ SAFE_ARTIFACT_MEDIA_TYPES = {
     "application/json",
     "application/octet-stream",
     "application/pdf",
+    (
+        "application/vnd.openxmlformats-officedocument."
+        "spreadsheetml.sheet"
+    ),
+    (
+        "application/vnd.openxmlformats-officedocument."
+        "wordprocessingml.document"
+    ),
     "image/jpeg",
     "image/png",
     "text/csv",
+    "text/markdown",
     "text/plain",
 }
 DEFAULT_TASK_INPUT_RESOURCE_BYTES = 100 * 1024 * 1024
 TASK_INPUT_RESOURCE_TTL_SECONDS = 24 * 60 * 60
+MAX_MODEL_CHAT_REQUEST_BYTES = 1024 * 1024
+MAX_MODEL_CHAT_REQUESTS = 65
+MAX_CHAT_HISTORY_MESSAGES = 40
+MAX_CHAT_HISTORY_CHARACTERS = 200_000
+MAX_ACTIVE_SKILLS_PER_TASK = 5
+MAX_ACTIVE_RULES_PER_TASK = 10
 _CONTENT_RANGE = re.compile(r"^bytes (\d+)-(\d+)/(\d+)$")
 LOCAL_ACTIVE_TASK_STATES = ACTIVE_TASK_STATES | {"submitting"}
+logger = logging.getLogger(__name__)
 
 
 def _utc_now() -> str:
@@ -123,6 +143,12 @@ class ModuleTaskService:
         audit: Callable[..., None],
         chat_generation_active: Callable[[str], bool] | None = None,
         model_invoke: Callable[[str], Awaitable[str]] | None = None,
+        model_chat_completion: (
+            Callable[[dict[str, Any]], Awaitable[dict[str, Any]]] | None
+        ) = None,
+        chat_auto_title: (
+            Callable[[str, str, str], Awaitable[Any]] | None
+        ) = None,
         capability_base_url: str | None = None,
         resource_dir: str | Path | None = None,
         max_input_resource_bytes: int | None = None,
@@ -133,6 +159,8 @@ class ModuleTaskService:
         self.audit = audit
         self.chat_generation_active = chat_generation_active or (lambda _chat_id: False)
         self.model_invoke = model_invoke
+        self.model_chat_completion = model_chat_completion
+        self.chat_auto_title = chat_auto_title
         self.capability_base_url = (
             capability_base_url
             or getattr(
@@ -272,6 +300,8 @@ class ModuleTaskService:
             "accepted_at": row["accepted_at"],
             "updated_at": row["updated_at"],
             "terminal_at": row["terminal_at"],
+            "user_message_id": row["user_message_id"],
+            "assistant_message_id": row["assistant_message_id"],
             "is_creator": row["creator_user_id"] == principal_user_id,
             "can_control": (
                 row["creator_user_id"] == principal_user_id
@@ -287,7 +317,15 @@ class ModuleTaskService:
     def _validate_create_payload(
         self,
         payload: Any,
-    ) -> tuple[str, str, dict[str, Any], str | None, str | None, list[str]]:
+    ) -> tuple[
+        str,
+        str,
+        dict[str, Any],
+        str | None,
+        str | None,
+        list[str],
+        list[str],
+    ]:
         if not isinstance(payload, dict):
             raise ModuleTaskError(
                 "invalid_task_request",
@@ -300,6 +338,7 @@ class ModuleTaskService:
             "chat_id",
             "user_message",
             "resource_ids",
+            "active_skill_ids",
         }
         required = {"module_id", "action_id", "input"}
         if set(payload) - allowed or not required.issubset(payload):
@@ -356,6 +395,21 @@ class ModuleTaskService:
                 "invalid_task_request",
                 "resource_ids are invalid",
             )
+        active_skill_ids = payload.get("active_skill_ids", [])
+        if (
+            not isinstance(active_skill_ids, list)
+            or len(active_skill_ids) > MAX_ACTIVE_SKILLS_PER_TASK
+            or not all(
+                isinstance(skill_id, str)
+                and 1 <= len(skill_id) <= 128
+                for skill_id in active_skill_ids
+            )
+            or len(set(active_skill_ids)) != len(active_skill_ids)
+        ):
+            raise ModuleTaskError(
+                "invalid_task_request",
+                "active_skill_ids are invalid",
+            )
         return (
             module_id,
             action_id,
@@ -363,6 +417,7 @@ class ModuleTaskService:
             chat_id,
             user_message,
             resource_ids,
+            active_skill_ids,
         )
 
     @staticmethod
@@ -605,6 +660,89 @@ class ModuleTaskService:
                     )
         return has_uploaded_resource
 
+    def _resolve_skill_snapshots(
+        self,
+        *,
+        skill_ids: list[str],
+        principal_user_id: str,
+        module_id: str,
+    ) -> list[dict[str, Any]]:
+        snapshots = []
+        with self._connection() as connection:
+            for skill_id in skill_ids:
+                row = connection.execute(
+                    """
+                    SELECT skills.id, skills.name, skills.description,
+                           skills.active_version_id,
+                           versions.content_sha256,
+                           versions.commit_sha
+                    FROM agent_skills AS skills
+                    JOIN agent_skill_versions AS versions
+                      ON versions.id = skills.active_version_id
+                    WHERE skills.id = ?
+                      AND skills.owner_user_id = ?
+                      AND skills.target_module_id = ?
+                      AND skills.enabled = 1
+                    """,
+                    (skill_id, principal_user_id, module_id),
+                ).fetchone()
+                if row is None:
+                    raise ModuleTaskError(
+                        "agent_skill_unavailable",
+                        "An active Agent skill is unavailable",
+                        status_code=404,
+                    )
+                snapshots.append(
+                    {
+                        "skill_id": row["id"],
+                        "version_id": row["active_version_id"],
+                        "name": row["name"],
+                        "description": row["description"],
+                        "content_sha256": row["content_sha256"],
+                        "commit": row["commit_sha"],
+                    }
+                )
+        return snapshots
+
+    def _resolve_rule_snapshots(
+        self,
+        *,
+        principal_user_id: str,
+        module_id: str,
+    ) -> list[dict[str, Any]]:
+        with self._connection() as connection:
+            rows = connection.execute(
+                """
+                SELECT documents.id AS document_id,
+                       documents.name,
+                       versions.id AS compiled_version_id,
+                       versions.source_version_id,
+                       versions.specification_version,
+                       versions.content_sha256
+                FROM agent_rule_documents AS documents
+                JOIN agent_compiled_rule_versions AS versions
+                  ON versions.id =
+                     documents.active_compiled_version_id
+                WHERE documents.owner_user_id = ?
+                  AND documents.target_module_id = ?
+                  AND versions.status = 'valid'
+                ORDER BY documents.updated_at, documents.id
+                LIMIT ?
+                """,
+                (
+                    principal_user_id,
+                    module_id,
+                    MAX_ACTIVE_RULES_PER_TASK + 1,
+                ),
+            ).fetchall()
+        if len(rows) > MAX_ACTIVE_RULES_PER_TASK:
+            raise ModuleTaskError(
+                "too_many_active_rules",
+                "Too many active Agent rules",
+                status_code=409,
+            )
+        return [dict(row) for row in rows]
+
     def _has_active_chat_task(
         self,
         connection: Any,
@@ -678,6 +816,8 @@ class ModuleTaskService:
         request_digest: str,
         chat_id: str | None,
         resource_ids: list[str],
+        skill_snapshots: list[dict[str, Any]],
+        rule_snapshots: list[dict[str, Any]],
     ):
         now = _utc_now()
         with self._connection(write=True, immediate=True) as connection:
@@ -747,6 +887,41 @@ class ModuleTaskService:
                 """,
                 [(task_id, resource_id) for resource_id in resource_ids],
             )
+            connection.executemany(
+                """
+                INSERT INTO module_task_skill_activations (
+                    task_id, ordinal, skill_id, version_id, created_at
+                ) VALUES (?, ?, ?, ?, ?)
+                """,
+                [
+                    (
+                        task_id,
+                        ordinal,
+                        snapshot["skill_id"],
+                        snapshot["version_id"],
+                        now,
+                    )
+                    for ordinal, snapshot in enumerate(skill_snapshots)
+                ],
+            )
+            connection.executemany(
+                """
+                INSERT INTO module_task_rule_activations (
+                    task_id, ordinal, document_id,
+                    compiled_version_id, created_at
+                ) VALUES (?, ?, ?, ?, ?)
+                """,
+                [
+                    (
+                        task_id,
+                        ordinal,
+                        snapshot["document_id"],
+                        snapshot["compiled_version_id"],
+                        now,
+                    )
+                    for ordinal, snapshot in enumerate(rule_snapshots)
+                ],
+            )
             for resource_id in resource_ids:
                 uploaded = connection.execute(
                     """
@@ -782,18 +957,45 @@ class ModuleTaskService:
         *,
         row: Any,
         target: dict[str, Any],
+        action: dict[str, Any],
         chat_id: str | None,
         resource_ids: list[str],
+        task_input: dict[str, Any],
+        skill_snapshots: list[dict[str, Any]],
+        rule_snapshots: list[dict[str, Any]],
     ) -> list[dict[str, Any]]:
         allowed = set(target["granted_capabilities"]) & HOST_CAPABILITIES
+        requested_deadline = task_input.get("request_deadline_seconds")
+        if requested_deadline is None:
+            requested_deadline = (
+                action.get("input_schema", {})
+                .get("properties", {})
+                .get("request_deadline_seconds", {})
+                .get("default")
+            )
+        if (
+            not isinstance(requested_deadline, int)
+            or isinstance(requested_deadline, bool)
+            or not 1 <= requested_deadline <= 2 * 60 * 60
+        ):
+            requested_deadline = CAPABILITY_TOKEN_TTL_SECONDS
+        capability_ttl = min(
+            MAX_CAPABILITY_TOKEN_TTL_SECONDS,
+            max(
+                CAPABILITY_TOKEN_TTL_SECONDS,
+                requested_deadline + 60,
+            ),
+        )
         expires = datetime.now(timezone.utc) + timedelta(
-            seconds=CAPABILITY_TOKEN_TTL_SECONDS
+            seconds=capability_ttl
         )
         expires_at = expires.isoformat().replace("+00:00", "Z")
         issued = []
         scopes: dict[str, tuple[dict[str, Any], int | None]] = {}
         if "chat.read" in allowed and chat_id is not None:
             scopes["chat.read"] = ({"chat_id": chat_id}, None)
+        if "principal.read" in allowed:
+            scopes["principal.read"] = ({}, 16)
         with self._connection() as connection:
             uploaded_ids = {
                 item["resource_id"]
@@ -821,6 +1023,37 @@ class ModuleTaskService:
             scopes["model.invoke"] = (
                 {"model_type": "chat"},
                 8,
+            )
+        if "model.chat.completions" in allowed:
+            scopes["model.chat.completions"] = (
+                {
+                    "profiles": [
+                        "agent-runtime",
+                        "agent-compiler",
+                        "agent-polisher",
+                    ]
+                },
+                MAX_MODEL_CHAT_REQUESTS,
+            )
+        if "skill.read" in allowed and skill_snapshots:
+            scopes["skill.read"] = (
+                {
+                    "skill_ids": [
+                        snapshot["skill_id"]
+                        for snapshot in skill_snapshots
+                    ]
+                },
+                max(16, len(skill_snapshots) * 4),
+            )
+        if "rule.read" in allowed and rule_snapshots:
+            scopes["rule.read"] = (
+                {
+                    "document_ids": [
+                        snapshot["document_id"]
+                        for snapshot in rule_snapshots
+                    ]
+                },
+                max(16, len(rule_snapshots) * 4),
             )
         with self._connection(write=True, immediate=True) as connection:
             connection.execute(
@@ -866,6 +1099,9 @@ class ModuleTaskService:
     def _capability_endpoint(self, capability: str) -> str:
         paths = {
             "chat.read": "/api/module-capabilities/v1/chat",
+            "principal.read": (
+                "/api/module-capabilities/v1/principal"
+            ),
             "resource.read": (
                 "/api/module-capabilities/v1/resources/{resource_id}"
             ),
@@ -873,6 +1109,15 @@ class ModuleTaskService:
                 "/api/module-capabilities/v1/resource-stream/{resource_id}"
             ),
             "model.invoke": "/api/module-capabilities/v1/model/invoke",
+            "model.chat.completions": (
+                "/api/module-capabilities/v1/openai"
+            ),
+            "skill.read": (
+                "/api/module-capabilities/v1/skills/{skill_id}"
+            ),
+            "rule.read": (
+                "/api/module-capabilities/v1/rules/{document_id}"
+            ),
         }
         return f"{self.capability_base_url}{paths[capability]}"
 
@@ -1045,6 +1290,7 @@ class ModuleTaskService:
                 chat_id,
                 user_message,
                 resource_ids,
+                active_skill_ids,
             ) = self._validate_create_payload(payload)
             target = self.registry.task_target(module_id=module_id)
             action = self._action(target, action_id)
@@ -1064,6 +1310,28 @@ class ModuleTaskService:
                     "This action does not support task resources",
                     status_code=409,
                 )
+            if active_skill_ids and not action.get(
+                "supports_skills",
+                False,
+            ):
+                raise ModuleTaskError(
+                    "agent_skills_not_supported",
+                    "This action does not support Agent skills",
+                    status_code=409,
+                )
+            skill_snapshots = self._resolve_skill_snapshots(
+                skill_ids=active_skill_ids,
+                principal_user_id=principal_user_id,
+                module_id=module_id,
+            )
+            rule_snapshots = (
+                self._resolve_rule_snapshots(
+                    principal_user_id=principal_user_id,
+                    module_id=module_id,
+                )
+                if action.get("supports_rules", False)
+                else []
+            )
         except (
             ModuleRegistryError,
             ModuleTaskProtocolError,
@@ -1078,6 +1346,24 @@ class ModuleTaskService:
             "chat_id": chat_id,
             "user_message": user_message,
             "resource_ids": sorted(resource_ids),
+            "active_skills": [
+                {
+                    "skill_id": snapshot["skill_id"],
+                    "version_id": snapshot["version_id"],
+                    "content_sha256": snapshot["content_sha256"],
+                }
+                for snapshot in skill_snapshots
+            ],
+            "active_rules": [
+                {
+                    "document_id": snapshot["document_id"],
+                    "compiled_version_id": snapshot[
+                        "compiled_version_id"
+                    ],
+                    "content_sha256": snapshot["content_sha256"],
+                }
+                for snapshot in rule_snapshots
+            ],
         }
         request_digest = digest_task_request(digest_payload)
         row = self._prepare_provisional(
@@ -1088,6 +1374,8 @@ class ModuleTaskService:
             request_digest=request_digest,
             chat_id=chat_id,
             resource_ids=resource_ids,
+            skill_snapshots=skill_snapshots,
+            rule_snapshots=rule_snapshots,
         )
         was_visible = bool(row["visible"])
         if was_visible:
@@ -1101,8 +1389,12 @@ class ModuleTaskService:
         capabilities = self._issue_capabilities(
             row=row,
             target=target,
+            action=action,
             chat_id=chat_id,
             resource_ids=resource_ids,
+            task_input=task_input,
+            skill_snapshots=skill_snapshots,
+            rule_snapshots=rule_snapshots,
         )
         module_payload = {
             "task_id": row["id"],
@@ -1111,6 +1403,8 @@ class ModuleTaskService:
             "action_version": action["action_version"],
             "config_revision": target["config_revision"],
             "input": task_input,
+            "active_skills": skill_snapshots,
+            "active_rules": rule_snapshots,
             "host_capabilities": capabilities,
         }
         try:
@@ -1152,7 +1446,7 @@ class ModuleTaskService:
                 user_message=user_message,
             )
             self._register_artifacts(row["id"], summary.get("artifacts", []))
-            self._apply_projection(row["id"], action, summary)
+            await self._apply_projection(row["id"], action, summary)
             if summary["state"] in TERMINAL_TASK_STATES:
                 self.revoke_task_capabilities(row["id"])
                 self._schedule_input_resource_cleanup(row["id"])
@@ -1420,7 +1714,7 @@ class ModuleTaskService:
             self.revoke_task_capabilities(task_id)
             self._schedule_input_resource_cleanup(task_id, now=now)
 
-    def _apply_projection(
+    async def _apply_projection(
         self,
         task_id: str,
         action: dict[str, Any],
@@ -1444,10 +1738,15 @@ class ModuleTaskService:
         ):
             return
         now = _utc_now()
+        title_context = None
         with self._connection(write=True, immediate=True) as connection:
             row = connection.execute(
                 """
-                SELECT chat_id, assistant_message_id, projection_state
+                SELECT
+                    chat_id,
+                    user_message_id,
+                    assistant_message_id,
+                    projection_state
                 FROM module_tasks WHERE id = ?
                 """,
                 (task_id,),
@@ -1508,6 +1807,26 @@ class ModuleTaskService:
                 """,
                 (message_id, now, task_id),
             )
+            user_message = connection.execute(
+                "SELECT content FROM messages WHERE id = ?",
+                (row["user_message_id"],),
+            ).fetchone()
+            if user_message is not None:
+                title_context = (
+                    row["chat_id"],
+                    user_message["content"],
+                    projection,
+                )
+
+        if title_context is not None and self.chat_auto_title is not None:
+            try:
+                await self.chat_auto_title(*title_context)
+            except Exception:
+                logger.warning(
+                    "Chat auto-title callback failed for task %s",
+                    task_id,
+                    exc_info=True,
+                )
 
     async def reconcile(self, task_id: str) -> dict[str, Any] | None:
         row = self._task_row(task_id)
@@ -1533,7 +1852,7 @@ class ModuleTaskService:
             summary = self._validate_summary_for_row(row, action, payload)
             self._update_summary(task_id, summary)
             self._register_artifacts(task_id, summary.get("artifacts", []))
-            self._apply_projection(task_id, action, summary)
+            await self._apply_projection(task_id, action, summary)
             return summary
         except ModuleTransportError:
             self._fail_stream(
@@ -1796,21 +2115,29 @@ class ModuleTaskService:
                 "invalid_event_cursor",
                 "Last-Event-ID is invalid",
             )
-        row = self._task_row(task_id)
-        if row["state"] in TERMINAL_TASK_STATES:
-            if last_event_id < max(1, row["last_cursor"]):
-                data = {"state": row["state"]}
-                if row["outcome_code"] is not None:
-                    data["outcome_code"] = row["outcome_code"]
-                yield {
-                    "id": max(1, row["last_cursor"]),
+
+        def known_terminal_event() -> tuple[bool, dict[str, Any] | None]:
+            current = self._task_row(task_id)
+            if current["state"] not in TERMINAL_TASK_STATES:
+                return False, None
+            if last_event_id >= max(1, current["last_cursor"]):
+                return True, None
+            data = {"state": current["state"]}
+            if current["outcome_code"] is not None:
+                data["outcome_code"] = current["outcome_code"]
+            return (
+                True,
+                {
+                    "id": max(1, current["last_cursor"]),
                     "event": "task.terminal",
                     "data": data,
-                }
-            return
-        target, _action = self._target_and_action_for_row(row)
+                },
+            )
+
         stream_cursor = last_event_id
         try:
+            row = self._task_row(task_id)
+            target, _action = self._target_and_action_for_row(row)
             async for event in self.registry.client.iter_sse(
                 target["base_url"],
                 f"{TASKS_PATH}/{quote(task_id, safe='')}/events",
@@ -1830,28 +2157,39 @@ class ModuleTaskService:
                     raise self._module_error(error) from error
                 stream_cursor = event["id"]
                 current = self._task_row(task_id)
-                if event["id"] > current["last_cursor"]:
+                is_new_event = event["id"] > current["last_cursor"]
+                if is_new_event:
                     self._apply_event(task_id, event)
                 terminal = (
                     event["event"] == "task.terminal"
                     or event["data"].get("state")
                     in TERMINAL_TASK_STATES
                 )
-                if terminal:
+                if terminal and is_new_event:
                     summary = await self.reconcile(task_id)
                     if summary is not None:
                         _target, action = self._target_and_action_for_row(
                             self._task_row(task_id)
                         )
-                        self._apply_projection(task_id, action, summary)
+                        await self._apply_projection(task_id, action, summary)
                 yield event
         except ModuleTransportError as error:
+            terminal, fallback = known_terminal_event()
+            if terminal:
+                if fallback is not None:
+                    yield fallback
+                return
             yield self._fail_stream(
                 task_id,
                 outcome_code="module_unreachable",
             )
             return
         except (ModuleRegistryError, ModuleTaskProtocolError) as error:
+            terminal, fallback = known_terminal_event()
+            if terminal:
+                if fallback is not None:
+                    yield fallback
+                return
             converted = self._module_error(error)
             yield self._fail_stream(
                 task_id,
@@ -1859,6 +2197,11 @@ class ModuleTaskService:
             )
             return
         except ModuleTaskError as error:
+            terminal, fallback = known_terminal_event()
+            if terminal:
+                if fallback is not None:
+                    yield fallback
+                return
             yield self._fail_stream(
                 task_id,
                 outcome_code=error.code,
@@ -2482,17 +2825,63 @@ class ModuleTaskService:
             messages = connection.execute(
                 """
                 SELECT role, content, created_at
-                FROM messages WHERE chat_id = ?
+                FROM (
+                    SELECT role, content, created_at, sequence, rowid
+                    FROM messages
+                    WHERE chat_id = ?
+                    ORDER BY sequence DESC, rowid DESC
+                    LIMIT ?
+                )
                 ORDER BY sequence, rowid
                 """,
-                (chat_id,),
+                (chat_id, MAX_CHAT_HISTORY_MESSAGES),
             ).fetchall()
+        bounded_messages = []
+        character_count = 0
+        for message in reversed(messages):
+            content = message["content"]
+            if (
+                character_count + len(content)
+                > MAX_CHAT_HISTORY_CHARACTERS
+            ):
+                break
+            bounded_messages.append(dict(message))
+            character_count += len(content)
+        bounded_messages.reverse()
         return {
             "task_id": row["task_id"],
             "chat_id": chat_id,
             "conversation_ref": f"chatraw-chat:{chat_id}",
             "actor_ref": f"chatraw-user:{row['creator_user_id']}",
-            "messages": [dict(message) for message in messages],
+            "messages": bounded_messages,
+        }
+
+    async def capability_principal_read(
+        self,
+        token: str,
+    ) -> dict[str, Any]:
+        await self._preflight_capability(token, "principal.read")
+        row, _scope = self._consume_capability(token, "principal.read")
+        with self._connection() as connection:
+            principal = connection.execute(
+                """
+                SELECT users.role
+                FROM module_tasks
+                JOIN users ON users.id = module_tasks.creator_user_id
+                WHERE module_tasks.id = ?
+                """,
+                (row["task_id"],),
+            ).fetchone()
+        if principal is None:
+            raise ModuleTaskError(
+                "capability_principal_unavailable",
+                "Task principal is unavailable",
+                status_code=404,
+            )
+        return {
+            "task_id": row["task_id"],
+            "actor_ref": f"chatraw-user:{row['creator_user_id']}",
+            "role": principal["role"],
         }
 
     async def capability_resource_read(
@@ -2532,6 +2921,113 @@ class ModuleTaskService:
         return {
             "task_id": row["task_id"],
             "resource": dict(resource),
+        }
+
+    async def capability_skill_read(
+        self,
+        token: str,
+        skill_id: str,
+    ) -> dict[str, Any]:
+        await self._preflight_capability(token, "skill.read")
+        row, scope = self._consume_capability(token, "skill.read")
+        if skill_id not in scope.get("skill_ids", []):
+            raise ModuleTaskError(
+                "capability_scope_denied",
+                "Skill is outside the capability scope",
+                status_code=403,
+            )
+        with self._connection() as connection:
+            skill = connection.execute(
+                """
+                SELECT skills.id, skills.name, skills.description,
+                       versions.id AS version_id,
+                       versions.commit_sha, versions.content_sha256,
+                       versions.source_json, versions.skill_markdown,
+                       versions.resources_json
+                FROM module_task_skill_activations AS activations
+                JOIN agent_skills AS skills
+                  ON skills.id = activations.skill_id
+                JOIN agent_skill_versions AS versions
+                  ON versions.id = activations.version_id
+                WHERE activations.task_id = ?
+                  AND activations.skill_id = ?
+                """,
+                (row["task_id"], skill_id),
+            ).fetchone()
+        if skill is None:
+            raise ModuleTaskError(
+                "agent_skill_unavailable",
+                "Agent skill snapshot is unavailable",
+                status_code=404,
+            )
+        return {
+            "task_id": row["task_id"],
+            "skill": {
+                "id": skill["id"],
+                "version_id": skill["version_id"],
+                "name": skill["name"],
+                "description": skill["description"],
+                "commit": skill["commit_sha"],
+                "content_sha256": skill["content_sha256"],
+                "source": json.loads(skill["source_json"]),
+                "skill_markdown": skill["skill_markdown"],
+                "resources": json.loads(skill["resources_json"]),
+            },
+        }
+
+    async def capability_rule_read(
+        self,
+        token: str,
+        document_id: str,
+    ) -> dict[str, Any]:
+        await self._preflight_capability(token, "rule.read")
+        row, scope = self._consume_capability(token, "rule.read")
+        if document_id not in scope.get("document_ids", []):
+            raise ModuleTaskError(
+                "capability_scope_denied",
+                "Rule is outside the capability scope",
+                status_code=403,
+            )
+        with self._connection() as connection:
+            rule = connection.execute(
+                """
+                SELECT documents.id AS document_id,
+                       documents.name,
+                       versions.id AS compiled_version_id,
+                       versions.source_version_id,
+                       versions.specification_version,
+                       versions.content_sha256,
+                       versions.compiled_json
+                FROM module_task_rule_activations AS activations
+                JOIN agent_rule_documents AS documents
+                  ON documents.id = activations.document_id
+                JOIN agent_compiled_rule_versions AS versions
+                  ON versions.id = activations.compiled_version_id
+                WHERE activations.task_id = ?
+                  AND activations.document_id = ?
+                  AND versions.status = 'valid'
+                """,
+                (row["task_id"], document_id),
+            ).fetchone()
+        if rule is None or not rule["compiled_json"]:
+            raise ModuleTaskError(
+                "agent_rule_unavailable",
+                "Agent rule snapshot is unavailable",
+                status_code=404,
+            )
+        return {
+            "task_id": row["task_id"],
+            "rule": {
+                "document_id": rule["document_id"],
+                "compiled_version_id": rule["compiled_version_id"],
+                "source_version_id": rule["source_version_id"],
+                "name": rule["name"],
+                "specification_version": rule[
+                    "specification_version"
+                ],
+                "content_sha256": rule["content_sha256"],
+                "compiled_rule": json.loads(rule["compiled_json"]),
+            },
         }
 
     async def capability_resource_stream(
@@ -2618,3 +3114,257 @@ class ModuleTaskService:
             )
         result = await self.model_invoke(prompt)
         return {"task_id": row["task_id"], "content": result}
+
+    @staticmethod
+    def _validate_model_chat_request(
+        request: Any,
+        allowed_profiles: list[str],
+    ) -> dict[str, Any]:
+        if not isinstance(request, dict):
+            raise ModuleTaskError(
+                "invalid_model_request",
+                "Model request must be an object",
+            )
+        allowed_fields = {
+            "profile",
+            "messages",
+            "tools",
+            "tool_choice",
+            "response_format",
+            "temperature",
+            "top_p",
+            "max_tokens",
+            "parallel_tool_calls",
+            "timeout_seconds",
+        }
+        if set(request) - allowed_fields:
+            raise ModuleTaskError(
+                "invalid_model_request",
+                "Model request fields are invalid",
+            )
+        profile = request.get("profile")
+        messages = request.get("messages")
+        if (
+            profile not in allowed_profiles
+            or not isinstance(messages, list)
+            or not 1 <= len(messages) <= 256
+        ):
+            raise ModuleTaskError(
+                "invalid_model_request",
+                "Model profile or messages are invalid",
+            )
+        try:
+            encoded = json.dumps(
+                request,
+                ensure_ascii=False,
+                separators=(",", ":"),
+            ).encode("utf-8")
+        except (TypeError, ValueError):
+            raise ModuleTaskError(
+                "invalid_model_request",
+                "Model request must be valid JSON",
+            ) from None
+        if len(encoded) > MAX_MODEL_CHAT_REQUEST_BYTES:
+            raise ModuleTaskError(
+                "model_request_too_large",
+                "Model request exceeds the size limit",
+                status_code=413,
+            )
+        valid_roles = {"system", "user", "assistant", "tool"}
+        for message in messages:
+            if (
+                not isinstance(message, dict)
+                or message.get("role") not in valid_roles
+                or set(message)
+                - {
+                    "role",
+                    "content",
+                    "name",
+                    "tool_call_id",
+                    "tool_calls",
+                }
+            ):
+                raise ModuleTaskError(
+                    "invalid_model_request",
+                    "Model messages are invalid",
+                )
+        tools = request.get("tools", [])
+        if (
+            not isinstance(tools, list)
+            or len(tools) > 128
+            or any(
+                not isinstance(tool, dict)
+                or tool.get("type") != "function"
+                or not isinstance(tool.get("function"), dict)
+                for tool in tools
+            )
+        ):
+            raise ModuleTaskError(
+                "invalid_model_request",
+                "Model tools are invalid",
+            )
+        timeout_seconds = request.get("timeout_seconds", 300)
+        if (
+            not isinstance(timeout_seconds, int)
+            or isinstance(timeout_seconds, bool)
+            or not 180 <= timeout_seconds <= 900
+        ):
+            raise ModuleTaskError(
+                "invalid_model_timeout",
+                "Model timeout must be between 180 and 900 seconds",
+            )
+        max_tokens = request.get("max_tokens")
+        if max_tokens is not None and (
+            not isinstance(max_tokens, int)
+            or isinstance(max_tokens, bool)
+            or not 1 <= max_tokens <= 65536
+        ):
+            raise ModuleTaskError(
+                "invalid_model_request",
+                "Model max_tokens is invalid",
+            )
+        for field, minimum, maximum in (
+            ("temperature", 0, 2),
+            ("top_p", 0, 1),
+        ):
+            value = request.get(field)
+            if value is not None and (
+                isinstance(value, bool)
+                or not isinstance(value, (int, float))
+                or not minimum <= value <= maximum
+            ):
+                raise ModuleTaskError(
+                    "invalid_model_request",
+                    f"Model {field} is invalid",
+                )
+        return request
+
+    async def capability_model_chat_completion(
+        self,
+        token: str,
+        request: Any,
+    ) -> dict[str, Any]:
+        await self._preflight_capability(
+            token,
+            "model.chat.completions",
+        )
+        row, scope = self._consume_capability(
+            token,
+            "model.chat.completions",
+        )
+        payload = self._validate_model_chat_request(
+            request,
+            scope.get("profiles", []),
+        )
+        if self.model_chat_completion is None:
+            raise ModuleTaskError(
+                "model_unavailable",
+                "Model capability is unavailable",
+                status_code=503,
+            )
+        completion = await self.model_chat_completion(payload)
+        if not isinstance(completion, dict):
+            raise ModuleTaskError(
+                "invalid_model_response",
+                "Model returned an invalid response",
+                status_code=502,
+            )
+        return {
+            "task_id": row["task_id"],
+            "completion": completion,
+        }
+
+    async def capability_openai_chat_completion(
+        self,
+        token: str,
+        request: Any,
+    ) -> dict[str, Any]:
+        if not isinstance(request, dict):
+            raise ModuleTaskError(
+                "invalid_model_request",
+                "Model request must be an object",
+            )
+        allowed = {
+            "model",
+            "messages",
+            "tools",
+            "tool_choice",
+            "response_format",
+            "temperature",
+            "top_p",
+            "max_tokens",
+            "max_completion_tokens",
+            "parallel_tool_calls",
+            "stream",
+        }
+        if set(request) - allowed or request.get("stream", False) is not False:
+            raise ModuleTaskError(
+                "invalid_model_request",
+                "Model request fields are invalid",
+            )
+        if (
+            "max_tokens" in request
+            and "max_completion_tokens" in request
+        ):
+            raise ModuleTaskError(
+                "invalid_model_request",
+                "Only one model token limit may be supplied",
+            )
+        normalized = {
+            key: value
+            for key, value in request.items()
+            if key
+            not in {
+                "model",
+                "max_completion_tokens",
+                "stream",
+            }
+        }
+        normalized["profile"] = request.get("model")
+        normalized["timeout_seconds"] = 900
+        if "max_completion_tokens" in request:
+            normalized["max_tokens"] = request["max_completion_tokens"]
+        result = await self.capability_model_chat_completion(
+            token,
+            normalized,
+        )
+        completion = result["completion"]
+        tool_calls = [
+            {
+                "id": item["id"],
+                "type": "function",
+                "function": {
+                    "name": item["name"],
+                    "arguments": item["arguments"],
+                },
+            }
+            for item in completion.get("tool_calls", [])
+        ]
+        usage = completion.get("usage", {})
+        return {
+            "id": f"chatcmpl-{secrets.token_hex(12)}",
+            "object": "chat.completion",
+            "created": int(time.time()),
+            "model": completion.get("model") or request.get("model"),
+            "choices": [
+                {
+                    "index": 0,
+                    "message": {
+                        "role": "assistant",
+                        "content": completion.get("content"),
+                        **(
+                            {"tool_calls": tool_calls}
+                            if tool_calls
+                            else {}
+                        ),
+                    },
+                    "finish_reason": completion.get("finish_reason")
+                    or ("tool_calls" if tool_calls else "stop"),
+                }
+            ],
+            "usage": {
+                "prompt_tokens": usage.get("input_tokens", 0),
+                "completion_tokens": usage.get("output_tokens", 0),
+                "total_tokens": usage.get("total_tokens", 0),
+            },
+        }

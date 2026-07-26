@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://chatraw.local/contracts/module-plugin-sdk-v1.json",
   "contract": "ChatRaw Module Plugin SDK",
-  "version": "1.2.0",
+  "version": "1.5.0",
   "global": "window.ChatRaw.modules",
   "transport": {
     "origin": "same-origin",
@@ -49,7 +49,7 @@
       ],
       "returns": "Promise<Task>",
       "endpoint": "POST /api/module-tasks",
-      "side_effect": "presentation defaults to task_center, which opens the ChatRaw core task UI and subscribes; embedded registers the task without opening the task center and the caller subscribes explicitly"
+      "side_effect": "presentation defaults to task_center, which opens the ChatRaw core task UI and subscribes; embedded registers the task without opening the task center and the caller subscribes explicitly; conversation requires chat_id and user_message, binds the task to the conversation, subscribes, and never opens the task center"
     },
     "listTasks": {
       "arguments": [
@@ -211,6 +211,19 @@
           "decision": "approve | deny"
         }
       },
+      "activity.updated": {
+        "data": {
+          "schema_version": "1",
+          "run_id": "UUID",
+          "activity_id": "UUID",
+          "kind": "phase | plan | tool",
+          "state": "started | updated | succeeded | failed | cancelled",
+          "title": "safe user-visible string",
+          "summary": "safe user-visible string | absent",
+          "detail": "strict kind-specific activity snapshot"
+        },
+        "reducer": "upsert by run_id plus activity_id; the latest complete snapshot replaces the previous snapshot"
+      },
       "artifact.added": {
         "data": "module artifact metadata; call getTask for the Server artifact_ref"
       },
@@ -295,8 +308,19 @@
         },
         "resource_ids": {
           "type": "array",
+          "maxItems": 64,
           "items": {
             "type": "string"
+          }
+        },
+        "active_skill_ids": {
+          "type": "array",
+          "maxItems": 5,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
           }
         },
         "idempotency_key": {
@@ -311,7 +335,8 @@
         "presentation": {
           "enum": [
             "task_center",
-            "embedded"
+            "embedded",
+            "conversation"
           ],
           "default": "task_center"
         }
@@ -356,6 +381,8 @@
         "supports_approval",
         "supports_artifacts",
         "supports_resources",
+        "supports_skills",
+        "supports_rules",
         "supports_chat_projection"
       ],
       "properties": {
@@ -367,6 +394,8 @@
         "supports_approval": {"type": "boolean"},
         "supports_artifacts": {"type": "boolean"},
         "supports_resources": {"type": "boolean"},
+        "supports_skills": {"type": "boolean"},
+        "supports_rules": {"type": "boolean"},
         "supports_chat_projection": {"type": "boolean"}
       }
     },
@@ -389,7 +418,7 @@
       ],
       "properties": {
         "sdk_version": {
-          "const": "1.2.0"
+          "const": "1.5.0"
         },
         "module_id": {
           "type": "string"
@@ -534,9 +563,25 @@
     "Task": {
       "type": "object",
       "required": [
-        "resources"
+        "resources",
+        "user_message_id",
+        "assistant_message_id"
       ],
       "properties": {
+        "user_message_id": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "uuid"
+        },
+        "assistant_message_id": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "uuid"
+        },
         "resources": {
           "type": "array",
           "maxItems": 128,

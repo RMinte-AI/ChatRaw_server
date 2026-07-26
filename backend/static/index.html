@@ -12,8 +12,8 @@
     
     <!-- Performance: Preload Critical Resources -->
     <link rel="preload" href="fonts/remixicon/remixicon.woff2?t=1769685282643" as="font" type="font/woff2" crossorigin>
-    <link rel="preload" href="styles.min.css?v=7.11" as="style">
-    <link rel="preload" href="app.min.js?v=7.18" as="script">
+    <link rel="preload" href="styles.min.css?v=7.12" as="style">
+    <link rel="preload" href="app.min.js?v=7.19" as="script">
     <link rel="preload" href="vendor/alpine.min.js" as="script">
     <link rel="preload" href="vendor/marked.min.js" as="script">
     <link rel="preload" href="vendor/purify.min.js" as="script">
@@ -141,12 +141,12 @@
     <!-- Locally pinned frontend runtime -->
     <script src="vendor/marked.min.js"></script>
     <script src="vendor/purify.min.js"></script>
-    <script src="content-security.min.js?v=1"></script>
+    <script src="content-security.min.js?v=2"></script>
     <script defer src="vendor/alpine-collapse.min.js"></script>
     <script defer src="vendor/alpine.min.js"></script>
     <!-- highlight.js is lazy-loaded in app.min.js when needed -->
     <link rel="stylesheet" href="fonts/remixicon/remixicon.css">
-    <link rel="stylesheet" href="styles.min.css?v=7.11">
+    <link rel="stylesheet" href="styles.min.css?v=7.12">
 </head>
 <body x-data="app()" :data-theme="settings.ui_settings.theme_mode">
     <!-- Sidebar Overlay for Mobile -->
@@ -198,7 +198,7 @@
                         :disabled="btn.loading || btn.disabled"
                         :title="getPluginButtonLabel(btn)"
                         :class="{ 'active': btn.active, 'loading': btn.loading }"
-                        @click="handlePluginButtonClick(btn)">
+                        @click="handlePluginButtonClick(btn, $event.currentTarget)">
                     <i :class="btn.loading ? 'ri-loader-4-line spin' : btn.icon"></i>
                     <span x-text="getPluginButtonLabel(btn)"></span>
                     <small x-show="getPluginButtonStatus(btn)" x-text="getPluginButtonStatus(btn)"></small>
@@ -224,7 +224,7 @@
                         :disabled="btn.loading || btn.disabled"
                         :title="getPluginButtonLabel(btn)"
                         :class="{ 'active': btn.active, 'loading': btn.loading }"
-                        @click="handlePluginButtonClick(btn)">
+                        @click="handlePluginButtonClick(btn, $event.currentTarget)">
                     <i :class="btn.loading ? 'ri-loader-4-line spin' : btn.icon"></i>
                 </button>
             </template>
@@ -311,8 +311,12 @@
             </div>
 
             <!-- Messages -->
-            <div class="messages" x-show="messages.length > 0" x-ref="messagesContainer" aria-live="polite">
-                <template x-for="(msg, index) in messages" :key="index">
+            <div class="messages"
+                 x-show="messages.length > 0"
+                 x-ref="messagesContainer"
+                 aria-live="polite">
+                <template x-for="(msg, index) in messages"
+                          :key="msg.id || msg._localId || index">
                     <div class="message" :class="msg.role">
                         <div class="message-avatar" :class="msg.role">
                             <!-- User avatar -->
@@ -324,7 +328,7 @@
                         </div>
                         <div class="message-content">
                             <!-- Show typing indicator for empty assistant message while generating -->
-                            <div class="typing-indicator" x-show="msg.role === 'assistant' && !msg.content && !(msg.hermesRun && msg.hermesRun.events && msg.hermesRun.events.length) && isGenerating">
+                            <div class="typing-indicator" x-show="msg.role === 'assistant' && !msg.content && !msg.moduleTask && !(msg.hermesRun && msg.hermesRun.events && msg.hermesRun.events.length) && isGenerating">
                                 <span></span><span></span><span></span>
                             </div>
                             <!-- Thinking/Reasoning Block -->
@@ -338,6 +342,132 @@
                                     <div x-html="renderMarkdown(msg.thinking)"></div>
                                 </div>
                             </div>
+
+                            <!-- Core-owned Module task activity timeline -->
+                            <template x-if="msg.moduleTask">
+                                <section class="module-run-block"
+                                         :class="'state-' + (msg.moduleTask.task?.state || 'queued')">
+                                    <button class="module-run-header"
+                                            type="button"
+                                            @click="toggleModuleTaskTimeline(msg.moduleTask)"
+                                            :aria-expanded="msg.moduleTask.timelineExpanded">
+                                        <span class="module-run-heading">
+                                            <i class="ri-pulse-line"></i>
+                                            <span x-text="t('executionProcess')"></span>
+                                            <small x-text="moduleTaskActivityList(msg.moduleTask).length"></small>
+                                        </span>
+                                        <span class="module-run-header-state">
+                                            <span x-text="stateLabel(msg.moduleTask.task?.state)"></span>
+                                            <i class="ri-arrow-down-s-line"
+                                               :class="{ 'expanded': msg.moduleTask.timelineExpanded }"></i>
+                                        </span>
+                                    </button>
+
+                                    <div class="module-run-body"
+                                         x-show="msg.moduleTask.timelineExpanded"
+                                         x-collapse>
+                                        <div class="module-task-error"
+                                             x-show="msg.moduleTask.error"
+                                             x-text="localizeError(msg.moduleTask.error, 'moduleOperationFailed')"></div>
+
+                                        <section class="module-task-approval"
+                                                 x-show="msg.moduleTask.approval">
+                                            <strong x-text="t('approvalRequired')"></strong>
+                                            <p x-text="msg.moduleTask.approval?.prompt || t('approvalRequired')"></p>
+                                            <div class="plugin-actions">
+                                                <button class="btn-primary btn-compact"
+                                                        type="button"
+                                                        @click.stop="resolveModuleTaskApprovalFor(msg.moduleTask, 'approve')"
+                                                        x-text="t('approve')"></button>
+                                                <button class="btn-secondary btn-compact"
+                                                        type="button"
+                                                        @click.stop="resolveModuleTaskApprovalFor(msg.moduleTask, 'deny')"
+                                                        x-text="t('deny')"></button>
+                                            </div>
+                                        </section>
+
+                                        <div class="module-run-empty"
+                                             x-show="moduleTaskActivityList(msg.moduleTask).length === 0 && !msg.moduleTask.error">
+                                            <span class="module-run-pulse"></span>
+                                            <span x-text="msg.moduleTask.activitiesLoaded ? t('noExecutionDetails') : t('waitingForExecutionDetails')"></span>
+                                        </div>
+
+                                        <ol class="module-run-timeline"
+                                            x-show="moduleTaskActivityList(msg.moduleTask).length > 0">
+                                            <template x-for="activity in moduleTaskActivityList(msg.moduleTask)"
+                                                      :key="moduleTaskActivityKey(activity)">
+                                                <li class="module-run-activity"
+                                                    :class="[
+                                                        'kind-' + activity.kind,
+                                                        'state-' + activity.state,
+                                                        { interrupted: activity.interrupted }
+                                                    ]">
+                                                    <span class="module-run-marker">
+                                                        <i :class="moduleTaskActivityIcon(activity)"></i>
+                                                    </span>
+                                                    <div class="module-run-activity-content">
+                                                        <div class="module-run-activity-header">
+                                                            <strong x-text="activity.title"></strong>
+                                                            <span class="module-run-activity-meta">
+                                                                <span x-text="moduleTaskActivityState(activity)"></span>
+                                                                <span x-show="activity.detail?.duration_ms !== undefined"
+                                                                      x-text="formatModuleTaskDuration(activity.detail?.duration_ms)"></span>
+                                                            </span>
+                                                        </div>
+                                                        <p x-show="activity.summary"
+                                                           x-text="activity.summary"></p>
+
+                                                        <ol class="module-run-plan"
+                                                            x-show="activity.kind === 'plan'">
+                                                            <template x-for="(step, stepIndex) in (activity.detail?.steps || [])"
+                                                                      :key="stepIndex">
+                                                                <li>
+                                                                    <span x-text="stepIndex + 1"></span>
+                                                                    <span x-text="step"></span>
+                                                                </li>
+                                                            </template>
+                                                        </ol>
+
+                                                        <details class="module-run-tool-details"
+                                                                 x-show="activity.kind === 'tool'">
+                                                            <summary>
+                                                                <span x-text="activity.detail?.tool_name || t('tool')"></span>
+                                                                <span x-text="t('viewDetails')"></span>
+                                                            </summary>
+                                                            <div class="module-run-preview"
+                                                                 x-show="activity.detail?.arguments_preview !== undefined">
+                                                                <span x-text="t('toolInput')"></span>
+                                                                <pre><code x-text="activity.detail?.arguments_preview || ''"></code></pre>
+                                                            </div>
+                                                            <div class="module-run-preview"
+                                                                 x-show="activity.detail?.result_preview !== undefined">
+                                                                <span x-text="t('toolResult')"></span>
+                                                                <pre><code x-text="activity.detail?.result_preview || ''"></code></pre>
+                                                            </div>
+                                                        </details>
+                                                    </div>
+                                                </li>
+                                            </template>
+                                        </ol>
+
+                                        <div class="module-run-artifacts"
+                                             x-show="msg.moduleTask.artifacts.length > 0">
+                                            <span class="module-run-artifacts-label"
+                                                  x-text="t('artifacts')"></span>
+                                            <template x-for="artifact in msg.moduleTask.artifacts"
+                                                      :key="artifact.artifact_ref">
+                                                <button class="module-task-artifact"
+                                                        type="button"
+                                                        @click.stop="downloadModuleTaskArtifact(msg.moduleTask, artifact)">
+                                                    <i class="ri-download-line"></i>
+                                                    <span x-text="artifact.filename"></span>
+                                                    <small x-text="t('artifactSize', { size: artifact.size })"></small>
+                                                </button>
+                                            </template>
+                                        </div>
+                                    </div>
+                                </section>
+                            </template>
 
                             <!-- Hermes Runs events -->
                             <template x-if="msg.hermesRun && msg.hermesRun.events && msg.hermesRun.events.length">
@@ -425,12 +555,13 @@
                             </template>
                             
                             <!-- Show actual content -->
-                            <div x-show="msg.content" x-html="renderMarkdown(msg.content)"></div>
+                            <div x-show="moduleTaskMessageContent(msg)"
+                                 x-html="renderMarkdown(moduleTaskMessageContent(msg))"></div>
                             
                             <!-- Message Actions (assistant only) -->
-                            <div class="message-actions" x-show="msg.role === 'assistant' && msg.content && !isGenerating">
+                            <div class="message-actions" x-show="msg.role === 'assistant' && moduleTaskMessageContent(msg) && !isGenerating">
                                 <button class="btn-copy"
-                                        @click="copyMessage(msg.content, $event)"
+                                        @click="copyMessage(moduleTaskMessageContent(msg), $event)"
                                         :title="t('copyMessage')">
                                     <i class="ri-file-copy-line"></i>
                                 </button>
@@ -608,7 +739,7 @@
                                         class="btn-tool plugin-btn" 
                                         :class="{ 'active': btn.active, 'loading': btn.loading }"
                                         :title="getPluginButtonLabel(btn)"
-                                        @click="handlePluginButtonClick(btn)"
+                                        @click="handlePluginButtonClick(btn, $event.currentTarget)"
                                         :disabled="btn.loading || btn.disabled">
                                         <i :class="btn.loading ? 'ri-loader-4-line spin' : btn.icon"></i>
                                     </button>
@@ -616,7 +747,11 @@
                                 
                                 <!-- More menu (shown when > 5 buttons) -->
                                 <div class="plugin-more-dropdown" x-show="hiddenPluginButtons.length > 0" x-cloak>
-                                    <button class="btn-tool" @click="showPluginMoreMenu = !showPluginMoreMenu" :title="t('plugins')">
+                                    <button class="btn-tool"
+                                            type="button"
+                                            x-ref="pluginMoreButton"
+                                            @click="showPluginMoreMenu = !showPluginMoreMenu"
+                                            :title="t('plugins')">
                                         <i class="ri-more-2-fill"></i>
                                     </button>
                                     <div class="plugin-more-menu" 
@@ -625,13 +760,14 @@
                                          x-transition
                                          @click.outside="showPluginMoreMenu = false">
                                         <template x-for="btn in hiddenPluginButtons" :key="btn.fullId">
-                                            <div class="plugin-more-item" 
+                                            <button class="plugin-more-item"
+                                                 type="button"
                                                  :class="{ 'active': btn.active, 'loading': btn.loading, 'disabled': btn.disabled }"
-                                                 :aria-disabled="btn.disabled ? 'true' : 'false'"
-                                                 @click="handlePluginMoreButtonClick(btn)">
+                                                 :disabled="btn.loading || btn.disabled"
+                                                 @click="handlePluginMoreButtonClick(btn, $refs.pluginMoreButton)">
                                                 <i :class="btn.loading ? 'ri-loader-4-line spin' : btn.icon"></i>
                                                 <span x-text="getPluginButtonLabel(btn)"></span>
-                                            </div>
+                                            </button>
                                         </template>
                                     </div>
                                 </div>
@@ -1567,12 +1703,12 @@
     <!-- Core module task center. Modules never supply or inject this markup. -->
     <button class="module-task-center-trigger"
             type="button"
-            x-show="moduleTaskOrder.length > 0 && !moduleTaskUi.show"
+            x-show="moduleTaskAttentionViews().length > 0 && !moduleTaskUi.show"
             x-cloak
             @click="openModuleTaskCenter()">
         <i class="ri-stack-line"></i>
         <span x-text="t('tasks')"></span>
-        <strong x-text="moduleTaskOrder.length"></strong>
+        <strong x-text="moduleTaskAttentionViews().length"></strong>
     </button>
 
     <div class="modal-overlay module-task-modal"
@@ -1650,11 +1786,15 @@
                     </div>
                 </section>
 
-                <section x-show="moduleTaskUi.output">
+                <section x-show="moduleTaskUi.output && !moduleTaskUi.inline">
                     <h3 class="module-task-section-title" x-text="t('output')"></h3>
-                    <pre class="module-task-output"
-                         x-text="moduleTaskUi.output"></pre>
+                    <div class="module-task-output"
+                         x-html="renderMarkdown(moduleTaskUi.output)"></div>
                 </section>
+
+                <p class="section-desc"
+                   x-show="moduleTaskUi.inline"
+                   x-text="t('resultInConversation')"></p>
 
                 <section x-show="moduleTaskUi.artifacts.length > 0">
                     <h3 class="module-task-section-title" x-text="t('artifacts')"></h3>
@@ -1740,6 +1880,6 @@
         <div class="plugin-fullscreen-content" x-html="pluginFullscreenModal.content"></div>
     </div>
 
-    <script src="app.min.js?v=7.18"></script>
+    <script src="app.min.js?v=7.19"></script>
 </body>
 </html>

@@ -210,6 +210,14 @@
           "type": "boolean",
           "default": false
         },
+        "supports_skills": {
+          "type": "boolean",
+          "default": false
+        },
+        "supports_rules": {
+          "type": "boolean",
+          "default": false
+        },
         "supports_chat_projection": {
           "type": "boolean"
         }

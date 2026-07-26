@@ -42,7 +42,16 @@ ChatRaw Server 的所有用户使用同一个平台。聊天、文档、模型�
 3. 按需附加图片、文档、网页内容或知识库。
 4. 发送消息。
 
+首轮回复成功保存后，Server 会使用管理员配置的聊天模型为对话生成简短标题。
+普通聊天与模块任务使用同一命名流程；模型不可用或返回无效标题时会回退到首条消息摘要。
+如果你已经手动改名，自动命名不会覆盖该标题。
+
 平台用户可以看到共享聊天和文档。你可以管理自己创建的聊天和文档；经典版导入的无归属数据只能由管理员管理。
+
+消息中的宽 Markdown 表格会限制在消息区域内，并提供独立的横向滚动。可以在表格上使用触控板、
+Magic Mouse 的横向手势，或按住 Shift 使用鼠标滚轮。ChatRaw 会在整个页面接管横向手势：
+位于可横向滚动区域时只滚动该区域，位于首页或普通内容时直接停止，因此滚到边缘或在空白处
+继续滑动都不会拉出 Safari 的前进/后退页面。普通纵向滚动和捏合缩放不受影响。
 
 ### 4. 功能套件：插件和模块
 
@@ -58,16 +67,17 @@ ChatRaw Server 的所有用户使用同一个平台。聊天、文档、模型�
 主区域；右、上、下模式不会阻止继续操作聊天。窄屏设备会统一显示为主区域；高度很低时，
 上、下模式也会显示为主区域。工作台关闭后，
 当前聊天和消息不会丢失；刷新页面后工作台保持关闭。标题栏和关闭按钮由 ChatRaw 提供，
-工作台打开后键盘焦点会进入关闭按钮，关闭后返回原入口。工作台内的表单、列表和业务状态由
-对应插件提供。
+用户点击或用键盘激活 ChatRaw 提供的所属插件入口时，键盘焦点会进入工作台关闭按钮，关闭后
+返回原入口。模块任务、定时器、插件内其他控件或其他后台流程打开工作台时，当前焦点保持不变。
+工作台内的表单、列表和业务状态由对应插件提供。
 
 以 Agent 为例：
 
 1. 聊天工具栏显示 Agent 图标。
 2. 点击图标启用 Agent 模式。
 3. 发送消息后，插件通过 ChatRaw Module SDK 创建任务。
-4. ChatRaw 展示进度、澄清问题或最终结果。
-5. 结果由 ChatRaw 写回当前聊天。
+4. ChatRaw 在同一条助手消息中展示执行计划、工具调用和脱敏结果。
+5. 成功后执行过程默认折叠，最终 Markdown 只在当前聊天中出现一次。
 
 插件不会直接连接 Agent，也拿不到 Agent、LinkDB 或其他模块的地址和凭证。
 
@@ -88,6 +98,11 @@ ChatRaw Server 的所有用户使用同一个平台。聊天、文档、模型�
 并非所有模块都支持取消、审批、流式输出或产物下载。界面只会展示模块在 manifest 中声明并通过管理员审批的能力。
 
 刷新页面后，ChatRaw 会根据任务 ID恢复仍在执行的任务。浏览器不保存模块地址、模块 Token、任务输入或任务输出。
+右下角任务入口只显示仍在运行或有尚未查看结果的任务；查看终态后入口消失。直接在对话或
+Resident 工作区中展示的任务不会重复出现在这个全局入口中。
+
+对话内的“执行过程”只包含模块明确提供的计划和工具活动，不是模型隐藏思维链。工具参数和结果是
+经过脱敏、截断的预览；最终答案使用同一条消息中的唯一正文区域。
 
 ### 6. 功能不可用时
 
@@ -160,7 +175,19 @@ The chat flow remains familiar:
 3. Attach images, documents, web content, or knowledge-base context as needed.
 4. Send the message.
 
+After the first assistant reply is saved, the Server uses the administrator-configured
+chat model to generate a concise title. Normal chats and module tasks use the same
+title flow. If the model is unavailable or returns an invalid title, ChatRaw falls
+back to a summary of the first message. Automatic naming never overwrites a manual
+rename.
+
 Platform users can see shared chats and documents. You can manage resources you created; only administrators can manage ownerless classic resources.
+
+Wide Markdown tables stay inside the message surface and provide their own horizontal scroll.
+Use a trackpad or Magic Mouse horizontal gesture, or hold Shift while using a mouse wheel. ChatRaw
+owns horizontal gestures across the page: a horizontally scrollable region moves, while the home
+surface and ordinary content consume the gesture. Continuing at an edge or over blank space therefore
+does not reveal Safari history navigation. Normal vertical scrolling and pinch zoom remain unchanged.
 
 ### 4. Feature suites
 
@@ -175,10 +202,15 @@ A companion plugin may open an interactive workspace in the main content area. I
 the right, above, below, or in place of the visible chat surface. Right, top, and bottom workspaces
 leave chat interactive. Narrow screens use the main presentation; short screens also use it for
 top and bottom workspaces. Closing a workspace preserves the current chat and messages; reloading
-the page starts with the workspace closed. Keyboard focus moves to the Host close button on open
-and returns to the original trigger on close.
+the page starts with the workspace closed. When a user activates that plugin's ChatRaw-provided entry
+with a click or keyboard, focus moves to the Host close button and returns to the entry on close.
+Opens from module tasks, timers, controls inside plugin content, or other background flows preserve
+the current focus.
 
 For Agent, the plugin uses the ChatRaw Module SDK. It never connects directly to Agent or receives Agent, LinkDB, or other private module credentials.
+Agent execution appears inside one assistant message: explicit plans, tool calls,
+redacted results, and one final Markdown answer. Successful timelines collapse by
+default and can be expanded again.
 
 ### 5. Task states
 
@@ -195,6 +227,12 @@ For Agent, the plugin uses the ChatRaw Module SDK. It never connects directly to
 Streaming, cancellation, approval, and artifacts are optional action capabilities. ChatRaw only exposes capabilities declared by the manifest and approved by an administrator.
 
 After a page reload, ChatRaw resumes tasks by task ID. The browser does not retain module addresses, tokens, task input, or task output.
+The bottom-right task entry only appears for running tasks or results that have not
+yet been viewed, and disappears after a terminal result is viewed. Tasks presented
+inside a conversation or Resident workspace are not duplicated in this global entry.
+
+The execution process contains explicit module-provided plans and tool activity,
+not hidden model reasoning. Tool inputs and results are redacted, bounded previews.
 
 ### 6. When a feature is unavailable
 

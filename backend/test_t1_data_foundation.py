@@ -349,13 +349,29 @@ class MigrationTests(unittest.TestCase):
                 connection.execute("DROP TABLE module_task_output_resources")
                 connection.execute("DROP TABLE module_task_input_resources")
                 connection.execute(
-                    "DELETE FROM schema_migrations WHERE version IN (8, 9)"
+                    "DROP TABLE module_task_rule_activations"
+                )
+                connection.execute(
+                    "DROP TABLE agent_compiled_rule_versions"
+                )
+                connection.execute(
+                    "DROP TABLE agent_rule_source_versions"
+                )
+                connection.execute("DROP TABLE agent_rule_documents")
+                connection.execute(
+                    "DROP TABLE module_task_skill_activations"
+                )
+                connection.execute("DROP TABLE agent_skill_versions")
+                connection.execute("DROP TABLE agent_skills")
+                connection.execute(
+                    "DELETE FROM schema_migrations "
+                    "WHERE version IN (8, 9, 10, 11, 12)"
                 )
                 connection.commit()
 
                 self.assertEqual(
                     db_migrations.apply_migrations(connection),
-                    9,
+                    12,
                 )
                 row = connection.execute(
                     """
@@ -384,6 +400,21 @@ class MigrationTests(unittest.TestCase):
                 connection.execute("PRAGMA foreign_keys = OFF")
                 connection.execute("DROP TABLE module_task_output_resources")
                 connection.execute("DROP TABLE module_task_input_resources")
+                connection.execute(
+                    "DROP TABLE module_task_rule_activations"
+                )
+                connection.execute(
+                    "DROP TABLE agent_compiled_rule_versions"
+                )
+                connection.execute(
+                    "DROP TABLE agent_rule_source_versions"
+                )
+                connection.execute("DROP TABLE agent_rule_documents")
+                connection.execute(
+                    "DROP TABLE module_task_skill_activations"
+                )
+                connection.execute("DROP TABLE agent_skill_versions")
+                connection.execute("DROP TABLE agent_skills")
                 connection.execute(
                     "ALTER TABLE module_capability_tokens "
                     "RENAME TO module_capability_tokens_v9_test"
@@ -470,13 +501,14 @@ class MigrationTests(unittest.TestCase):
                         """
                     )
                 connection.execute(
-                    "DELETE FROM schema_migrations WHERE version = 9"
+                    "DELETE FROM schema_migrations "
+                    "WHERE version IN (9, 10, 11, 12)"
                 )
                 connection.commit()
 
                 self.assertEqual(
                     db_migrations.apply_migrations(connection),
-                    9,
+                    12,
                 )
                 migrated_rows = [
                     tuple(row)

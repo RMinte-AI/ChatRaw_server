@@ -13,7 +13,10 @@ test('core settings sections and task center use translation bindings', () => {
         "t('userManagement')",
         "t('featureSuites')",
         "t('moduleTask')",
-        "t('approvalRequired')"
+        "t('approvalRequired')",
+        "t('executionProcess')",
+        "t('toolInput')",
+        "t('toolResult')"
     ]) {
         assert.match(appHtml, new RegExp(binding.replace(/[()']/g, '\\$&')));
     }
@@ -65,6 +68,9 @@ test('Chinese dictionary covers core account, module, and task surfaces', () => 
         "account: '账户'",
         "featureSuites: '功能套件'",
         "approvalRequired: '需要审批'",
+        "executionProcess: '执行过程'",
+        "toolInput: '输入'",
+        "toolResult: '结果'",
         "invalidCredentials: '用户名或密码错误'"
     ]) {
         assert.match(appScript, new RegExp(text.replace(/[()']/g, '\\$&')));
@@ -88,11 +94,15 @@ test('plugins can opt into the stable sidebar mount without DOM injection', () =
     assert.match(appHtml, /x-for="btn in sidebarPluginButtons"/);
     assert.match(appHtml, /class="plugin-sidebar-entry"/);
     assert.match(appHtml, /getSortedPluginButtons\('toolbar'\)/);
-    assert.match(appHtml, /app\.min\.js\?v=7\.18/);
-    assert.match(appHtml, /styles\.min\.css\?v=7\.11/);
+    assert.match(appHtml, /app\.min\.js\?v=7\.19/);
+    assert.match(appHtml, /styles\.min\.css\?v=7\.12/);
+    assert.match(appHtml, /content-security\.min\.js\?v=2/);
     assert.match(appScript, /if \(btn\.loading \|\| btn\.disabled\) return false/);
     assert.match(appHtml, /:disabled="btn\.loading \|\| btn\.disabled"/);
-    assert.match(appHtml, /@click="handlePluginMoreButtonClick\(btn\)"/);
+    assert.match(
+        appHtml,
+        /@click="handlePluginMoreButtonClick\(btn, \$refs\.pluginMoreButton\)"/
+    );
 });
 
 test('unconfigured Resident entries stay hidden until their feature is visible', () => {

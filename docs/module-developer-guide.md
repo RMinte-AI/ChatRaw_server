@@ -365,6 +365,7 @@ data: {"progress":0.5,"message":"Working"}
 - `output.snapshot`
 - `approval.requested`
 - `approval.resolved`
+- `activity.updated`
 - `artifact.added`
 - `task.terminal`
 
@@ -380,6 +381,12 @@ data: {"progress":0.5,"message":"Working"}
 - 不把 Token、私有 URL 或内部 trace 放入事件。
 
 `output.delta` 适用于追加文本；事件过多时可以用 `output.snapshot` 给出完整安全快照和 `compacted_through`。
+
+`activity.updated` 是可选的通用执行活动快照。`data` 必须符合
+`module-task-v1.schema.json` 中的严格 `phase | plan | tool` 结构；同一
+`run_id + activity_id` 的后续事件完整替换前一个快照。参数和结果只能发送脱敏、截断后的预览，
+不得发送隐藏思维链、Prompt、Token、私有 URL、堆栈或原始异常。Activity SSE 不等于 token
+流式输出，因此不改变 `supports_stream`。
 
 即使 Action 声明 `supports_stream: false`，任务仍通过 SSE 报告状态和终态；该标志只表示是否提供输出增量。
 
@@ -449,6 +456,9 @@ Host Capability 是 Server 为某个 task 签发的最小、短期、可撤销�
 | `resource.read` | `GET /api/module-capabilities/v1/resources/{id}` | 创建任务时选择的 resource IDs |
 | `resource.stream` | `GET /api/module-capabilities/v1/resource-stream/{id}` | 当前任务绑定的临时输入原始字节 |
 | `model.invoke` | `POST /api/module-capabilities/v1/model/invoke` | 当前 task 的模型调用 |
+| `model.chat.completions` | `POST /api/module-capabilities/v1/openai/chat/completions` | 当前 task 的 OpenAI-compatible Chat Completions |
+| `skill.read` | `GET /api/module-capabilities/v1/skills/{skill_id}` | 创建任务时冻结的个人 Skill 版本 |
+| `rule.read` | `GET /api/module-capabilities/v1/rules/{document_id}` | 创建任务时冻结的已激活 Compiled Rule 版本 |
 
 模块从任务的 `host_capabilities` 中获得：
 
@@ -480,6 +490,16 @@ Host Capability 是 Server 为某个 task 签发的最小、短期、可撤销�
 中授权的资源 ID。`resource.stream` 返回原始字节流；模块必须检查 `Content-Type`、
 `Content-Length` 和 `X-Content-SHA256`，并将实际字节数和 SHA256 与响应头比对；不一致时
 立即失败。
+
+`model.chat.completions` 的 endpoint 是 OpenAI-compatible base URL；模块在其后追加
+`/chat/completions`。请求只能使用 scope 中的逻辑模型 profile，不能传 Server 模型地址或密钥。
+每个 task 最多 64 次、单请求最大 1 MiB。
+
+`skill.read` 与 `rule.read` 都是不可变任务快照：创建任务后，用户更新或停用原对象不会改写
+已签发 task。Skill capability 注入 `SKILL.md` 并返回静态资源清单；它不返回或执行资源内容、
+不授予权限；每个 task 最多 5 个。
+Rule 只返回经过 Compiler Specification 编译、Pydantic 校验且由用户明确激活的 Compiled Rule，
+每个 task 最多 10 个。模块必须再次按自己的 Compiled Rule schema 校验，不能执行任意文本。
 
 需要原始文件的插件先通过 Module SDK 上传临时资源，再把返回的 `resource_id` 放入创建任务请求的
 `resource_ids`。临时资源不进入 ChatRaw 文档表、解析器或索引，只能绑定一个任务。Action 必须声明
@@ -525,6 +545,9 @@ Host Capability 是 Server 为某个 task 签发的最小、短期、可撤销�
 | Host Capability 有效期 | 15 分钟 |
 | `model.invoke` | 每个 task 最多 8 次 |
 | `model.invoke` prompt | 64 KiB |
+| `model.chat.completions` | 每个 task 最多 64 次；单请求 1 MiB |
+| `skill.read` | 每个 task 最多 5 个不可变版本 |
+| `rule.read` | 每个 task 最多 10 个不可变版本 |
 | `resource.read` 内容 | 2 MiB |
 
 允许的 artifact MIME 类型以 Server 的 `SAFE_ARTIFACT_MEDIA_TYPES` 为准；不要把 HTML、脚本或可执行文件伪装成下载产物。

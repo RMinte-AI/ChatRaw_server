@@ -1,5 +1,5 @@
 {
-  "latest_schema_version": 9,
+  "latest_schema_version": 12,
   "migrations": [
     {
       "version": 1,
@@ -36,6 +36,18 @@
     {
       "version": 9,
       "name": "module_task_resources"
+    },
+    {
+      "version": 10,
+      "name": "agent_host_capabilities"
+    },
+    {
+      "version": 11,
+      "name": "personal_agent_skills"
+    },
+    {
+      "version": 12,
+      "name": "agent_compiled_rules"
     }
   ],
   "new_tables": {
@@ -199,6 +211,73 @@
       "size",
       "expires_at",
       "created_at"
+    ],
+    "agent_skills": [
+      "id",
+      "owner_user_id",
+      "target_module_id",
+      "name",
+      "description",
+      "license",
+      "enabled",
+      "active_version_id",
+      "created_at",
+      "updated_at"
+    ],
+    "agent_skill_versions": [
+      "id",
+      "skill_id",
+      "commit_sha",
+      "content_sha256",
+      "source_json",
+      "skill_markdown",
+      "resources_json",
+      "package_path",
+      "created_at"
+    ],
+    "module_task_skill_activations": [
+      "task_id",
+      "ordinal",
+      "skill_id",
+      "version_id",
+      "created_at"
+    ],
+    "agent_rule_documents": [
+      "id",
+      "owner_user_id",
+      "target_module_id",
+      "name",
+      "current_source_version_id",
+      "active_compiled_version_id",
+      "created_at",
+      "updated_at"
+    ],
+    "agent_rule_source_versions": [
+      "id",
+      "document_id",
+      "version_number",
+      "source_document",
+      "content_sha256",
+      "created_at"
+    ],
+    "agent_compiled_rule_versions": [
+      "id",
+      "document_id",
+      "source_version_id",
+      "specification_version",
+      "status",
+      "content_sha256",
+      "compiled_json",
+      "model_output",
+      "validation_errors_json",
+      "created_at"
+    ],
+    "module_task_rule_activations": [
+      "task_id",
+      "ordinal",
+      "document_id",
+      "compiled_version_id",
+      "created_at"
     ]
   },
   "added_columns": {
@@ -232,7 +311,14 @@
     "idx_module_capability_task",
     "idx_module_task_approvals_actor",
     "idx_module_task_input_resources_expiry",
-    "idx_module_task_output_resources_task"
+    "idx_module_task_output_resources_task",
+    "idx_agent_skills_owner_target",
+    "idx_agent_skill_versions_skill",
+    "idx_module_task_skill_activations_task",
+    "idx_agent_rule_documents_owner",
+    "idx_agent_rule_sources_document",
+    "idx_agent_compiled_rules_document",
+    "idx_module_task_rule_activations_task"
   ],
   "legacy_invariants": {
     "ownership_fields_remain_null": true,

@@ -116,29 +116,8 @@ async function reloadAndSelectChat(page, chatId) {
 }
 
 
-async function assertRoleLayout(page) {
-    const assistant = page.locator(
-        '.messages .message.assistant:not([x-show])'
-    ).last();
-    const user = page.locator('.messages .message.user').last();
-    for (const locator of [
-        assistant,
-        assistant.locator('.message-avatar'),
-        assistant.locator('.message-content'),
-        user,
-        user.locator('.message-avatar'),
-        user.locator('.message-content')
-    ]) {
-        await expect(locator).toBeVisible();
-    }
-    const {
-        assistantRow,
-        assistantAvatar,
-        assistantContent,
-        userRow,
-        userAvatar,
-        userContent
-    } = await page.evaluate(() => {
+async function measureRoleLayout(page) {
+    return page.evaluate(() => {
         const last = selector => {
             const matches = [...document.querySelectorAll(selector)];
             return matches.at(-1);
@@ -168,6 +147,16 @@ async function assertRoleLayout(page) {
             )
         };
     });
+}
+
+function expectRoleLayout({
+    assistantRow,
+    assistantAvatar,
+    assistantContent,
+    userRow,
+    userAvatar,
+    userContent
+}) {
     expect(assistantAvatar.x).toBeLessThan(assistantContent.x);
     expect(Math.abs(assistantAvatar.x - assistantRow.x)).toBeLessThan(2);
     expect(userAvatar.x).toBeGreaterThan(userContent.x);
@@ -176,6 +165,44 @@ async function assertRoleLayout(page) {
             userAvatar.x + userAvatar.width - (userRow.x + userRow.width)
         )
     ).toBeLessThan(2);
+    expect(
+        Math.abs(
+            assistantContent.x + assistantContent.width
+            - (userContent.x + userContent.width)
+        )
+    ).toBeLessThan(2);
+}
+
+async function assertRoleLayout(page) {
+    const assistant = page.locator(
+        '.messages .message.assistant:not([x-show])'
+    ).last();
+    const user = page.locator('.messages .message.user').last();
+    for (const locator of [
+        assistant,
+        assistant.locator('.message-avatar'),
+        assistant.locator('.message-content'),
+        user,
+        user.locator('.message-avatar'),
+        user.locator('.message-content')
+    ]) {
+        await expect(locator).toBeVisible();
+    }
+    expectRoleLayout(await measureRoleLayout(page));
+
+    const originalViewport = page.viewportSize();
+    const resizedWidth = originalViewport.width > 768 ? 900 : 320;
+    if (resizedWidth === originalViewport.width) return;
+    await page.setViewportSize({
+        width: resizedWidth,
+        height: originalViewport.height
+    });
+    await page.waitForFunction(
+        expectedWidth => window.innerWidth === expectedWidth,
+        resizedWidth
+    );
+    expectRoleLayout(await measureRoleLayout(page));
+    await page.setViewportSize(originalViewport);
 }
 
 

@@ -1715,8 +1715,24 @@ function app() {
             return `${(durationMs / 1000).toFixed(1)} s`;
         },
 
-        moduleTaskMessageContent(message) {
-            return message?.content || message?.moduleTask?.output || '';
+        messageContent(message) {
+            return typeof message?.content === 'string'
+                ? message.content
+                : '';
+        },
+
+        syncConversationTaskMessage(view) {
+            const taskId = view?.task?.task_id;
+            if (!taskId || view.presentation !== 'conversation') return;
+            const messageId = `module-task:${taskId}`;
+            const messageIndex = this.messages.findIndex(
+                message => message.id === messageId
+            );
+            if (messageIndex < 0) return;
+            this.messages[messageIndex] = {
+                ...this.messages[messageIndex],
+                content: view.output
+            };
         },
 
         async toggleModuleTaskTimeline(view) {
@@ -1776,7 +1792,7 @@ function app() {
                         id: `module-task:${view.task.task_id}`,
                         chat_id: view.task.chat_id,
                         role: 'assistant',
-                        content: '',
+                        content: view.output,
                         created_at: view.task.created_at,
                         moduleTask: view
                     });
@@ -1920,8 +1936,10 @@ function app() {
                 this.upsertModuleTaskActivity(ui, event.data);
             } else if (event.event === 'output.delta') {
                 ui.output += event.data.text;
+                this.syncConversationTaskMessage(ui);
             } else if (event.event === 'output.snapshot') {
                 ui.output = event.data.text;
+                this.syncConversationTaskMessage(ui);
             } else if (event.event === 'approval.requested') {
                 ui.approval = event.data;
             } else if (event.event === 'approval.resolved') {
@@ -3579,6 +3597,16 @@ function app() {
                     // User cancelled, do nothing
                 } else {
                     console.error('Failed to send message:', e);
+                    if (this.currentChatId) {
+                        try {
+                            await this.loadMessages(this.currentChatId);
+                        } catch (reloadError) {
+                            console.error(
+                                'Failed to recover persisted messages:',
+                                reloadError
+                            );
+                        }
+                    }
                     this.showToast(this.t('sendFailed'), 'error');
                 }
             } finally {

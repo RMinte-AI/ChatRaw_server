@@ -20,6 +20,7 @@ COPY backend/agent_rules.py .
 COPY backend/auth.py .
 COPY backend/db_migrations.py .
 COPY backend/db_runtime.py .
+COPY backend/frontend_assets.py .
 COPY backend/module_protocol.py .
 COPY backend/module_registry.py .
 COPY backend/module_task_protocol.py .

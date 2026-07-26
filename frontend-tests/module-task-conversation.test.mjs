@@ -174,9 +174,43 @@ test('persisted projection replaces the virtual message without duplication', ()
     assert.equal(projected[1].content, '**20 rows**');
     assert.equal(projected[1].moduleTask.task.state, 'succeeded');
     assert.equal(
-        instance.moduleTaskMessageContent(projected[1]),
+        instance.messageContent(projected[1]),
         '**20 rows**'
     );
+});
+
+test('conversation output updates canonical virtual message content', () => {
+    const instance = app();
+    instance.currentChatId = 'chat-1';
+    instance.$nextTick = callback => callback();
+    instance.scrollToBottom = () => {};
+    instance.attachConversationTask(task(), 'query');
+
+    instance.applyModuleTaskEvent('task-1', {
+        id: 1,
+        event: 'output.delta',
+        data: { text: 'first' }
+    });
+    instance.applyModuleTaskEvent('task-1', {
+        id: 2,
+        event: 'output.snapshot',
+        data: { text: 'final stream value' }
+    });
+
+    assert.equal(instance.messages[1].content, 'final stream value');
+    assert.equal(
+        instance.messageContent(instance.messages[1]),
+        'final stream value'
+    );
+});
+
+test('task output is never a second rendered message body', () => {
+    const instance = app();
+    assert.equal(instance.messageContent({
+        role: 'assistant',
+        content: '',
+        moduleTask: { output: 'must not render' }
+    }), '');
 });
 
 test('conversation presentation requires a real chat binding before POST', async () => {

@@ -23,6 +23,30 @@ const securitySourcePath = 'backend/static/content-security.js';
 const securityOutputPath = 'backend/static/content-security.min.js';
 const cssSourcePath = 'backend/static/styles.css';
 const cssOutputPath = 'backend/static/styles.min.css';
+const staticRootPath = 'backend/static';
+const htmlEntrypoints = [
+    {
+        outputPath: 'backend/static/index.html',
+        assetPaths: [
+            'styles.min.css',
+            'app.min.js',
+            'content-security.min.js',
+            'vendor/marked.min.js',
+            'vendor/purify.min.js',
+            'vendor/alpine-collapse.min.js',
+            'vendor/alpine.min.js'
+        ]
+    },
+    {
+        outputPath: 'backend/static/login.html',
+        assetPaths: ['auth.css', 'auth.js']
+    },
+    {
+        outputPath: 'backend/static/setup.html',
+        assetPaths: ['auth.css', 'auth.js']
+    }
+];
+const assetManifestOutputPath = 'backend/static/frontend-assets.json';
 const residentSourceRoot = 'ResidentIntegrations';
 const residentOutputRoot = 'backend/static/resident-integrations';
 const residentCatalogOutputPath = `${residentOutputRoot}/catalog.json`;
@@ -41,6 +65,60 @@ const vendorOutputs = [
     ['node_modules/@highlightjs/cdn-assets/languages/json.min.js', 'backend/static/vendor/highlight/languages/json.min.js'],
     ['node_modules/papaparse/papaparse.min.js', 'Plugins/Plugin_market/csv-parser/lib/papaparse.min.js']
 ];
+function sha256(content) {
+    return createHash('sha256').update(content).digest('hex');
+}
+
+function staticRelativePath(outputPath) {
+    const prefix = 'backend/static/';
+    return outputPath.startsWith(prefix)
+        ? outputPath.slice(prefix.length)
+        : null;
+}
+
+function rewriteAssetVersions(html, versions, assetPaths) {
+    let rewritten = html;
+    for (const assetPath of assetPaths) {
+        const version = versions[assetPath];
+        if (!version) {
+            throw new Error(`missing frontend asset version: ${assetPath}`);
+        }
+        const escaped = assetPath.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        rewritten = rewritten.replace(
+            new RegExp(
+                `((?:href|src)=["'])(/?)${escaped}(?:\\?v=[^"']+)?(["'])`,
+                'g'
+            ),
+            `$1$2${assetPath}?v=${version}$3`
+        );
+    }
+    return rewritten;
+}
+
+async function loadStaticAssetContents(
+    directory = staticRootPath,
+    relativeDirectory = ''
+) {
+    const contents = new Map();
+    const entries = await fs.readdir(directory, { withFileTypes: true });
+    for (const entry of entries) {
+        const relativePath = path.posix.join(relativeDirectory, entry.name);
+        const absolutePath = path.join(directory, entry.name);
+        if (entry.isDirectory()) {
+            const nested = await loadStaticAssetContents(
+                absolutePath,
+                relativePath
+            );
+            for (const item of nested) contents.set(...item);
+        } else if (
+            entry.isFile()
+            && relativePath !== path.basename(assetManifestOutputPath)
+        ) {
+            contents.set(relativePath, await fs.readFile(absolutePath));
+        }
+    }
+    return contents;
+}
 
 async function loadResidentIntegrations() {
     const entries = await fs.readdir(residentSourceRoot, {
@@ -187,21 +265,88 @@ for (const [sourcePath, outputPath] of vendorOutputs) {
     outputs.push([outputPath, await fs.readFile(sourcePath, 'utf8')]);
 }
 
+const assetContents = await loadStaticAssetContents();
+for (const [outputPath, content] of outputs) {
+    const relativePath = staticRelativePath(outputPath);
+    if (relativePath) assetContents.set(relativePath, content);
+}
+
+const assetVersions = Object.fromEntries(
+    [...assetContents.entries()]
+        .map(([assetPath, content]) => [assetPath, sha256(content)])
+        .sort(([left], [right]) => left.localeCompare(right))
+);
+assetVersions['resident-integrations/resident-integrations.min.js']
+    = residentSources.bundleVersion;
+assetVersions['resident-integrations/resident-integrations.min.css']
+    = residentSources.bundleVersion;
+
+const renderedEntrypoints = [];
+for (const entrypoint of htmlEntrypoints) {
+    const source = await fs.readFile(entrypoint.outputPath, 'utf8');
+    const rendered = rewriteAssetVersions(
+        source,
+        assetVersions,
+        entrypoint.assetPaths
+    );
+    const relativePath = staticRelativePath(entrypoint.outputPath);
+    assetContents.set(relativePath, rendered);
+    assetVersions[relativePath] = sha256(rendered);
+    renderedEntrypoints.push({
+        ...entrypoint,
+        source,
+        rendered
+    });
+}
+
+const assetManifest = `${JSON.stringify({
+    schema_version: '1',
+    entrypoint: 'index.html',
+    assets: Object.fromEntries(
+        [...assetContents.entries()]
+            .sort(([left], [right]) => left.localeCompare(right))
+            .map(([assetPath, content]) => [
+                assetPath,
+                {
+                    sha256: sha256(content),
+                    version: assetVersions[assetPath]
+                }
+            ])
+    )
+}, null, 2)}\n`;
+
 if (mode === '--write') {
+    for (const entrypoint of renderedEntrypoints) {
+        await fs.writeFile(entrypoint.outputPath, entrypoint.rendered);
+    }
     for (const [outputPath, content] of outputs) {
         await fs.mkdir(path.dirname(outputPath), { recursive: true });
         await fs.writeFile(outputPath, content);
         console.log(`built ${outputPath}`);
     }
+    await fs.writeFile(assetManifestOutputPath, assetManifest);
+    console.log(`built ${assetManifestOutputPath}`);
     process.exit(0);
 }
 
 const drifted = [];
+for (const entrypoint of renderedEntrypoints) {
+    if (entrypoint.source !== entrypoint.rendered) {
+        drifted.push(entrypoint.outputPath);
+    }
+}
 for (const [outputPath, expected] of outputs) {
     const actual = await fs.readFile(outputPath, 'utf8').catch(() => null);
     if (actual !== expected) {
         drifted.push(outputPath);
     }
+}
+const actualManifest = await fs.readFile(
+    assetManifestOutputPath,
+    'utf8'
+).catch(() => null);
+if (actualManifest !== assetManifest) {
+    drifted.push(assetManifestOutputPath);
 }
 
 if (drifted.length) {

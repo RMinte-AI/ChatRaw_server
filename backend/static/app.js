@@ -515,6 +515,17 @@ Object.assign(i18n.en, {
     output: 'Output',
     artifacts: 'Artifacts',
     cancelTask: 'Cancel task',
+    executionProcess: 'Execution process',
+    activityRunning: 'Running',
+    activityUpdated: 'Updated',
+    activityInterrupted: 'Previous run did not finish',
+    waitingForExecutionDetails: 'Waiting for execution details',
+    noExecutionDetails: 'No execution details were retained',
+    tool: 'Tool',
+    viewDetails: 'View details',
+    toolInput: 'Input',
+    toolResult: 'Result',
+    resultInConversation: 'This task is displayed in its conversation.',
     statePending: 'Pending',
     stateQueued: 'Queued',
     statePaired: 'Paired',
@@ -734,6 +745,17 @@ Object.assign(i18n.zh, {
     output: '输出',
     artifacts: '产物',
     cancelTask: '取消任务',
+    executionProcess: '执行过程',
+    activityRunning: '运行中',
+    activityUpdated: '已更新',
+    activityInterrupted: '上次执行未完成',
+    waitingForExecutionDetails: '正在等待执行详情',
+    noExecutionDetails: '没有保留执行详情',
+    tool: '工具',
+    viewDetails: '查看详情',
+    toolInput: '输入',
+    toolResult: '结果',
+    resultInConversation: '此任务已在对应对话中展示。',
     statePending: '等待中',
     stateQueued: '排队中',
     statePaired: '已配对',
@@ -858,7 +880,7 @@ const ROUTE_MESSAGE_RESULT_KEYS = new Set(['success', 'route']);
 const RESERVED_SLASH_COMMANDS = new Set(['plugins', 'settings', 'help', 'clear', 'compact', 'api']);
 const COMMON_PATH_ROOTS = new Set(['tmp', 'var', 'usr', 'etc', 'home', 'users', 'opt', 'private', 'volumes', 'mnt']);
 const SKILL_NAME_PATTERN = /^[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?$/;
-const MODULE_SDK_VERSION = '1.2.0';
+const MODULE_SDK_VERSION = '1.5.0';
 const MODULE_TASK_STORAGE_KEY = 'chatraw_module_tasks_v1';
 const MODULE_TERMINAL_STATES = new Set(['succeeded', 'failed', 'cancelled']);
 const PLUGIN_WORKSPACE_PLACEMENTS = Object.freeze([
@@ -868,6 +890,7 @@ const PLUGIN_WORKSPACE_PLACEMENTS = Object.freeze([
     'main'
 ]);
 const PLUGIN_WORKSPACE_PANEL_ID_PATTERN = /^[a-z0-9](?:[a-z0-9._-]{0,62}[a-z0-9])?$/;
+const MODULE_ACTIVITY_LIMIT = 512;
 
 function app() {
     const initialDesktopCollapsed = localStorage.getItem('chatraw_sidebar_collapsed') === '1';
@@ -1011,7 +1034,9 @@ function app() {
             dispose: null
         },
         _pluginWorkspaceReturnFocus: null,
+        _pluginWorkspaceActivation: null,
         _pluginWorkspaceTransition: null,
+        _rootWheelHandler: null,
         
         // Plugin hooks system
         pluginHooks: {
@@ -1207,6 +1232,7 @@ function app() {
         // Initialize
         async init() {
             this.setLanguage(this.lang);
+            this.installRootWheelGuard();
             this.initResponsiveLayout();
             await this.loadMe();
             await this.loadSettings();
@@ -1552,7 +1578,8 @@ function app() {
             );
         },
 
-        createModuleTaskView(task) {
+        createModuleTaskView(task, presentation = 'task_center') {
+            const terminal = MODULE_TERMINAL_STATES.has(task?.state);
             return {
                 show: false,
                 task,
@@ -1564,16 +1591,32 @@ function app() {
                 artifacts: Array.isArray(task?.artifacts) ? task.artifacts : [],
                 error: task?.state === 'failed'
                     ? (task.outcome_code || 'task_failed')
-                    : null
+                    : null,
+                inline: false,
+                activities: {},
+                activityOrder: [],
+                activitiesLoaded: false,
+                currentRunId: null,
+                timelineExpanded: !terminal,
+                timelineTouched: false,
+                lastAppliedEventId: 0,
+                presentation,
+                attentionPending: false
             };
         },
 
-        upsertModuleTask(task, { select = false } = {}) {
+        upsertModuleTask(
+            task,
+            { select = false, presentation = null } = {}
+        ) {
             const taskId = task?.task_id;
             if (!taskId) return null;
             let view = this.moduleTasks[taskId];
             if (!view) {
-                view = this.createModuleTaskView(task);
+                view = this.createModuleTaskView(
+                    task,
+                    presentation || 'task_center'
+                );
                 this.moduleTasks[taskId] = view;
                 this.moduleTaskOrder = [
                     taskId,
@@ -1581,6 +1624,7 @@ function app() {
                 ].slice(0, 20);
             } else {
                 view.task = task;
+                if (presentation) view.presentation = presentation;
                 view.artifacts = Array.isArray(task.artifacts)
                     ? task.artifacts
                     : view.artifacts;
@@ -1590,16 +1634,213 @@ function app() {
                     view.error = task.state === 'failed'
                         ? (task.outcome_code || 'task_failed')
                         : null;
+                    if (!view.timelineTouched) {
+                        view.timelineExpanded = false;
+                    }
                 }
             }
             if (select) this.selectModuleTask(taskId);
             return view;
         },
 
+        moduleTaskActivityList(view) {
+            if (!view) return [];
+            return view.activityOrder
+                .map(key => view.activities[key])
+                .filter(Boolean);
+        },
+
+        moduleTaskActivityKey(activity) {
+            return `${activity.run_id}:${activity.activity_id}`;
+        },
+
+        upsertModuleTaskActivity(view, activity) {
+            if (!view || !activity) return;
+            if (
+                view.currentRunId
+                && view.currentRunId !== activity.run_id
+            ) {
+                for (const current of Object.values(view.activities)) {
+                    if (
+                        current.run_id === view.currentRunId
+                        && current.state === 'started'
+                    ) {
+                        current.interrupted = true;
+                    }
+                }
+            }
+            view.currentRunId = activity.run_id;
+            const key = this.moduleTaskActivityKey(activity);
+            if (!view.activities[key]) {
+                if (view.activityOrder.length >= MODULE_ACTIVITY_LIMIT) {
+                    const removed = view.activityOrder.shift();
+                    if (removed) delete view.activities[removed];
+                }
+                view.activityOrder.push(key);
+            }
+            view.activities[key] = {
+                ...activity,
+                interrupted: false
+            };
+            view.activitiesLoaded = true;
+        },
+
+        moduleTaskActivityIcon(activity) {
+            if (activity?.kind === 'plan') return 'ri-list-check-3';
+            if (activity?.kind === 'tool') return 'ri-tools-line';
+            if (activity?.detail?.phase === 'preparing') {
+                return 'ri-loader-4-line';
+            }
+            if (activity?.detail?.phase === 'finalizing') {
+                return 'ri-quill-pen-line';
+            }
+            return 'ri-play-circle-line';
+        },
+
+        moduleTaskActivityState(activity) {
+            if (activity?.interrupted) return this.t('activityInterrupted');
+            const key = {
+                started: 'activityRunning',
+                updated: 'activityUpdated',
+                succeeded: 'stateSucceeded',
+                failed: 'stateFailed',
+                cancelled: 'stateCancelled'
+            }[activity?.state];
+            return this.t(key || 'stateUnknown');
+        },
+
+        formatModuleTaskDuration(durationMs) {
+            if (!Number.isFinite(durationMs) || durationMs < 0) return '';
+            if (durationMs < 1000) return `${Math.round(durationMs)} ms`;
+            return `${(durationMs / 1000).toFixed(1)} s`;
+        },
+
+        moduleTaskMessageContent(message) {
+            return message?.content || message?.moduleTask?.output || '';
+        },
+
+        async toggleModuleTaskTimeline(view) {
+            if (!view) return;
+            view.timelineExpanded = !view.timelineExpanded;
+            view.timelineTouched = true;
+            if (
+                view.timelineExpanded
+                && MODULE_TERMINAL_STATES.has(view.task?.state)
+                && !view.activitiesLoaded
+            ) {
+                window.ChatRaw.modules.subscribe(view.task.task_id, {
+                    onClose: () => {
+                        view.activitiesLoaded = true;
+                    }
+                });
+            }
+        },
+
+        mergeConversationTaskMessages(messages, tasks) {
+            const baseMessages = Array.isArray(messages)
+                ? messages.map(message => ({ ...message }))
+                : [];
+            const messageIds = new Set(
+                baseMessages
+                    .map(message => message.id)
+                    .filter(Boolean)
+            );
+            const byAssistant = new Map();
+            const byUser = new Map();
+            for (const task of tasks || []) {
+                if (!task?.task_id || !task.user_message_id) continue;
+                const view = this.upsertModuleTask(task, {
+                    presentation: 'conversation'
+                });
+                view.inline = true;
+                if (task.assistant_message_id) {
+                    byAssistant.set(task.assistant_message_id, view);
+                }
+                if (!byUser.has(task.user_message_id)) {
+                    byUser.set(task.user_message_id, []);
+                }
+                byUser.get(task.user_message_id).push(view);
+            }
+
+            const merged = [];
+            for (const message of baseMessages) {
+                const assistantView = byAssistant.get(message.id);
+                if (assistantView) message.moduleTask = assistantView;
+                merged.push(message);
+                if (message.role !== 'user') continue;
+                const views = byUser.get(message.id) || [];
+                for (const view of views.reverse()) {
+                    const assistantId = view.task.assistant_message_id;
+                    if (assistantId && messageIds.has(assistantId)) continue;
+                    merged.push({
+                        id: `module-task:${view.task.task_id}`,
+                        chat_id: view.task.chat_id,
+                        role: 'assistant',
+                        content: '',
+                        created_at: view.task.created_at,
+                        moduleTask: view
+                    });
+                }
+            }
+            return merged;
+        },
+
+        attachConversationTask(task, userMessage) {
+            const view = this.upsertModuleTask(task, {
+                presentation: 'conversation'
+            });
+            view.inline = true;
+            if (
+                task.chat_id !== this.currentChatId
+                || !task.user_message_id
+            ) {
+                return view;
+            }
+            const persistentMessages = this.messages.filter(
+                message => !String(message.id || '').startsWith(
+                    'module-task:'
+                )
+            );
+            if (
+                !persistentMessages.some(
+                    message => message.id === task.user_message_id
+                )
+            ) {
+                persistentMessages.push({
+                    id: task.user_message_id,
+                    chat_id: task.chat_id,
+                    role: 'user',
+                    content: String(userMessage),
+                    created_at: task.accepted_at || task.created_at
+                });
+            }
+            this.messages = this.mergeConversationTaskMessages(
+                persistentMessages,
+                [task]
+            );
+            this.$nextTick(() => this.scrollToBottom());
+            return view;
+        },
+
         moduleTaskViews() {
             return this.moduleTaskOrder
                 .map(taskId => this.moduleTasks[taskId])
-                .filter(Boolean);
+                .filter(view => (
+                    view
+                    && view.presentation === 'task_center'
+                    && (
+                        !MODULE_TERMINAL_STATES.has(view.task?.state)
+                        || view.attentionPending
+                        || view.show
+                    )
+                ));
+        },
+
+        moduleTaskAttentionViews() {
+            return this.moduleTaskViews().filter(view => (
+                !MODULE_TERMINAL_STATES.has(view.task?.state)
+                || view.attentionPending
+            ));
         },
 
         selectModuleTask(taskId) {
@@ -1611,22 +1852,37 @@ function app() {
         },
 
         showModuleTask(task) {
-            this.upsertModuleTask(task, { select: true });
+            this.upsertModuleTask(task, {
+                select: true,
+                presentation: 'task_center'
+            });
         },
 
         openModuleTaskCenter() {
-            const first = this.moduleTaskUi.task?.task_id
-                || this.moduleTaskOrder[0];
+            const attentionViews = this.moduleTaskAttentionViews();
+            const currentTaskId = this.moduleTaskUi.task?.task_id;
+            const first = attentionViews.some(
+                view => view.task.task_id === currentTaskId
+            )
+                ? currentTaskId
+                : attentionViews[0]?.task?.task_id;
             if (first) this.selectModuleTask(first);
         },
 
         closeModuleTask() {
-            this.moduleTaskUi.show = false;
+            const view = this.moduleTaskUi;
+            view.show = false;
+            if (MODULE_TERMINAL_STATES.has(view.task?.state)) {
+                view.attentionPending = false;
+                this.forgetModuleTask(view.task.task_id);
+            }
         },
 
         applyModuleTaskEvent(taskId, event) {
             const ui = this.moduleTasks[taskId];
             if (!ui) return;
+            if (event.id <= ui.lastAppliedEventId) return;
+            ui.lastAppliedEventId = event.id;
             ui.events.push(event);
             if (ui.events.length > 200) ui.events.shift();
             if (event.event === 'task.status' || event.event === 'task.terminal') {
@@ -1640,10 +1896,28 @@ function app() {
                         ui.error = event.data.outcome_code || 'task_failed';
                     }
                     ui.approval = null;
+                    ui.activitiesLoaded = true;
+                    if (!ui.timelineTouched) {
+                        ui.timelineExpanded = false;
+                    }
+                    if (
+                        ui.presentation === 'task_center'
+                        && event.data.state !== 'cancelled'
+                        && !ui.show
+                    ) {
+                        ui.attentionPending = true;
+                    } else if (
+                        ui.presentation !== 'task_center'
+                        || event.data.state === 'cancelled'
+                    ) {
+                        this.forgetModuleTask(taskId);
+                    }
                 }
             } else if (event.event === 'task.progress') {
                 ui.progress = event.data.progress;
                 ui.progressMessage = this.t('taskInProgress');
+            } else if (event.event === 'activity.updated') {
+                this.upsertModuleTaskActivity(ui, event.data);
             } else if (event.event === 'output.delta') {
                 ui.output += event.data.text;
             } else if (event.event === 'output.snapshot') {
@@ -1656,8 +1930,15 @@ function app() {
         },
 
         async resolveModuleTaskApproval(decision) {
-            const task = this.moduleTaskUi.task;
-            const approval = this.moduleTaskUi.approval;
+            return this.resolveModuleTaskApprovalFor(
+                this.moduleTaskUi,
+                decision
+            );
+        },
+
+        async resolveModuleTaskApprovalFor(view, decision) {
+            const task = view?.task;
+            const approval = view?.approval;
             if (!task || !approval) return;
             try {
                 await window.ChatRaw.modules.respondApproval(
@@ -1666,7 +1947,7 @@ function app() {
                     decision
                 );
             } catch (error) {
-                this.moduleTaskUi.error = {
+                view.error = {
                     code: error?.code || 'invalid_request'
                 };
             }
@@ -1686,7 +1967,14 @@ function app() {
         },
 
         async downloadVisibleModuleArtifact(artifact) {
-            const taskId = this.moduleTaskUi.task?.task_id;
+            return this.downloadModuleTaskArtifact(
+                this.moduleTaskUi,
+                artifact
+            );
+        },
+
+        async downloadModuleTaskArtifact(view, artifact) {
+            const taskId = view?.task?.task_id;
             if (!taskId) return;
             try {
                 await window.ChatRaw.modules.downloadArtifact(
@@ -1694,7 +1982,7 @@ function app() {
                     artifact.artifact_ref
                 );
             } catch (error) {
-                this.moduleTaskUi.error = {
+                view.error = {
                     code: error?.code || 'invalid_request'
                 };
             }
@@ -1702,20 +1990,21 @@ function app() {
 
         async resumeModuleTasks() {
             if (!window.ChatRaw?.modules) return;
-            let firstActive = null;
             for (const taskId of this.moduleTaskIds()) {
                 try {
                     const task = await window.ChatRaw.modules.getTask(taskId);
-                    this.upsertModuleTask(task);
-                    if (!MODULE_TERMINAL_STATES.has(task.state)) {
-                        if (!firstActive) firstActive = taskId;
-                        window.ChatRaw.modules.subscribe(taskId);
+                    if (MODULE_TERMINAL_STATES.has(task.state)) {
+                        this.forgetModuleTask(taskId);
+                        continue;
                     }
+                    this.upsertModuleTask(task, {
+                        presentation: 'task_center'
+                    });
+                    window.ChatRaw.modules.subscribe(taskId);
                 } catch (error) {
                     if (error?.status === 404) this.forgetModuleTask(taskId);
                 }
             }
-            if (firstActive) this.selectModuleTask(firstActive);
         },
 
         residentText(value) {
@@ -2212,12 +2501,13 @@ function app() {
             this.closeSidebarOnMobile();
         },
         
-        openPluginsPanel() {
+        async openPluginsPanel() {
             if (!this.isAdmin()) return;
             this.showSettings = false;
             this.showPlugins = true;
-            this.loadPluginMarket();
             this.closeSidebarOnMobile();
+            await this.loadInstalledPlugins();
+            this.loadPluginMarket();
         },
         
         // Apply theme
@@ -2368,7 +2658,33 @@ function app() {
             try {
                 const res = await fetch(`/api/chats/${chatId}/messages`);
                 if (res.ok) {
-                    this.messages = await res.json() || [];
+                    const messages = await res.json() || [];
+                    let tasks = [];
+                    if (window.ChatRaw?.modules) {
+                        try {
+                            tasks = await window.ChatRaw.modules.listTasks({
+                                chat_id: chatId,
+                                limit: 100
+                            });
+                        } catch (error) {
+                            console.error(
+                                'Failed to load conversation tasks:',
+                                error
+                            );
+                        }
+                    }
+                    this.messages = this.mergeConversationTaskMessages(
+                        messages,
+                        tasks
+                    );
+                    for (const task of tasks) {
+                        if (
+                            !MODULE_TERMINAL_STATES.has(task.state)
+                            && !this.moduleTaskSubscriptions[task.task_id]
+                        ) {
+                            window.ChatRaw.modules.subscribe(task.task_id);
+                        }
+                    }
                     this.$nextTick(() => this.scrollToBottom());
                 }
             } catch (e) {
@@ -4350,7 +4666,90 @@ function app() {
         
         // Render Markdown
         renderMarkdown(content) {
-            return window.ChatRawContentSecurity.renderMarkdown(content);
+            return window.ChatRawContentSecurity.renderMarkdown(
+                content,
+                this.lang
+            );
+        },
+
+        horizontalWheelDelta(event) {
+            if (
+                event.defaultPrevented
+                || !event.cancelable
+                || event.ctrlKey
+            ) {
+                return 0;
+            }
+            return Math.abs(event.deltaX) > Math.abs(event.deltaY)
+                ? event.deltaX
+                : event.shiftKey ? event.deltaY : 0;
+        },
+
+        findHorizontalWheelScroller(target) {
+            let candidate = target instanceof Element ? target : null;
+            while (candidate && candidate !== document.body) {
+                const overflowX = getComputedStyle(candidate).overflowX;
+                if (
+                    candidate.scrollWidth > candidate.clientWidth
+                    && (overflowX === 'auto' || overflowX === 'scroll')
+                ) {
+                    return candidate;
+                }
+                candidate = candidate.parentElement;
+            }
+            return null;
+        },
+
+        consumeHorizontalWheel(event, scroller = null) {
+            const delta = this.horizontalWheelDelta(event);
+            if (!delta) return false;
+            event.preventDefault();
+            event.stopPropagation();
+            if (!scroller) return true;
+            const scale = event.deltaMode === 1
+                ? 16
+                : event.deltaMode === 2 ? scroller.clientWidth : 1;
+            const maxScrollLeft = scroller.scrollWidth - scroller.clientWidth;
+            scroller.scrollLeft = Math.max(
+                0,
+                Math.min(maxScrollLeft, scroller.scrollLeft + delta * scale)
+            );
+            return true;
+        },
+
+        handleMarkdownTableWheel(event) {
+            const scroller = event.target instanceof Element
+                ? event.target.closest('.markdown-table-scroll')
+                : null;
+            if (
+                !scroller
+                || scroller.scrollWidth <= scroller.clientWidth
+            ) {
+                return false;
+            }
+            return this.consumeHorizontalWheel(event, scroller);
+        },
+
+        handleAppWheel(event) {
+            if (event.defaultPrevented) return true;
+            if (this.handleMarkdownTableWheel(event)) return true;
+            const delta = this.horizontalWheelDelta(event);
+            if (!delta) return false;
+            return this.consumeHorizontalWheel(
+                event,
+                this.findHorizontalWheelScroller(event.target)
+            );
+        },
+
+        installRootWheelGuard() {
+            if (this._rootWheelHandler) return false;
+            this._rootWheelHandler = event => this.handleAppWheel(event);
+            document.addEventListener(
+                'wheel',
+                this._rootWheelHandler,
+                { passive: false }
+            );
+            return true;
         },
         
         // Scroll to bottom
@@ -4507,6 +4906,23 @@ function app() {
             return definition;
         },
 
+        focusPluginWorkspaceClose(owner, panelId, placement) {
+            this.$nextTick(() => {
+                requestAnimationFrame(() => {
+                    if (
+                        this.pluginWorkspace.show
+                        && this.pluginWorkspace.pluginId === owner
+                        && this.pluginWorkspace.panelId === panelId
+                        && this.pluginWorkspace.placement === placement
+                    ) {
+                        document.getElementById(
+                            'plugin-workspace-close'
+                        )?.focus();
+                    }
+                });
+            });
+        },
+
         registerPluginWorkspacePanel(definition, pluginId) {
             this.assertPluginWorkspaceTransitionAvailable();
             const owner = this.assertPluginWorkspaceOwner(pluginId);
@@ -4584,35 +5000,48 @@ function app() {
             if (!definition.placements.includes(placement)) {
                 throw new TypeError(`Unsupported Plugin Workspace placement: ${placement}`);
             }
+            const activation = this._pluginWorkspaceActivation;
+            const shouldMoveFocus = (
+                activation?.pluginId === owner
+                && navigator.userActivation?.isActive === true
+                && activation.trigger instanceof HTMLElement
+                && activation.trigger.isConnected
+            );
+            const previousReturnFocus = this._pluginWorkspaceReturnFocus;
+            const returnFocus = shouldMoveFocus
+                ? activation.trigger
+                : previousReturnFocus?.isConnected
+                    ? previousReturnFocus
+                    : null;
             if (
                 this.pluginWorkspace.show
                 && this.pluginWorkspace.pluginId === owner
                 && this.pluginWorkspace.panelId === panelId
                 && this.pluginWorkspace.placement === placement
             ) {
+                if (shouldMoveFocus) {
+                    this._pluginWorkspaceReturnFocus = returnFocus;
+                    this.focusPluginWorkspaceClose(
+                        owner,
+                        panelId,
+                        placement
+                    );
+                }
                 return true;
             }
-            const previousReturnFocus = this._pluginWorkspaceReturnFocus;
             if (this.pluginWorkspace.show) {
                 const disposeError = this.teardownPluginWorkspace(false);
                 if (disposeError) {
-                    this.restorePluginWorkspaceFocus(previousReturnFocus);
+                    this.restorePluginWorkspaceFocus(returnFocus);
                     throw disposeError;
                 }
             }
             const container = document.getElementById('plugin-workspace-mount');
             if (!container) {
-                this.restorePluginWorkspaceFocus(previousReturnFocus);
+                this.restorePluginWorkspaceFocus(returnFocus);
                 throw new Error('Plugin Workspace mount container is unavailable');
             }
-            this._pluginWorkspaceReturnFocus = (
-                previousReturnFocus?.isConnected
-                    ? previousReturnFocus
-                    : (
-                        document.activeElement instanceof HTMLElement
-                        && document.activeElement.isConnected
-                    ) ? document.activeElement : null
-            );
+            this._pluginWorkspaceReturnFocus = returnFocus;
             container.replaceChildren();
             this.pluginWorkspace = {
                 show: true,
@@ -4650,18 +5079,13 @@ function app() {
             } finally {
                 this._pluginWorkspaceTransition = null;
             }
-            this.$nextTick(() => {
-                requestAnimationFrame(() => {
-                    if (
-                        this.pluginWorkspace.show
-                        && this.pluginWorkspace.pluginId === owner
-                        && this.pluginWorkspace.panelId === panelId
-                        && this.pluginWorkspace.placement === placement
-                    ) {
-                        document.getElementById('plugin-workspace-close')?.focus();
-                    }
-                });
-            });
+            if (shouldMoveFocus) {
+                this.focusPluginWorkspaceClose(
+                    owner,
+                    panelId,
+                    placement
+                );
+            }
             return true;
         },
 
@@ -4762,10 +5186,26 @@ function app() {
         },
         
         // Handle plugin button click
-        async handlePluginButtonClick(btn) {
+        async handlePluginButtonClick(btn, trigger = null) {
             if (btn.loading || btn.disabled) return false;
             try {
-                await btn.onClick?.(btn);
+                const activation = (
+                    navigator.userActivation?.isActive === true
+                    && trigger instanceof HTMLElement
+                    && trigger.isConnected
+                ) ? {
+                    pluginId: btn.pluginId,
+                    trigger
+                } : null;
+                const previousActivation = this._pluginWorkspaceActivation;
+                let clickResult;
+                this._pluginWorkspaceActivation = activation;
+                try {
+                    clickResult = btn.onClick?.(btn);
+                } finally {
+                    this._pluginWorkspaceActivation = previousActivation;
+                }
+                await clickResult;
                 return true;
             } catch (error) {
                 console.error(`[Plugin ${btn.pluginId}] Button click error:`, error);
@@ -4775,8 +5215,8 @@ function app() {
             }
         },
 
-        async handlePluginMoreButtonClick(btn) {
-            if (await this.handlePluginButtonClick(btn)) {
+        async handlePluginMoreButtonClick(btn, trigger = null) {
+            if (await this.handlePluginButtonClick(btn, trigger)) {
                 this.showPluginMoreMenu = false;
             }
         },
@@ -5092,7 +5532,12 @@ function app() {
                                     handlers.onEvent?.(event);
                                     if (
                                         event.event === 'task.terminal'
-                                        || MODULE_TERMINAL_STATES.has(event.data?.state)
+                                        || (
+                                            event.event === 'task.status'
+                                            && MODULE_TERMINAL_STATES.has(
+                                                event.data?.state
+                                            )
+                                        )
                                     ) {
                                         handlers.onClose?.();
                                         controller.abort();
@@ -5133,6 +5578,26 @@ function app() {
                 })();
 
                 return () => controller.abort();
+            };
+
+            const createIdempotencyKey = () => {
+                if (typeof crypto.randomUUID === 'function') {
+                    return crypto.randomUUID();
+                }
+                const bytes = crypto.getRandomValues(new Uint8Array(16));
+                bytes[6] = (bytes[6] & 0x0f) | 0x40;
+                bytes[8] = (bytes[8] & 0x3f) | 0x80;
+                const hex = Array.from(
+                    bytes,
+                    value => value.toString(16).padStart(2, '0')
+                ).join('');
+                return [
+                    hex.slice(0, 8),
+                    hex.slice(8, 12),
+                    hex.slice(12, 16),
+                    hex.slice(16, 20),
+                    hex.slice(20)
+                ].join('-');
             };
 
             const modulesSdk = Object.freeze({
@@ -5201,12 +5666,16 @@ function app() {
                         || Object.keys(options).some(
                             key => key !== 'presentation'
                         )
-                        || !['task_center', 'embedded'].includes(
+                        || ![
+                            'task_center',
+                            'embedded',
+                            'conversation'
+                        ].includes(
                             options.presentation || 'task_center'
                         )
                     ) {
                         throw new ModuleSdkError(
-                            'presentation must be task_center or embedded',
+                            'presentation must be task_center, embedded, or conversation',
                             'invalid_sdk_argument',
                             0
                         );
@@ -5214,6 +5683,21 @@ function app() {
                     const presentation = (
                         options.presentation || 'task_center'
                     );
+                    if (
+                        presentation === 'conversation'
+                        && (
+                            typeof request.chat_id !== 'string'
+                            || !request.chat_id
+                            || typeof request.user_message !== 'string'
+                            || !request.user_message.trim()
+                        )
+                    ) {
+                        throw new ModuleSdkError(
+                            'conversation presentation requires chat_id and user_message',
+                            'invalid_sdk_argument',
+                            0
+                        );
+                    }
                     const payload = {
                         module_id: request.module_id,
                         action_id: request.action_id,
@@ -5222,12 +5706,13 @@ function app() {
                     for (const key of [
                         'chat_id',
                         'user_message',
-                        'resource_ids'
+                        'resource_ids',
+                        'active_skill_ids'
                     ]) {
                         if (request[key] !== undefined) payload[key] = request[key];
                     }
                     const idempotencyKey = request.idempotency_key
-                        || crypto.randomUUID();
+                        || createIdempotencyKey();
                     const task = await moduleRequest('/api/module-tasks', {
                         method: 'POST',
                         headers: {
@@ -5236,11 +5721,23 @@ function app() {
                         },
                         body: JSON.stringify(payload)
                     });
-                    appInstance.rememberModuleTask(task.task_id);
-                    appInstance.upsertModuleTask(task, {
-                        select: presentation === 'task_center'
-                    });
                     if (presentation === 'task_center') {
+                        appInstance.rememberModuleTask(task.task_id);
+                    }
+                    appInstance.upsertModuleTask(task, {
+                        select: presentation === 'task_center',
+                        presentation
+                    });
+                    if (presentation === 'conversation') {
+                        appInstance.attachConversationTask(
+                            task,
+                            request.user_message
+                        );
+                    }
+                    if (
+                        presentation === 'task_center'
+                        || presentation === 'conversation'
+                    ) {
                         subscribe(task.task_id);
                     }
                     return task;

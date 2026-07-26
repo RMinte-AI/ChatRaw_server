@@ -987,9 +987,13 @@ class ModuleRegistry:
         for capability in manifest["requested_host_capabilities"]:
             risk = {
                 "chat.read": "medium",
+                "principal.read": "medium",
                 "resource.read": "medium",
                 "resource.stream": "medium",
                 "model.invoke": "high",
+                "model.chat.completions": "high",
+                "skill.read": "medium",
+                "rule.read": "medium",
             }.get(capability, "unrecognized")
             capability_reviews.append(
                 {
@@ -999,9 +1003,13 @@ class ModuleRegistry:
                     "effective_for_tasks": capability
                     in {
                         "chat.read",
+                        "principal.read",
                         "resource.read",
                         "resource.stream",
                         "model.invoke",
+                        "model.chat.completions",
+                        "skill.read",
+                        "rule.read",
                     },
                 }
             )
@@ -1022,6 +1030,14 @@ class ModuleRegistry:
                 },
                 "supports_resources": action.get(
                     "supports_resources",
+                    False,
+                ),
+                "supports_skills": action.get(
+                    "supports_skills",
+                    False,
+                ),
+                "supports_rules": action.get(
+                    "supports_rules",
                     False,
                 ),
             }
@@ -1135,7 +1151,7 @@ class ModuleRegistry:
             for key in ("mode", "id", "required_version", "status")
         }
         return {
-            "sdk_version": "1.2.0",
+            "sdk_version": "1.5.0",
             "module_id": summary["module_id"],
             "name": summary["name"],
             "module_version": summary["module_version"],

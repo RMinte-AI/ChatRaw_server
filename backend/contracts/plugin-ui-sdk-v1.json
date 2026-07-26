@@ -191,9 +191,23 @@
     "short_screen": "top and bottom render as main at 420px or shorter"
   },
   "focus": {
-    "open": "focus the Server-owned close button after the workspace is visible",
-    "close": "restore the original connected trigger",
-    "replacement_failure": "restore the original connected trigger"
+    "host_focus_authorization": "all conditions must hold: a Host-rendered toolbar or sidebar entry is synchronously dispatching its onClick callback, navigator.userActivation.isActive is true, the entry pluginId equals the workspace owner, and the Host trigger remains connected",
+    "authorized_open": "focus the Server-owned close button after the workspace is visible; opening the same already-visible workspace also focuses that button",
+    "unauthorized_open": "preserve the current focus, including direct API calls during unrelated transient activation, asynchronous callback continuations, module callbacks, timers, and cross-owner opens",
+    "overflow_return_trigger": "the stable Host More button",
+    "missing_user_activation_api": "preserve the current focus",
+    "plugin_override": false,
+    "close_after_host_focus": "restore the most recent authorized connected Host trigger",
+    "mount_or_replacement_failure_after_host_focus": "restore the most recent authorized connected Host trigger"
+  },
+  "horizontal_wheel": {
+    "listener": "one document-level wheel listener registered with passive false during Host initialization",
+    "root_behavior": "consume horizontal-dominant wheel gestures and Shift+wheel across the ChatRaw page so they cannot fall through to browser history navigation or root rubber-banding",
+    "scroll_target": "move the nearest ancestor with computed overflow-x auto or scroll and scrollWidth greater than clientWidth; consume the gesture at both edges",
+    "markdown_table": "use the Server-owned markdown-table-scroll region",
+    "vertical_wheel": "preserve",
+    "ctrl_wheel_zoom": "preserve",
+    "child_already_prevented": "do not process again"
   },
   "performance": {
     "host_polling": false,

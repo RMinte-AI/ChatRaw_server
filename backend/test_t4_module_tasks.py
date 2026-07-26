@@ -1,5 +1,6 @@
 import asyncio
 import copy
+import hashlib
 import importlib.util
 import json
 import os
@@ -9,6 +10,7 @@ import time
 import unittest
 import uuid
 from contextlib import asynccontextmanager
+from datetime import datetime
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -136,6 +138,8 @@ class FakeTaskClient:
                     "resources": {},
                     "events": [],
                     "host_capabilities": payload["host_capabilities"],
+                    "active_skills": payload["active_skills"],
+                    "active_rules": payload["active_rules"],
                 }
                 self.tasks[task_id] = existing
             if self.lose_after_accept:
@@ -359,9 +363,11 @@ class FakeRegistry:
             "manifest": copy.deepcopy(REFERENCE_MANIFEST),
             "granted_capabilities": [
                 "chat.read",
+                "principal.read",
                 "resource.read",
                 "resource.stream",
                 "model.invoke",
+                "model.chat.completions",
             ],
             "lifecycle_state": "enabled",
         }
@@ -427,10 +433,32 @@ class ModuleTaskServiceTests(unittest.IsolatedAsyncioTestCase):
         self.registry = FakeRegistry(self.client)
         self.audits = []
         self.model_prompts = []
+        self.model_chat_requests = []
 
         async def invoke(prompt):
             self.model_prompts.append(prompt)
             return "model result"
+
+        async def chat_completion(request):
+            self.model_chat_requests.append(request)
+            return {
+                "profile": request["profile"],
+                "model": "fixture-model",
+                "content": None,
+                "tool_calls": [
+                    {
+                        "id": "call-1",
+                        "name": "clock_now",
+                        "arguments": "{}",
+                    }
+                ],
+                "finish_reason": "tool_calls",
+                "usage": {
+                    "input_tokens": 10,
+                    "output_tokens": 4,
+                    "total_tokens": 14,
+                },
+            }
 
         self.service = ModuleTaskService(
             self.database.db_path,
@@ -438,6 +466,7 @@ class ModuleTaskServiceTests(unittest.IsolatedAsyncioTestCase):
             registry=self.registry,
             audit=lambda *args: self.audits.append(args),
             model_invoke=invoke,
+            model_chat_completion=chat_completion,
         )
 
     async def asyncTearDown(self):
@@ -476,6 +505,272 @@ class ModuleTaskServiceTests(unittest.IsolatedAsyncioTestCase):
             idempotency_key=key,
             principal_user_id=self.creator,
             principal_role="member",
+        )
+
+    def _personal_skill(self):
+        skill_id = str(uuid.uuid4())
+        version_id = str(uuid.uuid4())
+        now = "2026-07-26T00:00:00Z"
+        markdown = (
+            "---\n"
+            "name: personal-clock\n"
+            "description: Personal clock workflow\n"
+            "---\n"
+            "Always use the time tool for current time."
+        )
+        digest = hashlib.sha256(
+            ("SKILL.md\0" + markdown + "\0").encode()
+        ).hexdigest()
+        with self.database.connection(write=True) as connection:
+            connection.execute(
+                """
+                INSERT INTO agent_skills (
+                    id, owner_user_id, target_module_id, name,
+                    description, license, enabled, active_version_id,
+                    created_at, updated_at
+                ) VALUES (?, ?, ?, 'personal-clock',
+                          'Personal clock workflow', 'MIT', 1, ?,
+                          ?, ?)
+                """,
+                (
+                    skill_id,
+                    self.creator,
+                    REFERENCE_MANIFEST["module_id"],
+                    version_id,
+                    now,
+                    now,
+                ),
+            )
+            connection.execute(
+                """
+                INSERT INTO agent_skill_versions (
+                    id, skill_id, commit_sha, content_sha256,
+                    source_json, skill_markdown, resources_json,
+                    package_path, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, '[]', ?, ?)
+                """,
+                (
+                    version_id,
+                    skill_id,
+                    "a" * 40,
+                    digest,
+                    '{"type":"github","commit":"'
+                    + ("a" * 40)
+                    + '"}',
+                    markdown,
+                    f"agent-personal/{self.creator}/{skill_id}/{version_id}",
+                    now,
+                ),
+            )
+        return skill_id, version_id, markdown, digest
+
+    def _active_rule(self):
+        document_id = str(uuid.uuid4())
+        source_version_id = str(uuid.uuid4())
+        compiled_version_id = str(uuid.uuid4())
+        now = "2026-07-26T00:00:00Z"
+        compiled = {
+            "schema_version": "1.0",
+            "title": "Pagination",
+            "summary": "Fetch every page.",
+            "execution_rules": [
+                {
+                    "id": "paginate",
+                    "priority": 80,
+                    "when": {"all": [], "any": [], "none": []},
+                    "instructions": ["Fetch pages until empty."],
+                    "tools": [],
+                    "response_requirements": [],
+                }
+            ],
+            "clarification_rules": [],
+        }
+        encoded = json.dumps(
+            compiled,
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+        digest = hashlib.sha256(encoded.encode()).hexdigest()
+        with self.database.connection(write=True) as connection:
+            connection.execute(
+                """
+                INSERT INTO agent_rule_documents (
+                    id, owner_user_id, target_module_id, name,
+                    current_source_version_id,
+                    active_compiled_version_id, created_at, updated_at
+                ) VALUES (?, ?, ?, 'Pagination rule', ?, ?, ?, ?)
+                """,
+                (
+                    document_id,
+                    self.creator,
+                    REFERENCE_MANIFEST["module_id"],
+                    source_version_id,
+                    compiled_version_id,
+                    now,
+                    now,
+                ),
+            )
+            connection.execute(
+                """
+                INSERT INTO agent_rule_source_versions (
+                    id, document_id, version_number, source_document,
+                    content_sha256, created_at
+                ) VALUES (?, ?, 1, 'Fetch every page.', ?, ?)
+                """,
+                (
+                    source_version_id,
+                    document_id,
+                    hashlib.sha256(b"Fetch every page.").hexdigest(),
+                    now,
+                ),
+            )
+            connection.execute(
+                """
+                INSERT INTO agent_compiled_rule_versions (
+                    id, document_id, source_version_id,
+                    specification_version, status, content_sha256,
+                    compiled_json, model_output, validation_errors_json,
+                    created_at
+                ) VALUES (?, ?, ?, 'chatraw-agent-rule-1.0',
+                          'valid', ?, ?, ?, '[]', ?)
+                """,
+                (
+                    compiled_version_id,
+                    document_id,
+                    source_version_id,
+                    digest,
+                    encoded,
+                    encoded,
+                    now,
+                ),
+            )
+        return (
+            document_id,
+            source_version_id,
+            compiled_version_id,
+            compiled,
+            digest,
+        )
+
+    async def test_personal_skill_is_scoped_pinned_and_read_by_capability(self):
+        skill_id, version_id, markdown, digest = self._personal_skill()
+        self.registry.target["manifest"]["actions"][0][
+            "supports_skills"
+        ] = True
+        self.registry.target["granted_capabilities"].append("skill.read")
+
+        task, created = await self._create(
+            key="personal-skill",
+            active_skill_ids=[skill_id],
+        )
+
+        self.assertTrue(created)
+        remote = self.client.tasks[task["task_id"]]
+        self.assertEqual(
+            remote["active_skills"],
+            [
+                {
+                    "skill_id": skill_id,
+                    "version_id": version_id,
+                    "name": "personal-clock",
+                    "description": "Personal clock workflow",
+                    "content_sha256": digest,
+                    "commit": "a" * 40,
+                }
+            ],
+        )
+        capability = next(
+            item
+            for item in remote["host_capabilities"]
+            if item["capability"] == "skill.read"
+        )
+        self.assertEqual(
+            capability["scope"],
+            {"skill_ids": [skill_id]},
+        )
+        snapshot = await self.service.capability_skill_read(
+            capability["token"],
+            skill_id,
+        )
+        self.assertEqual(snapshot["skill"]["version_id"], version_id)
+        self.assertEqual(snapshot["skill"]["skill_markdown"], markdown)
+        self.assertEqual(snapshot["skill"]["content_sha256"], digest)
+
+        with self.assertRaises(ModuleTaskError) as denied:
+            await self.service.capability_skill_read(
+                capability["token"],
+                str(uuid.uuid4()),
+            )
+        self.assertEqual(denied.exception.status_code, 403)
+
+    async def test_active_rule_is_automatically_frozen_and_read_by_capability(
+        self,
+    ):
+        (
+            document_id,
+            source_version_id,
+            compiled_version_id,
+            compiled,
+            digest,
+        ) = self._active_rule()
+        self.registry.target["manifest"]["actions"][0][
+            "supports_rules"
+        ] = True
+        self.registry.target["granted_capabilities"].append("rule.read")
+
+        task, created = await self._create(key="active-rule")
+
+        self.assertTrue(created)
+        remote = self.client.tasks[task["task_id"]]
+        self.assertEqual(
+            remote["active_rules"],
+            [
+                {
+                    "document_id": document_id,
+                    "compiled_version_id": compiled_version_id,
+                    "source_version_id": source_version_id,
+                    "name": "Pagination rule",
+                    "specification_version": "chatraw-agent-rule-1.0",
+                    "content_sha256": digest,
+                }
+            ],
+        )
+        capability = next(
+            item
+            for item in remote["host_capabilities"]
+            if item["capability"] == "rule.read"
+        )
+        self.assertEqual(
+            capability["scope"],
+            {"document_ids": [document_id]},
+        )
+        snapshot = await self.service.capability_rule_read(
+            capability["token"],
+            document_id,
+        )
+        self.assertEqual(
+            snapshot["rule"]["compiled_version_id"],
+            compiled_version_id,
+        )
+        self.assertEqual(snapshot["rule"]["compiled_rule"], compiled)
+
+        with self.database.connection(write=True) as connection:
+            connection.execute(
+                """
+                UPDATE agent_rule_documents
+                SET active_compiled_version_id = NULL
+                WHERE id = ?
+                """,
+                (document_id,),
+            )
+        frozen = await self.service.capability_rule_read(
+            capability["token"],
+            document_id,
+        )
+        self.assertEqual(
+            frozen["rule"]["compiled_version_id"],
+            compiled_version_id,
         )
 
     async def test_uploaded_resource_is_private_single_bind_and_streamed(self):
@@ -1007,6 +1302,20 @@ class ModuleTaskServiceTests(unittest.IsolatedAsyncioTestCase):
         )
 
     async def test_terminal_projection_is_idempotent_and_failure_is_suppressed(self):
+        self.database.update_chat_title(
+            self.chat.id,
+            main.DEFAULT_CHAT_TITLE,
+        )
+        title_calls = []
+
+        async def auto_title(chat_id, user_message, assistant_message):
+            title_calls.append((chat_id, user_message, assistant_message))
+            return self.database.update_chat_title_if_default(
+                chat_id,
+                "Generated task title",
+            )
+
+        self.service.chat_auto_title = auto_title
         task, _ = await self._create()
         self.client.set_state(task["task_id"], "succeeded", text="projected")
         first = await self.service.get(
@@ -1021,9 +1330,23 @@ class ModuleTaskServiceTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual(first["result"], {"text": "projected"})
         self.assertEqual(second["result"], {"text": "projected"})
+        self.assertIsNotNone(first["user_message_id"])
+        self.assertIsNotNone(first["assistant_message_id"])
+        self.assertEqual(
+            first["assistant_message_id"],
+            second["assistant_message_id"],
+        )
         messages = self.database.get_messages(self.chat.id)
         self.assertEqual([message.role for message in messages], ["user", "assistant"])
         self.assertEqual(messages[-1].content, "projected")
+        self.assertEqual(
+            title_calls,
+            [(self.chat.id, "Run durable task", "projected")],
+        )
+        self.assertEqual(
+            self.database.get_chats()[0].title,
+            "Generated task title",
+        )
 
         other_chat = self.database.create_chat("failure", self.creator)
         failed, _ = await self._create(
@@ -1047,6 +1370,25 @@ class ModuleTaskServiceTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_terminal_sse_is_emitted_after_chat_projection(self):
         task, _ = await self._create()
+        remote = self.client.tasks[task["task_id"]]
+        remote["last_event_id"] += 1
+        remote["events"].append(
+            {
+                "id": remote["last_event_id"],
+                "event": "activity.updated",
+                "data": {
+                    "schema_version": "1",
+                    "run_id": "11111111-1111-4111-8111-111111111111",
+                    "activity_id": (
+                        "22222222-2222-4222-8222-222222222222"
+                    ),
+                    "kind": "phase",
+                    "state": "succeeded",
+                    "title": "Prepared task context",
+                    "detail": {"phase": "preparing"},
+                },
+            }
+        )
         self.client.set_state(
             task["task_id"],
             "succeeded",
@@ -1066,7 +1408,44 @@ class ModuleTaskServiceTests(unittest.IsolatedAsyncioTestCase):
                     messages[-1].content,
                     "projected before terminal",
                 )
-        self.assertIn("task.terminal", observed)
+        self.assertEqual(
+            observed,
+            ["activity.updated", "task.terminal"],
+        )
+        replay = [
+            event
+            async for event in self.service.stream_events(
+                task["task_id"],
+                last_event_id=0,
+            )
+            if event is not None
+        ]
+        self.assertEqual(
+            [event["event"] for event in replay],
+            ["activity.updated", "task.terminal"],
+        )
+        self.assertEqual(
+            len(self.database.get_messages(self.chat.id)),
+            2,
+        )
+        self.client.offline = True
+        offline_replay = [
+            event
+            async for event in self.service.stream_events(
+                task["task_id"],
+                last_event_id=0,
+            )
+            if event is not None
+        ]
+        self.assertEqual(
+            [event["event"] for event in offline_replay],
+            ["task.terminal"],
+        )
+        self.assertEqual(offline_replay[0]["data"]["state"], "succeeded")
+        self.assertEqual(
+            len(self.database.get_messages(self.chat.id)),
+            2,
+        )
 
     async def test_cancel_completion_race_allows_succeeded_terminal(self):
         task, _ = await self._create()
@@ -1254,11 +1633,25 @@ class ModuleTaskServiceTests(unittest.IsolatedAsyncioTestCase):
                 "model/invoke"
             ),
         )
+        self.assertEqual(
+            capabilities["principal.read"]["endpoint"],
+            (
+                "http://127.0.0.1:51111/api/module-capabilities/v1/"
+                "principal"
+            ),
+        )
+        self.assertEqual(
+            capabilities["model.chat.completions"]["endpoint"],
+            (
+                "http://127.0.0.1:51111/api/module-capabilities/v1/"
+                "openai"
+            ),
+        )
         raw_tokens = [item["token"] for item in capabilities.values()]
         with self.database.connection() as connection:
             rows = connection.execute(
                 """
-                SELECT token_digest, capability
+                SELECT token_digest, capability, max_uses
                 FROM module_capability_tokens WHERE task_id = ?
                 """,
                 (task["task_id"],),
@@ -1266,6 +1659,12 @@ class ModuleTaskServiceTests(unittest.IsolatedAsyncioTestCase):
         stored = json.dumps([dict(row) for row in rows])
         for token in raw_tokens:
             self.assertNotIn(token, stored)
+        model_capability = next(
+            row
+            for row in rows
+            if row["capability"] == "model.chat.completions"
+        )
+        self.assertEqual(model_capability["max_uses"], 65)
         chat = await self.service.capability_chat_read(
             capabilities["chat.read"]["token"]
         )
@@ -1277,6 +1676,17 @@ class ModuleTaskServiceTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(
             chat["actor_ref"],
             f"chatraw-user:{self.creator}",
+        )
+        principal = await self.service.capability_principal_read(
+            capabilities["principal.read"]["token"]
+        )
+        self.assertEqual(
+            principal,
+            {
+                "task_id": task["task_id"],
+                "actor_ref": f"chatraw-user:{self.creator}",
+                "role": "member",
+            },
         )
         resource = await self.service.capability_resource_read(
             capabilities["resource.read"]["token"],
@@ -1296,11 +1706,241 @@ class ModuleTaskServiceTests(unittest.IsolatedAsyncioTestCase):
             "safe prompt",
         )
         self.assertEqual(model["content"], "model result")
+        completion = (
+            await self.service.capability_model_chat_completion(
+                capabilities["model.chat.completions"]["token"],
+                {
+                    "profile": "agent-runtime",
+                    "messages": [
+                        {"role": "user", "content": "Use the clock"}
+                    ],
+                    "tools": [
+                        {
+                            "type": "function",
+                            "function": {
+                                "name": "clock_now",
+                                "description": "Current time",
+                                "parameters": {
+                                    "type": "object",
+                                    "properties": {},
+                                },
+                            },
+                        }
+                    ],
+                    "timeout_seconds": 300,
+                },
+            )
+        )
+        self.assertEqual(
+            completion["completion"]["tool_calls"][0]["name"],
+            "clock_now",
+        )
+        openai = await self.service.capability_openai_chat_completion(
+            capabilities["model.chat.completions"]["token"],
+            {
+                "model": "agent-runtime",
+                "messages": [
+                    {"role": "user", "content": "Use the clock"}
+                ],
+                "tools": [
+                    {
+                        "type": "function",
+                        "function": {
+                            "name": "clock_now",
+                            "parameters": {
+                                "type": "object",
+                                "properties": {},
+                            },
+                        },
+                    }
+                ],
+                "max_completion_tokens": 256,
+            },
+        )
+        self.assertEqual(openai["object"], "chat.completion")
+        self.assertEqual(
+            openai["choices"][0]["message"]["tool_calls"][0][
+                "function"
+            ]["name"],
+            "clock_now",
+        )
+        self.assertEqual(
+            self.model_chat_requests[0]["profile"],
+            "agent-runtime",
+        )
+        self.assertEqual(
+            self.model_chat_requests[1]["timeout_seconds"],
+            900,
+        )
         self.client.set_state(task["task_id"], "succeeded")
         with self.assertRaises(ModuleTaskError):
             await self.service.capability_chat_read(
                 capabilities["chat.read"]["token"]
             )
+
+    async def test_capability_ttl_uses_action_deadline_default(self):
+        input_schema = self.registry.target["manifest"]["actions"][0][
+            "input_schema"
+        ]
+        input_schema["properties"]["request_deadline_seconds"] = {
+            "type": "integer",
+            "minimum": 180,
+            "maximum": 7200,
+            "default": 1800,
+        }
+
+        task, _ = await self._create()
+
+        with self.database.connection() as connection:
+            capability = connection.execute(
+                """
+                SELECT created_at, expires_at
+                FROM module_capability_tokens
+                WHERE task_id = ? AND capability = 'chat.read'
+                """,
+                (task["task_id"],),
+            ).fetchone()
+        lifetime = (
+            datetime.fromisoformat(
+                capability["expires_at"].replace("Z", "+00:00")
+            )
+            - datetime.fromisoformat(
+                capability["created_at"].replace("Z", "+00:00")
+            )
+        ).total_seconds()
+        self.assertGreaterEqual(lifetime, 1859)
+
+    async def test_agent_office_artifact_types_are_allowed(self):
+        task, _ = await self._create()
+        media_types = [
+            (
+                "application/vnd.openxmlformats-officedocument."
+                "spreadsheetml.sheet"
+            ),
+            (
+                "application/vnd.openxmlformats-officedocument."
+                "wordprocessingml.document"
+            ),
+            "text/markdown",
+        ]
+
+        self.service._register_artifacts(
+            task["task_id"],
+            [
+                {
+                    "artifact_id": f"artifact-office-{index}",
+                    "filename": filename,
+                    "media_type": media_type,
+                    "size": 1,
+                    "expires_at": None,
+                }
+                for index, (filename, media_type) in enumerate(
+                    zip(
+                        ["report.xlsx", "report.docx", "report.md"],
+                        media_types,
+                    )
+                )
+            ],
+        )
+
+        with self.database.connection() as connection:
+            stored = connection.execute(
+                """
+                SELECT media_type
+                FROM module_task_artifacts
+                WHERE task_id = ?
+                ORDER BY artifact_id
+                """,
+                (task["task_id"],),
+            ).fetchall()
+        self.assertEqual(
+            {row["media_type"] for row in stored},
+            set(media_types),
+        )
+
+    async def test_chat_capability_returns_only_bounded_recent_history(self):
+        now = "2026-07-26T00:00:00Z"
+        with self.database.connection(write=True) as connection:
+            connection.executemany(
+                """
+                INSERT INTO messages (
+                    id, chat_id, role, content, created_at,
+                    author_user_id, sequence
+                ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                [
+                    (
+                        str(uuid.uuid4()),
+                        self.chat.id,
+                        "user" if index % 2 == 0 else "assistant",
+                        f"history-{index}",
+                        now,
+                        self.creator if index % 2 == 0 else None,
+                        index + 1,
+                    )
+                    for index in range(50)
+                ],
+            )
+        task, _ = await self._create()
+        token = next(
+            item["token"]
+            for item in self.client.tasks[task["task_id"]][
+                "host_capabilities"
+            ]
+            if item["capability"] == "chat.read"
+        )
+
+        chat = await self.service.capability_chat_read(token)
+
+        self.assertEqual(len(chat["messages"]), 40)
+        self.assertEqual(chat["messages"][0]["content"], "history-11")
+        self.assertEqual(
+            chat["messages"][-1]["content"],
+            "Run durable task",
+        )
+
+    async def test_chat_capability_bounds_history_characters(self):
+        now = "2026-07-26T00:00:00Z"
+        with self.database.connection(write=True) as connection:
+            connection.executemany(
+                """
+                INSERT INTO messages (
+                    id, chat_id, role, content, created_at,
+                    author_user_id, sequence
+                ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                [
+                    (
+                        str(uuid.uuid4()),
+                        self.chat.id,
+                        "user" if index % 2 == 0 else "assistant",
+                        str(index) + ("x" * 100_000),
+                        now,
+                        self.creator if index % 2 == 0 else None,
+                        index + 1,
+                    )
+                    for index in range(3)
+                ],
+            )
+        task, _ = await self._create()
+        token = next(
+            item["token"]
+            for item in self.client.tasks[task["task_id"]][
+                "host_capabilities"
+            ]
+            if item["capability"] == "chat.read"
+        )
+
+        chat = await self.service.capability_chat_read(token)
+
+        self.assertLessEqual(
+            sum(len(item["content"]) for item in chat["messages"]),
+            200_000,
+        )
+        self.assertEqual(
+            chat["messages"][-1]["content"],
+            "Run durable task",
+        )
 
     async def test_unapproved_and_expired_capabilities_cannot_read_data(self):
         self.registry.target["granted_capabilities"] = []
@@ -1340,6 +1980,29 @@ class ModuleTaskServiceTests(unittest.IsolatedAsyncioTestCase):
                 model_token,
                 "expired",
             )
+
+    async def test_model_chat_timeout_has_180_second_floor(self):
+        task, _ = await self._create(key="model-timeout-floor")
+        token = next(
+            item["token"]
+            for item in self.client.tasks[task["task_id"]][
+                "host_capabilities"
+            ]
+            if item["capability"] == "model.chat.completions"
+        )
+        with self.assertRaises(ModuleTaskError) as invalid:
+            await self.service.capability_model_chat_completion(
+                token,
+                {
+                    "profile": "agent-runtime",
+                    "messages": [{"role": "user", "content": "hello"}],
+                    "timeout_seconds": 179,
+                },
+            )
+        self.assertEqual(
+            invalid.exception.code,
+            "invalid_model_timeout",
+        )
 
     async def test_offline_becomes_durable_failure_and_draining_rejects_new(self):
         task, _ = await self._create()
@@ -1476,6 +2139,9 @@ class ModuleTaskMachineContractTests(unittest.TestCase):
                     "outputSnapshotEvent",
                     "approvalRequestedEvent",
                     "approvalResolvedEvent",
+                    "activityPhaseEvent",
+                    "activityPlanEvent",
+                    "activityToolEvent",
                     "artifactEvent",
                     "terminalEvent",
                 )
@@ -1487,10 +2153,60 @@ class ModuleTaskMachineContractTests(unittest.TestCase):
                 "output.snapshot",
                 "approval.requested",
                 "approval.resolved",
+                "activity.updated",
                 "artifact.added",
                 "task.terminal",
             },
         )
+        validate_task_event(
+            {
+                "id": 1,
+                "event": "activity.updated",
+                "data": {
+                    "schema_version": "1",
+                    "run_id": "11111111-1111-4111-8111-111111111111",
+                    "activity_id": (
+                        "22222222-2222-4222-8222-222222222222"
+                    ),
+                    "kind": "tool",
+                    "state": "succeeded",
+                    "title": "Query page 1",
+                    "summary": "Returned 20 rows",
+                    "detail": {
+                        "tool_name": "station_records",
+                        "arguments_preview": '{"page":1,"size":20}',
+                        "arguments_truncated": False,
+                        "result_preview": '{"row_count":20}',
+                        "result_truncated": False,
+                        "duration_ms": 1830,
+                    },
+                },
+            },
+            previous_event_id=0,
+        )
+        invalid_activity = {
+            "id": 2,
+            "event": "activity.updated",
+            "data": {
+                "schema_version": "1",
+                "run_id": "11111111-1111-4111-8111-111111111111",
+                "activity_id": "33333333-3333-4333-8333-333333333333",
+                "kind": "tool",
+                "state": "failed",
+                "title": "Query page 2",
+                "detail": {
+                    "tool_name": "station_records",
+                    "arguments_preview": '{"page":2,"size":20}',
+                    "arguments_truncated": False,
+                    "duration_ms": 20,
+                },
+            },
+        }
+        with self.assertRaises(ModuleTaskProtocolError):
+            validate_task_event(
+                invalid_activity,
+                previous_event_id=1,
+            )
         with self.assertRaises(ModuleTaskProtocolError):
             validate_task_event(
                 {
@@ -1690,6 +2406,26 @@ class ModuleTaskApiTests(unittest.TestCase):
         async def invoke(_prompt):
             return "host model output"
 
+        async def chat_completion(request):
+            return {
+                "profile": request["profile"],
+                "model": "test-tool-model",
+                "content": None,
+                "tool_calls": [
+                    {
+                        "id": "call-clock",
+                        "name": "time.now",
+                        "arguments": "{}",
+                    }
+                ],
+                "finish_reason": "tool_calls",
+                "usage": {
+                    "prompt_tokens": 8,
+                    "completion_tokens": 4,
+                    "total_tokens": 12,
+                },
+            }
+
         self.resource_temp = tempfile.TemporaryDirectory(
             prefix="chatraw-t4-api-resources-"
         )
@@ -1700,9 +2436,13 @@ class ModuleTaskApiTests(unittest.TestCase):
             audit=main.auth_service.audit,
             chat_generation_active=main._chat_generation_active,
             model_invoke=invoke,
+            model_chat_completion=chat_completion,
             resource_dir=self.resource_temp.name,
         )
-        self.client = TestClient(main.app)
+        self.client = TestClient(
+            main.app,
+            client=(f"t4-{self.username_suffix}.test", 50000),
+        )
 
     def tearDown(self):
         self.client.close()
@@ -2106,6 +2846,118 @@ class ModuleTaskApiTests(unittest.TestCase):
         )
         self.assertEqual(model.status_code, 200, model.text)
         self.assertNotIn("api_key", model.text.lower())
+        principal = self.client.get(
+            "/api/module-capabilities/v1/principal",
+            headers={
+                "Authorization": (
+                    f"Bearer {capabilities['principal.read']}"
+                )
+            },
+        )
+        self.assertEqual(principal.status_code, 200, principal.text)
+        self.assertEqual(
+            principal.json(),
+            {
+                "task_id": task["task_id"],
+                "actor_ref": f"chatraw-user:{self.creator_id}",
+                "role": "member",
+            },
+        )
+        completion = self.client.post(
+            "/api/module-capabilities/v1/model/chat-completions",
+            headers={
+                "Authorization": (
+                    "Bearer "
+                    f"{capabilities['model.chat.completions']}"
+                )
+            },
+            json={
+                "profile": "agent-runtime",
+                "messages": [
+                    {"role": "user", "content": "What time is it?"}
+                ],
+                "tools": [
+                    {
+                        "type": "function",
+                        "function": {
+                            "name": "time.now",
+                            "description": "Current time",
+                            "parameters": {
+                                "type": "object",
+                                "properties": {},
+                            },
+                        },
+                    }
+                ],
+                "timeout_seconds": 180,
+            },
+        )
+        self.assertEqual(completion.status_code, 200, completion.text)
+        self.assertEqual(
+            completion.json()["completion"]["tool_calls"][0]["name"],
+            "time.now",
+        )
+        self.assertNotIn("api_key", completion.text.lower())
+        openai_completion = self.client.post(
+            "/api/module-capabilities/v1/openai/chat/completions",
+            headers={
+                "Authorization": (
+                    "Bearer "
+                    f"{capabilities['model.chat.completions']}"
+                )
+            },
+            json={
+                "model": "agent-runtime",
+                "messages": [
+                    {"role": "user", "content": "What time is it?"}
+                ],
+                "tools": [
+                    {
+                        "type": "function",
+                        "function": {
+                            "name": "time.now",
+                            "description": "Current time",
+                            "parameters": {
+                                "type": "object",
+                                "properties": {},
+                            },
+                        },
+                    }
+                ],
+                "max_completion_tokens": 256,
+            },
+        )
+        self.assertEqual(
+            openai_completion.status_code,
+            200,
+            openai_completion.text,
+        )
+        self.assertEqual(
+            openai_completion.json()["choices"][0]["message"][
+                "tool_calls"
+            ][0]["function"]["name"],
+            "time.now",
+        )
+        self.assertNotIn("api_key", openai_completion.text.lower())
+        invalid_timeout = self.client.post(
+            "/api/module-capabilities/v1/model/chat-completions",
+            headers={
+                "Authorization": (
+                    "Bearer "
+                    f"{capabilities['model.chat.completions']}"
+                )
+            },
+            json={
+                "profile": "agent-runtime",
+                "messages": [{"role": "user", "content": "test"}],
+                "timeout_seconds": 179,
+            },
+        )
+        self.assertEqual(
+            invalid_timeout.status_code,
+            400,
+            invalid_timeout.text,
+        )
         self.assertEqual(
             self.client.get(
                 "/api/module-capabilities/v1/chat",
@@ -2195,6 +3047,8 @@ class ReferenceTaskConformanceTests(unittest.TestCase):
             "action_version": "1.0.0",
             "config_revision": "1",
             "input": {"text": "persistent", **task_input},
+            "active_skills": [],
+            "active_rules": [],
             "host_capabilities": [],
         }
         response = self.client.post(

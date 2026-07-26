@@ -10,6 +10,7 @@ plugin_root=${CHATRAW_AGENT_PLUGIN_ROOT:-/Users/massif/ChatRaw-LinkDB-Agent-Plug
 server_port=${T7_SOURCE_SERVER_PORT:-51141}
 agent_port=${T7_SOURCE_AGENT_PORT:-8766}
 linkdb_port=${T7_SOURCE_LINKDB_PORT:-8765}
+model_port=${T7_SOURCE_MODEL_PORT:-51142}
 runtime_root=$(mktemp -d "${TMPDIR:-/tmp}/chatraw-t7-source.XXXXXX")
 server_data="$runtime_root/server"
 agent_data="$runtime_root/agent"
@@ -20,6 +21,7 @@ pairing_code="t7-source-pairing-code-0123456789abcdef"
 server_pid=""
 agent_pid=""
 linkdb_pid=""
+model_pid=""
 
 cleanup() {
     if [ -n "$agent_pid" ]; then
@@ -34,6 +36,10 @@ cleanup() {
         kill "$linkdb_pid" >/dev/null 2>&1 || true
         wait "$linkdb_pid" 2>/dev/null || true
     fi
+    if [ -n "$model_pid" ]; then
+        kill "$model_pid" >/dev/null 2>&1 || true
+        wait "$model_pid" 2>/dev/null || true
+    fi
     case "$runtime_root" in
         */chatraw-t7-source.*) rm -rf -- "$runtime_root" ;;
         *) echo "Refusing to remove unexpected path: $runtime_root" >&2 ;;
@@ -42,9 +48,10 @@ cleanup() {
 trap cleanup EXIT INT TERM
 
 server_python=${CHATRAW_SERVER_PYTHON:-"$server_root/.venv/bin/python"}
-agent_python=${CHATRAW_AGENT_PYTHON:-python3.13}
+agent_python=${CHATRAW_AGENT_PYTHON:-"$agent_root/.venv/bin/python"}
+linkdb_python=${CHATRAW_LINKDB_PYTHON:-"$linkdb_root/.venv/bin/python"}
 
-for executable in "$server_python" "$agent_python"; do
+for executable in "$server_python" "$agent_python" "$linkdb_python"; do
     if ! command -v "$executable" >/dev/null 2>&1 && [ ! -x "$executable" ]; then
         echo "Python runtime not found: $executable" >&2
         exit 1
@@ -91,7 +98,7 @@ require_process() {
 }
 
 start_linkdb() {
-    "$agent_python" "$agent_root/scripts/t7-linkdb-fixture.py" \
+    "$linkdb_python" "$agent_root/scripts/t7-linkdb-fixture.py" \
         --linkdb-root "$linkdb_root" \
         --data-dir "$linkdb_data" \
         --host 127.0.0.1 \
@@ -102,7 +109,7 @@ start_linkdb() {
 }
 
 linkdb_token() {
-    "$agent_python" -c \
+    "$linkdb_python" -c \
         "import json,sys; print(json.load(open(sys.argv[1], encoding='utf-8'))['agent_token'])" \
         "$linkdb_state"
 }
@@ -114,6 +121,14 @@ start_server() {
     "$server_python" "$server_root/backend/main.py" \
         >"$server_data/server.log" 2>&1 &
     server_pid=$!
+}
+
+start_model() {
+    "$server_python" "$server_root/scripts/t7-model-fixture.py" \
+        --host 127.0.0.1 \
+        --port "$model_port" \
+        >"$server_data/model.log" 2>&1 &
+    model_pid=$!
 }
 
 start_agent() {
@@ -156,7 +171,7 @@ setup_token=$(sed -n '1p' "$server_data/secrets/setup-token")
 
 start_linkdb
 require_process "$linkdb_pid" "$linkdb_data/linkdb.log"
-wait_for_url "$agent_python" \
+wait_for_url "$linkdb_python" \
     "http://127.0.0.1:$linkdb_port/health" \
     "$linkdb_data/linkdb.log"
 
@@ -165,6 +180,12 @@ require_process "$server_pid" "$server_data/server.log"
 wait_for_url "$server_python" \
     "http://127.0.0.1:$server_port/health" \
     "$server_data/server.log"
+
+start_model
+require_process "$model_pid" "$server_data/model.log"
+wait_for_url "$server_python" \
+    "http://127.0.0.1:$model_port/health" \
+    "$server_data/model.log"
 
 start_agent
 require_process "$agent_pid" "$agent_data/agent.log"
@@ -178,6 +199,7 @@ wait_for_url "$agent_python" \
     --setup-token "$setup_token" \
     --pairing-code "$pairing_code" \
     --plugin-dir "$plugin_root" \
+    --model-base-url "http://127.0.0.1:$model_port" \
     --state-file "$acceptance_state"
 
 if [ "${T7_SOURCE_HOLD_AFTER_BOOTSTRAP:-0}" = "1" ]; then

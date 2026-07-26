@@ -24,7 +24,7 @@ class ModulePluginSdkContractTests(unittest.TestCase):
     def test_contract_is_machine_readable_and_method_set_is_frozen(self):
         contract = json.loads(CONTRACT_PATH.read_text(encoding="utf-8"))
         Draft202012Validator.check_schema(contract)
-        self.assertEqual(contract["version"], "1.2.0")
+        self.assertEqual(contract["version"], "1.5.0")
         self.assertEqual(contract["global"], "window.ChatRaw.modules")
         self.assertEqual(
             set(contract["methods"]),
@@ -46,6 +46,14 @@ class ModulePluginSdkContractTests(unittest.TestCase):
             "supports_resources",
             contract["$defs"]["FeatureAction"]["required"],
         )
+        self.assertIn(
+            "supports_skills",
+            contract["$defs"]["FeatureAction"]["required"],
+        )
+        self.assertIn(
+            "supports_rules",
+            contract["$defs"]["FeatureAction"]["required"],
+        )
         self.assertFalse(
             contract["transport"]["plugin_calls_module_directly"]
         )
@@ -61,6 +69,7 @@ class ModulePluginSdkContractTests(unittest.TestCase):
                 "output.snapshot",
                 "approval.requested",
                 "approval.resolved",
+                "activity.updated",
                 "artifact.added",
                 "task.terminal",
             },
@@ -76,6 +85,19 @@ class ModulePluginSdkContractTests(unittest.TestCase):
             "task_center",
         )
         self.assertIn(
+            "conversation",
+            contract["$defs"]["StartTaskOptions"]["properties"][
+                "presentation"
+            ]["enum"],
+        )
+        self.assertEqual(
+            {
+                "user_message_id",
+                "assistant_message_id",
+            }.issubset(contract["$defs"]["Task"]["required"]),
+            True,
+        )
+        self.assertIn(
             "frontend_integration",
             contract["$defs"]["FeatureStatus"]["required"],
         )
@@ -87,7 +109,7 @@ class ModulePluginSdkContractTests(unittest.TestCase):
         self.assertIn("'Last-Event-ID': String(cursor)", source)
         self.assertIn("credentials: 'same-origin'", source)
         self.assertIn("module_event_stream_incomplete", source)
-        self.assertIn("const MODULE_SDK_VERSION = '1.2.0'", source)
+        self.assertIn("const MODULE_SDK_VERSION = '1.5.0'", source)
         self.assertIn(
             "fetch('/api/module-task-resources'",
             source,
@@ -109,6 +131,16 @@ class ModulePluginSdkContractTests(unittest.TestCase):
             CONTRACT_PATH.read_text(encoding="utf-8")
         )["methods"]:
             self.assertRegex(source, rf"\b{method}(?::|,)")
+
+    def test_plugin_admin_panel_refreshes_installed_plugins_when_opened(self):
+        source = APP_PATH.read_text(encoding="utf-8")
+        panel_source = source.split(
+            "async openPluginsPanel() {",
+            1,
+        )[1].split("// Apply theme", 1)[0]
+        self.assertIn("this.showPlugins = true", panel_source)
+        self.assertIn("await this.loadInstalledPlugins()", panel_source)
+        self.assertIn("this.loadPluginMarket()", panel_source)
 
     @unittest.skipUnless(shutil.which("node"), "Node.js is required")
     def test_resource_sdk_runtime_validation_and_error_semantics(self):
@@ -258,6 +290,36 @@ class ModulePluginSdkContractTests(unittest.TestCase):
                         && error.code === 'task_resource_forbidden'
                         && error.status === 403
                 );
+
+                const cryptoDescriptor = Object.getOwnPropertyDescriptor(
+                    global,
+                    'crypto'
+                );
+                Object.defineProperty(global, 'crypto', {{
+                    configurable: true,
+                    value: {{
+                        getRandomValues(bytes) {{
+                            for (let index = 0; index < bytes.length; index += 1) {{
+                                bytes[index] = index;
+                            }}
+                            return bytes;
+                        }}
+                    }}
+                }});
+                queue.push(response(200, {{
+                    task_id: 'task-http-fallback',
+                    state: 'queued'
+                }}));
+                await sdk.startTask({{
+                    module_id: 'chatraw.agent',
+                    action_id: 'agent.chat',
+                    input: {{ message: 'hello' }}
+                }}, {{ presentation: 'embedded' }});
+                assert.equal(
+                    requests.at(-1).options.headers['Idempotency-Key'],
+                    '00010203-0405-4607-8809-0a0b0c0d0e0f'
+                );
+                Object.defineProperty(global, 'crypto', cryptoDescriptor);
                 assert.equal(queue.length, 0);
             }})().catch(error => {{
                 console.error(error);
@@ -298,8 +360,11 @@ class ModulePluginSdkContractTests(unittest.TestCase):
         self.assertIn("moduleTasks: {}", source)
         self.assertIn("upsertModuleTask(task", source)
         self.assertIn("presentation === 'task_center'", source)
+        self.assertIn("presentation === 'conversation'", source)
+        self.assertIn("appInstance.attachConversationTask(", source)
         self.assertIn(
-            "if (presentation === 'task_center')",
+            "presentation === 'task_center'\n"
+            "                        || presentation === 'conversation'",
             source,
         )
         self.assertIn("listTasks: async (filters = {})", source)

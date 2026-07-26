@@ -16,6 +16,7 @@ RUN pip install --upgrade pip && pip install --no-cache-dir -r requirements.txt
 
 # Copy application
 COPY backend/main.py .
+COPY backend/agent_rules.py .
 COPY backend/auth.py .
 COPY backend/db_migrations.py .
 COPY backend/db_runtime.py .

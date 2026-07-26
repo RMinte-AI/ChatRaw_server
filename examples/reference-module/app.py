@@ -1042,6 +1042,8 @@ async def create_task(
         "action_version",
         "config_revision",
         "input",
+        "active_skills",
+        "active_rules",
         "host_capabilities",
     }
     if not isinstance(payload, dict) or set(payload) != required:
@@ -1054,6 +1056,8 @@ async def create_task(
         or payload["config_revision"] != str(state["revision"])
         or not isinstance(payload["request_digest"], str)
         or len(payload["request_digest"]) != 64
+        or payload["active_skills"] != []
+        or payload["active_rules"] != []
         or not isinstance(payload["host_capabilities"], list)
     ):
         raise HTTPException(status_code=409, detail="Task contract conflict")

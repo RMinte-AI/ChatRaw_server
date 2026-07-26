@@ -12,17 +12,23 @@ server_project="chatraw-t7-server-$suffix"
 agent_project="chatraw-t7-agent-$suffix"
 linkdb_project="chatraw-t7-linkdb-$suffix"
 server_port=${T7_COMPOSE_SERVER_PORT:-51151}
+model_port=${T7_COMPOSE_MODEL_PORT:-51152}
 private_network="chatraw-agent-linkdb-t7-$suffix"
 agent_volume="chatraw-agent-data-t7-$suffix"
 linkdb_volume="chatraw-linkdb-data-t7-$suffix"
 state_dir=$(mktemp -d "${TMPDIR:-/tmp}/chatraw-t7-compose.XXXXXX")
 acceptance_state="$state_dir/acceptance-state.json"
 pairing_code="t7-compose-pairing-code-0123456789abcdef"
+model_pid=""
 server_compose="$server_root/docker-compose.yml"
 agent_compose="$agent_root/compose.yml"
 linkdb_compose="$agent_root/compose.t7-acceptance.yml"
 
 cleanup() {
+    if [ -n "$model_pid" ]; then
+        kill "$model_pid" >/dev/null 2>&1 || true
+        wait "$model_pid" 2>/dev/null || true
+    fi
     docker compose -p "$server_project" -f "$server_compose" \
         down --volumes --rmi local --remove-orphans >/dev/null 2>&1 || true
     docker compose -p "$agent_project" -f "$agent_compose" \
@@ -125,6 +131,13 @@ wait_for_healthy() {
     return 1
 }
 
+"$python_bin" "$server_root/scripts/t7-model-fixture.py" \
+    --host 0.0.0.0 \
+    --port "$model_port" \
+    >"$state_dir/model.log" 2>&1 &
+model_pid=$!
+wait_for_url "http://127.0.0.1:$model_port/health"
+
 docker compose -p "$linkdb_project" -f "$linkdb_compose" \
     up -d --build
 wait_for_healthy "$linkdb_project" "$linkdb_compose" t7-linkdb
@@ -156,6 +169,7 @@ setup_token=$(
     --setup-token "$setup_token" \
     --pairing-code "$pairing_code" \
     --plugin-dir "$plugin_root" \
+    --model-base-url "http://host.docker.internal:$model_port" \
     --state-file "$acceptance_state"
 
 agent_container=$(

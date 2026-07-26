@@ -185,9 +185,20 @@ ChatRawPlugin.ui.registerWorkspacePanel(
     PLUGIN_ID
 );
 
-ChatRawPlugin.ui.openWorkspacePanel(
-    'workbench',
-    { placement: 'right' },
+ChatRawPlugin.ui.registerToolbarButton(
+    {
+        id: 'open-workbench',
+        icon: 'ri-dashboard-line',
+        label: { en: 'Example workbench', zh: '示例工作台' },
+        placement: 'sidebar',
+        onClick() {
+            ChatRawPlugin.ui.openWorkspacePanel(
+                'workbench',
+                { placement: 'right' },
+                PLUGIN_ID
+            );
+        }
+    },
     PLUGIN_ID
 );
 ```
@@ -204,11 +215,19 @@ Workspace 规则：
   Server 挂载点写入模块返回的 HTML。
 - 同一时刻只有一个 Workspace。打开另一面板或切换位置时，旧面板先执行一次 `dispose()`。
 - 同一面板以同一位置重复打开不会重复 mount。页面刷新后 Workspace 保持关闭。
-- Workspace 显示后，Host 会把焦点移到标题栏关闭按钮；关闭或替换失败后，焦点返回仍在页面中的
-  原触发入口。
+- 只有用户点击或用键盘激活 Host 渲染的工具栏、侧栏入口，且该入口的 `onClick` 在返回前同步
+  打开同一 Plugin 所属的 Workspace 时，Host 才会把焦点移到标题栏关闭按钮；关闭、挂载失败或
+  替换失败后，焦点返回仍在页面中的 Host 入口。溢出菜单中的入口统一返回稳定的“更多”按钮。
+  直接 API 调用、在 `await` 之后打开、模块回调、定时器或跨 Plugin 代开都保持当前焦点。
+  Plugin 不能传入参数覆盖这一 Host 判定。需要异步数据时，先同步打开并在 `mount()` 中渲染
+  Loading，再启动异步工作。
 - 非法定义、未声明的位置、挂载异常或缺失 `dispose()` 会直接抛错；不得改用全屏弹窗兜底。
 - Plugin CSS 必须限定在自己的根节点内。不要使用影响 `body`、`.main-content` 或其他核心元素的
   全局选择器。
+- Host 在页面根节点接管横向滚轮、触控板和 Magic Mouse 手势，阻止 Safari 历史页面回弹。
+  Plugin 内需要横向滚动的区域必须显式使用 `overflow-x: auto` 或 `scroll`；Host 会把手势路由到
+  最近的这类容器并在边缘继续消费。不要依赖 `body` 横向溢出，也不要拦截普通纵向滚动或
+  `Ctrl` + 滚轮缩放。
 
 机器契约见 [Plugin UI SDK Contract](../backend/contracts/plugin-ui-sdk-v1.json)，完整可运行示例见
 [Plugin Workspace UI Implementation Guide](plugin-workspace-ui-guide.md)。
@@ -285,7 +304,10 @@ async function run() {
         module_id: MODULE_ID,
         action_id: 'example.run',
         input: { text: 'hello' },
-        chat_id: ChatRawPlugin.utils.getCurrentChatId() || undefined
+        chat_id: ChatRawPlugin.utils.getCurrentChatId(),
+        user_message: 'hello'
+    }, {
+        presentation: 'conversation'
     });
 }
 ```
@@ -342,7 +364,15 @@ await window.ChatRaw.modules.downloadTaskResource(
 插件不得持久化该 URL、改写 `resource_ref`、推导模块地址或绕过 Server 读取资源。
 服务端错误按 SDK 稳定错误码直接展示或处理，不应切换到旧上传路径、猜测 MIME 或静默重试。
 
-ChatRaw 的任务中心归 Server 所有。每次 `startTask` 都会登记一个独立任务；刷新页面后恢复全部已登记任务，后台任务继续订阅，用户可以在任务间切换。插件不要自己复制任务列表、审批弹窗或产物凭证。
+`presentation` 有三种冻结语义：
+
+- `task_center`：默认值，打开 Core 任务中心并订阅；
+- `embedded`：只登记任务，调用方自行订阅和展示；
+- `conversation`：要求 `chat_id` 和 `user_message`，由 Core 在对话内展示、订阅和恢复，不打开任务中心。
+
+每次 `startTask` 都会登记一个独立任务。插件不要自己复制任务列表、执行时间线、审批界面或产物凭证。
+使用 `conversation` 的 `send_intercept` 成功后必须返回 `userMessage: false`，因为任务接受事务已经
+持久化用户消息。
 
 ### 9. 错误处理
 
@@ -431,19 +461,33 @@ Use `ChatRawPlugin.hooks`, `ChatRawPlugin.ui`, `ChatRawPlugin.utils`, and docume
 renders `top` and `bottom` as `main`. The plugin receives a real DOM container. `mount`
 must synchronously return one cleanup function, and that function must synchronously return
 `undefined`. It must not fall back to the legacy fullscreen modal when registration or
-mounting fails. After the workspace becomes visible, the Host focuses its close button; closing
-or a failed replacement restores the original connected trigger. See the
+mounting fails. The Host focuses its close button only when the `onClick` callback of that plugin's
+Host-rendered toolbar or sidebar entry synchronously opens its own workspace during click or keyboard
+activation. Closing, mount failure, or replacement failure then restores the connected Host entry;
+overflow entries return to the stable More button. Direct API calls, opens after `await`, module
+callbacks, timers, and cross-plugin opens preserve the current focus. Plugins cannot override this
+Host decision with an option. If data is asynchronous, open synchronously, render loading state from
+`mount()`, and then start the asynchronous work. See the
 [Plugin UI SDK Contract](../backend/contracts/plugin-ui-sdk-v1.json) and the
 [complete implementation guide](plugin-workspace-ui-guide.md).
+
+The Host consumes horizontal wheel, trackpad, and Magic Mouse gestures at the page root to prevent
+Safari history rubber-banding. A plugin-owned horizontal region must explicitly use
+`overflow-x: auto` or `scroll`; the Host routes the gesture to the nearest such overflow container
+and keeps consuming it at either edge. Do not depend on horizontal `body` overflow or intercept
+ordinary vertical scrolling and `Ctrl`+wheel zoom.
 
 Before `send_intercept` runs, ChatRaw ensures that the current chat exists, so `context.currentChatId` is a non-empty chat ID suitable for same-origin task binding. Plugins must not create chats themselves or invent this value.
 
 Companion plugins use only `window.ChatRaw.modules`. The machine-readable contract is [module-plugin-sdk-v1.json](../backend/contracts/module-plugin-sdk-v1.json). They must never fetch a module URL directly, retain module credentials, use the legacy proxy as a module tunnel, or invent actor/capability identity.
 
-SDK 1.2 adds `uploadTaskResource`, `getTaskResourceView`, and `downloadTaskResource`. Uploads return
-only opaque metadata and are bound once through `resource_ids`; views and downloads remain
-same-origin and session-protected. Plugins must not persist resource URLs, infer module endpoints,
-guess media types, or fall back to another upload path.
+SDK 1.5 adds the `conversation` presentation. It requires `chat_id` and
+`user_message`; Core owns the inline activity timeline, subscription, recovery,
+approval, and artifacts without opening the task center. `task_center` remains
+the default and `embedded` remains caller-owned. Resource uploads and downloads
+remain same-origin and session-protected. Plugins must not persist task content
+or resource URLs, infer module endpoints, guess media types, or fall back to
+another upload path.
 
 ### Compatibility and acceptance
 

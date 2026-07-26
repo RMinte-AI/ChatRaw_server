@@ -207,6 +207,7 @@ const task = await context.modules.startTask(
 
 - `task_center`：默认值；启动任务并打开 ChatRaw 核心任务中心；
 - `embedded`：启动并登记任务，但不自动打开任务中心或自动建立 SSE；Resident 使用 `subscribe()` 在自己的工作区展示进度。
+- `conversation`：要求 `chat_id` 和 `user_message`；由 ChatRaw Core 在对应对话中展示和恢复，不打开任务中心。
 
 读取历史任务：
 
@@ -352,7 +353,14 @@ Eligible users always see the entry. It is disabled when the module, approval, e
 
 ### 4. Embedded tasks
 
-`context.modules.startTask(request)` keeps the existing default, opens the core task center, and subscribes. Resident code may pass `{presentation: "embedded"}` to register the task without opening that center or starting an implicit event stream; it then calls `subscribe()` explicitly for its own presentation. `listTasks(filters)` retrieves the authenticated task list by module, Action, state, chat, and limit. Approvals, cancellation, artifacts, persistence, and security errors remain Core-owned.
+`context.modules.startTask(request)` keeps the existing default, opens the core
+task center, and subscribes. `{presentation: "embedded"}` registers without
+opening or subscribing, so the Resident owns presentation. The additive
+`conversation` mode requires `chat_id` and `user_message`; Core renders and
+recovers it inside that chat without opening the task center.
+`listTasks(filters)` retrieves the authenticated task list by module, Action,
+state, chat, and limit. Approvals, cancellation, artifacts, persistence, and
+security errors remain Core-owned.
 
 There is intentionally no generic module query API. Add a typed Module Action when the integration needs new backend behavior.
 

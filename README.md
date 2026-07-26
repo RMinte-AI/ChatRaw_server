@@ -14,7 +14,7 @@ ChatRaw Server 只做两件核心事情：
 插件与模块不是同一种东西：
 
 - **插件**运行在 ChatRaw 前端，用来增加按钮、拦截发送或展示结果。
-- 插件可以通过 Server 管理的 Workspace Host，在主内容区右侧、上侧、下侧或主区域挂载可交互界面，无需依赖 ChatRaw 私有 DOM。
+- 插件可以通过 Server 管理的 Workspace Host，在主内容区右侧、上侧、下侧或主区域挂载可交互界面，无需依赖 ChatRaw 私有 DOM；只有用户点击或用键盘激活 Host 渲染的所属插件入口，并由该入口同步打开 Workspace 时，Host 才会转移焦点，其他打开方式不会抢占当前输入。
 - **Resident Integration**也是前端代码，但位于独立源码目录，随 Server 审查、构建和部署，用于常驻入口；它不能由模块动态注入。
 - **模块**是独立后端服务，负责长任务、私有依赖、数据库或高权限能力。
 - **ChatRaw Server**负责登录、授权、模块生命周期、任务转发和安全边界。
@@ -34,10 +34,21 @@ Agent 是第一个按通用协议完成工程验收的模块适配，但模块�
 
 ```text
 用户 → Agent 配套插件 → ChatRaw Module Protocol v1
-     → Agent → Agent–LinkDB 私有协议 → LinkDB
+     → Agent → Pydantic AI Tool Calling
+     → LinkDB tools / 内置 tools / 标准 HTTP MCP
 ```
 
-只有 ChatRaw 到 Agent 的北向接口是通用模块协议。Agent–LinkDB 协议继续保持私有，不属于公共模块开发接口。
+Server 还为 Agent 提供按任务冻结的逻辑模型、个人 Skills、Compiled Rules 和文件 Resources。
+Source Document 由用户维护；Compiler Specification 由系统维护；模型只生成候选 Compiled Rule；
+候选通过确定性校验并由用户明确激活后才影响新任务。LinkDB 继续独立演进，其私有协议不属于公共模块开发接口。
+Agent 任务使用通用 `activity.updated` 事件把显式计划、工具调用和脱敏结果显示在同一条对话消息中；
+最终 Markdown 仍由 Server 的聊天投影唯一持久化，不展示模型隐藏思维链。
+
+Agent 的规则、Skill 和 Tool 是三个不同层次：
+
+- Rule 约束模型如何执行，不能授予权限；
+- Skill 是从公开 GitHub 安装并固定到 commit 的用户级提示材料，每次任务最多明确选择 5 个；
+- Tool 是唯一可以读取资源、调用业务 capability 或生成 artifact 的执行接口。
 
 ## 权限模型
 
@@ -45,6 +56,7 @@ Agent 是第一个按通用协议完成工程验收的模块适配，但模块�
 |---|---:|---:|
 | 登录并使用聊天、文档和已启用功能 | ✓ | ✓ |
 | 使用角色允许的已启用插件与模块功能 | ✓ | ✓ |
+| 管理自己的 Agent Skills、规则文档与任务参数 | ✓ | ✓ |
 | 管理用户和审计记录 | ✓ | — |
 | 配置模型、插件和模块 | ✓ | — |
 | 安装、启停或删除插件 | ✓ | — |
@@ -211,7 +223,7 @@ ChatRaw Server has two primary responsibilities:
 2. **Large features as independent modules.** A feature that needs a backend, privileged access, a database, or complex dependencies runs outside the ChatRaw backend. Its frontend entry is either an administrator-managed plugin or a source-built Resident Integration.
 
 - A **plugin** is trusted frontend code that adds an entry point or presentation.
-- A plugin can mount an interactive Server-owned workspace at the right, top, bottom, or main content area without depending on private ChatRaw DOM.
+- A plugin can mount an interactive Server-owned workspace at the right, top, bottom, or main content area without depending on private ChatRaw DOM. The Host moves focus only when a click or keyboard activation on that plugin's Host-rendered entry synchronously opens its workspace; every other open path preserves the current input focus.
 - A **Resident Integration** is trusted frontend source shipped in the Server build for a persistent entry point. It is never injected by a module.
 - A **module** is an independent backend service.
 - **ChatRaw Server** owns authentication, authorization, lifecycle management, task forwarding, and the security boundary.
@@ -223,7 +235,16 @@ User → ChatRaw UI → companion plugin or Resident Integration → generic mod
      → independent module → module-private dependencies
 ```
 
-Agent is the first module adapter to complete engineering acceptance through the generic protocol. Only the ChatRaw-to-Agent northbound interface is standardized. The private Agent–LinkDB protocol is unchanged and is not part of the public Module Protocol.
+Agent is the first module adapter to complete engineering acceptance through
+the generic protocol. Server freezes logical models, personal prompt-only
+Skills, validated Compiled Rules, and file Resources per task. Agent uses native
+Pydantic AI Tool Calling over LinkDB, built-in, and standard HTTP MCP tools.
+Rules constrain behavior, Skills provide user-selected task instructions, and
+Tools are the only execution interface. LinkDB remains independent and its
+private protocol is not part of the public Module Protocol.
+Generic `activity.updated` events show explicit plans, tool calls, and redacted
+results inside one conversation message. The persisted chat projection remains
+the only final Markdown answer; hidden model reasoning is never exposed.
 
 ## Roles
 
@@ -231,6 +252,7 @@ Agent is the first module adapter to complete engineering acceptance through the
 |---|---:|---:|
 | Sign in and use shared product data | ✓ | ✓ |
 | Use enabled plugin and module features allowed by the role | ✓ | ✓ |
+| Manage personal Agent Skills, Rule Documents, and task budgets | ✓ | ✓ |
 | Manage users and audit events | ✓ | — |
 | Configure models, plugins, and modules | ✓ | — |
 | Install, disable, or remove plugins | ✓ | — |

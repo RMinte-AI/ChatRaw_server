@@ -170,8 +170,13 @@ def _start_task(
             "input": {
                 "message": message,
                 "polish": False,
-                "timeout_seconds": 30,
-                "max_iterations": 4,
+                "model_timeout_seconds": 180,
+                "tool_timeout_seconds": 120,
+                "request_deadline_seconds": 300,
+                "max_agent_turns": 12,
+                "max_plan_steps": 8,
+                "max_tool_calls": 32,
+                "max_parallel_tools": 2,
             },
             "chat_id": chat_id,
             "user_message": message,
@@ -218,6 +223,25 @@ def bootstrap(arguments) -> None:
             "password": "t7-admin-password-strong-2026",
         },
     )
+    admin.request(
+        "POST",
+        "/api/models",
+        payload={
+            "id": "default-chat",
+            "name": "T7 deterministic chat model",
+            "api_url": arguments.model_base_url.rstrip("/") + "/v1",
+            "model_id": "t7-model",
+            "context_length": 32768,
+            "max_output": 4096,
+            "type": "chat",
+            "capability": {
+                "vision": False,
+                "reasoning": False,
+                "tools": True,
+            },
+            "api_key_action": "clear",
+        },
+    )
     paired = admin.request(
         "POST",
         "/api/admin/modules/pair",
@@ -235,7 +259,13 @@ def bootstrap(arguments) -> None:
         f"/api/admin/modules/{registration_id}/approve",
         payload={
             "manifest_digest": paired["manifest_digest"],
-            "approved_capabilities": ["chat.read"],
+            "approved_capabilities": [
+                "chat.read",
+                "model.chat.completions",
+                "skill.read",
+                "rule.read",
+                "resource.stream",
+            ],
         },
     )
 
@@ -311,16 +341,19 @@ def bootstrap(arguments) -> None:
         _start_task(
             member_one,
             chat["id"],
-            "帮我查询苏A12345昨天出口流水",
+            (
+                "查询苏A12345在 2026-07-02 00:00:00 至 "
+                "2026-07-03 00:00:00 的出口流水"
+            ),
         )["task_id"],
     )
     if (
         first["state"] != "succeeded"
         or not isinstance(first.get("result"), dict)
-        or not first["result"].get("need_clarification")
+        or "12.5" not in first["result"].get("answer", "")
     ):
         raise AcceptanceError(
-            "Real Agent clarification path was not used: "
+            "Native Tool Calling did not reach real LinkDB: "
             + json.dumps(first, ensure_ascii=False, sort_keys=True)
         )
     second = _wait_task(
@@ -328,18 +361,55 @@ def bootstrap(arguments) -> None:
         _start_task(
             member_two,
             chat["id"],
-            "使用 query_exit_transaction",
+            "刚才两条流水的总金额是多少？",
         )["task_id"],
     )
     if (
         second["state"] != "succeeded"
         or not isinstance(second.get("result"), dict)
-        or "12.5" not in second["result"].get("answer", "")
+        or "30.5" not in second["result"].get("answer", "")
     ):
         raise AcceptanceError(
-            "Shared Agent conversation did not continue: "
+            "Server-backed Agent chat history did not continue: "
             + json.dumps(second, ensure_ascii=False, sort_keys=True)
         )
+    artifact_task = _wait_task(
+        member_one,
+        _start_task(
+            member_one,
+            chat["id"],
+            "T7_CREATE_DOCX_ARTIFACT",
+        )["task_id"],
+    )
+    artifacts = artifact_task.get("artifacts")
+    if (
+        artifact_task["state"] != "succeeded"
+        or not isinstance(artifacts, list)
+        or len(artifacts) != 1
+        or artifacts[0].get("filename") != "t7-report.docx"
+        or artifacts[0].get("media_type")
+        != (
+            "application/vnd.openxmlformats-officedocument."
+            "wordprocessingml.document"
+        )
+    ):
+        raise AcceptanceError(
+            "DOCX artifact did not reach Server: "
+            + json.dumps(
+                artifact_task,
+                ensure_ascii=False,
+                sort_keys=True,
+            )
+        )
+    downloaded_artifact = member_one.request(
+        "GET",
+        (
+            f"/api/module-tasks/{artifact_task['task_id']}/artifacts/"
+            f"{artifacts[0]['artifact_ref']}"
+        ),
+    )
+    if not downloaded_artifact.startswith(b"PK"):
+        raise AcceptanceError("DOCX artifact download is invalid")
     shared_view = member_one.request(
         "GET",
         f"/api/module-tasks/{second['task_id']}",
@@ -388,30 +458,6 @@ def bootstrap(arguments) -> None:
         raise AcceptanceError("Agent task actors were not audited")
 
     recovery_chat = member_one.request("POST", "/api/chats")
-    recovery_clarification = _wait_task(
-        member_one,
-        _start_task(
-            member_one,
-            recovery_chat["id"],
-            "帮我查询苏A99999昨天出口流水",
-        )["task_id"],
-    )
-    if (
-        recovery_clarification["state"] != "succeeded"
-        or not isinstance(recovery_clarification.get("result"), dict)
-        or not recovery_clarification["result"].get(
-            "need_clarification"
-        )
-    ):
-        raise AcceptanceError(
-            "Recovery conversation was not prepared: "
-            + json.dumps(
-                recovery_clarification,
-                ensure_ascii=False,
-                sort_keys=True,
-            )
-        )
-
     state = {
         "registration_id": registration_id,
         "members": members,
@@ -419,6 +465,7 @@ def bootstrap(arguments) -> None:
         "recovery_chat_id": recovery_chat["id"],
         "first_task_id": first["task_id"],
         "second_task_id": second["task_id"],
+        "artifact_task_id": artifact_task["task_id"],
     }
     arguments.state_file.write_text(
         json.dumps(state, ensure_ascii=False),
@@ -438,7 +485,10 @@ def start_recovery(arguments) -> None:
     task = _start_task(
         member,
         state["recovery_chat_id"],
-        "使用 query_exit_transaction",
+        (
+            "查询苏A99999在 2026-07-02 00:00:00 至 "
+            "2026-07-03 00:00:00 的出口流水"
+        ),
     )
     state["recovery_task_id"] = task["task_id"]
     arguments.state_file.write_text(
@@ -575,6 +625,7 @@ def parser() -> argparse.ArgumentParser:
             command.add_argument("--setup-token", required=True)
             command.add_argument("--pairing-code", required=True)
             command.add_argument("--plugin-dir", type=Path, required=True)
+            command.add_argument("--model-base-url", required=True)
     return result
 
 

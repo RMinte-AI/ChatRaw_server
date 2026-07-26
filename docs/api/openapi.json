@@ -19,6 +19,125 @@
         "title": "AdminUserRoleUpdateRequest",
         "type": "object"
       },
+      "AgentRuleActivationRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "compiled_version_id": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Compiled Version Id"
+          }
+        },
+        "title": "AgentRuleActivationRequest",
+        "type": "object"
+      },
+      "AgentRuleCompileRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "source_version_id": {
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Source Version Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "source_version_id"
+        ],
+        "title": "AgentRuleCompileRequest",
+        "type": "object"
+      },
+      "AgentRuleCreateRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Name",
+            "type": "string"
+          },
+          "source_document": {
+            "minLength": 1,
+            "title": "Source Document",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "source_document"
+        ],
+        "title": "AgentRuleCreateRequest",
+        "type": "object"
+      },
+      "AgentRuleSourceUpdateRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "expected_source_version_id": {
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Expected Source Version Id",
+            "type": "string"
+          },
+          "source_document": {
+            "minLength": 1,
+            "title": "Source Document",
+            "type": "string"
+          }
+        },
+        "required": [
+          "expected_source_version_id",
+          "source_document"
+        ],
+        "title": "AgentRuleSourceUpdateRequest",
+        "type": "object"
+      },
+      "AgentSkillInstallRequest": {
+        "description": "Install or update a personal Agent skill from public GitHub.",
+        "properties": {
+          "enabled": {
+            "default": true,
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "overwrite": {
+            "default": false,
+            "title": "Overwrite",
+            "type": "boolean"
+          },
+          "source_url": {
+            "maxLength": 4096,
+            "minLength": 1,
+            "title": "Source Url",
+            "type": "string"
+          }
+        },
+        "required": [
+          "source_url"
+        ],
+        "title": "AgentSkillInstallRequest",
+        "type": "object"
+      },
+      "AgentSkillToggleRequest": {
+        "description": "Enable or disable one personal Agent skill.",
+        "properties": {
+          "enabled": {
+            "title": "Enabled",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "enabled"
+        ],
+        "title": "AgentSkillToggleRequest",
+        "type": "object"
+      },
       "Body_proxy_upload_api_proxy_upload_post": {
         "properties": {
           "extra_fields": {
@@ -27,7 +146,7 @@
             "type": "string"
           },
           "file": {
-            "format": "binary",
+            "contentMediaType": "application/octet-stream",
             "title": "File",
             "type": "string"
           },
@@ -56,7 +175,7 @@
       "Body_upload_document_api_documents_post": {
         "properties": {
           "file": {
-            "format": "binary",
+            "contentMediaType": "application/octet-stream",
             "title": "File",
             "type": "string"
           }
@@ -70,7 +189,7 @@
       "Body_upload_document_for_chat_api_upload_document_post": {
         "properties": {
           "file": {
-            "format": "binary",
+            "contentMediaType": "application/octet-stream",
             "title": "File",
             "type": "string"
           }
@@ -84,7 +203,7 @@
       "Body_upload_image_api_upload_image_post": {
         "properties": {
           "file": {
-            "format": "binary",
+            "contentMediaType": "application/octet-stream",
             "title": "File",
             "type": "string"
           }
@@ -98,7 +217,7 @@
       "Body_upload_plugin_api_plugins_upload_post": {
         "properties": {
           "file": {
-            "format": "binary",
+            "contentMediaType": "application/octet-stream",
             "title": "File",
             "type": "string"
           }
@@ -117,7 +236,7 @@
             "type": "boolean"
           },
           "file": {
-            "format": "binary",
+            "contentMediaType": "application/octet-stream",
             "title": "File",
             "type": "string"
           },
@@ -438,7 +557,7 @@
             "title": "Reason"
           },
           "sdk_version": {
-            "const": "1.2.0",
+            "const": "1.5.0",
             "title": "Sdk Version",
             "type": "string"
           },
@@ -492,6 +611,54 @@
         "title": "ModuleModelCapabilityApiResponse",
         "type": "object"
       },
+      "ModuleModelChatCapabilityApiResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "completion": {
+            "additionalProperties": true,
+            "title": "Completion",
+            "type": "object"
+          },
+          "task_id": {
+            "title": "Task Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "task_id",
+          "completion"
+        ],
+        "title": "ModuleModelChatCapabilityApiResponse",
+        "type": "object"
+      },
+      "ModulePrincipalCapabilityApiResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "actor_ref": {
+            "title": "Actor Ref",
+            "type": "string"
+          },
+          "role": {
+            "enum": [
+              "admin",
+              "member"
+            ],
+            "title": "Role",
+            "type": "string"
+          },
+          "task_id": {
+            "title": "Task Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "task_id",
+          "actor_ref",
+          "role"
+        ],
+        "title": "ModulePrincipalCapabilityApiResponse",
+        "type": "object"
+      },
       "ModuleResourceCapabilityApiResponse": {
         "additionalProperties": false,
         "properties": {
@@ -510,6 +677,46 @@
           "resource"
         ],
         "title": "ModuleResourceCapabilityApiResponse",
+        "type": "object"
+      },
+      "ModuleRuleCapabilityApiResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "rule": {
+            "additionalProperties": true,
+            "title": "Rule",
+            "type": "object"
+          },
+          "task_id": {
+            "title": "Task Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "task_id",
+          "rule"
+        ],
+        "title": "ModuleRuleCapabilityApiResponse",
+        "type": "object"
+      },
+      "ModuleSkillCapabilityApiResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "skill": {
+            "additionalProperties": true,
+            "title": "Skill",
+            "type": "object"
+          },
+          "task_id": {
+            "title": "Task Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "task_id",
+          "skill"
+        ],
+        "title": "ModuleSkillCapabilityApiResponse",
         "type": "object"
       },
       "ModuleTaskApiView": {
@@ -540,6 +747,17 @@
             },
             "title": "Artifacts",
             "type": "array"
+          },
+          "assistant_message_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Assistant Message Id"
           },
           "can_control": {
             "title": "Can Control",
@@ -636,6 +854,17 @@
           "updated_at": {
             "title": "Updated At",
             "type": "string"
+          },
+          "user_message_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "User Message Id"
           }
         },
         "required": [
@@ -654,6 +883,8 @@
           "accepted_at",
           "updated_at",
           "terminal_at",
+          "user_message_id",
+          "assistant_message_id",
           "is_creator",
           "can_control",
           "artifacts",
@@ -1037,6 +1268,13 @@
       },
       "ValidationError": {
         "properties": {
+          "ctx": {
+            "title": "Context",
+            "type": "object"
+          },
+          "input": {
+            "title": "Input"
+          },
           "loc": {
             "items": {
               "anyOf": [
@@ -1767,6 +2005,351 @@
         "summary": "Admin Update User Role"
       }
     },
+    "/api/agent-rules": {
+      "get": {
+        "operationId": "get_agent_rules_api_agent_rules_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Get Agent Rules"
+      },
+      "post": {
+        "operationId": "create_agent_rule_api_agent_rules_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AgentRuleCreateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Create Agent Rule"
+      }
+    },
+    "/api/agent-rules/specification": {
+      "get": {
+        "operationId": "get_agent_rule_specification_api_agent_rules_specification_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Get Agent Rule Specification"
+      }
+    },
+    "/api/agent-rules/{document_id}": {
+      "get": {
+        "operationId": "get_agent_rule_api_agent_rules__document_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "document_id",
+            "required": true,
+            "schema": {
+              "title": "Document Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Agent Rule"
+      }
+    },
+    "/api/agent-rules/{document_id}/activate": {
+      "post": {
+        "operationId": "activate_agent_rule_api_agent_rules__document_id__activate_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "document_id",
+            "required": true,
+            "schema": {
+              "title": "Document Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AgentRuleActivationRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Activate Agent Rule"
+      }
+    },
+    "/api/agent-rules/{document_id}/compile": {
+      "post": {
+        "operationId": "compile_agent_rule_api_agent_rules__document_id__compile_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "document_id",
+            "required": true,
+            "schema": {
+              "title": "Document Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AgentRuleCompileRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Compile Agent Rule"
+      }
+    },
+    "/api/agent-rules/{document_id}/source": {
+      "put": {
+        "operationId": "update_agent_rule_source_api_agent_rules__document_id__source_put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "document_id",
+            "required": true,
+            "schema": {
+              "title": "Document Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AgentRuleSourceUpdateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Update Agent Rule Source"
+      }
+    },
+    "/api/agent-skills": {
+      "get": {
+        "description": "List only the current user's skills for the Agent module.",
+        "operationId": "get_agent_skills_api_agent_skills_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Get Agent Skills"
+      }
+    },
+    "/api/agent-skills/install": {
+      "post": {
+        "description": "Install a prompt-only personal Agent skill from public GitHub.",
+        "operationId": "install_agent_skill_api_agent_skills_install_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AgentSkillInstallRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Install Agent Skill"
+      }
+    },
+    "/api/agent-skills/{skill_id}/toggle": {
+      "post": {
+        "operationId": "toggle_agent_skill_api_agent_skills__skill_id__toggle_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "skill_id",
+            "required": true,
+            "schema": {
+              "title": "Skill Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AgentSkillToggleRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Toggle Agent Skill"
+      }
+    },
     "/api/auth/login": {
       "post": {
         "operationId": "auth_login_api_auth_login_post",
@@ -2438,6 +3021,153 @@
         "summary": "Module Capability Chat"
       }
     },
+    "/api/module-capabilities/v1/model/chat-completions": {
+      "post": {
+        "operationId": "module_capability_model_chat_completion_api_module_capabilities_v1_model_chat_completions_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": true,
+                "properties": {
+                  "messages": {
+                    "items": {
+                      "additionalProperties": true,
+                      "type": "object"
+                    },
+                    "maxItems": 256,
+                    "minItems": 1,
+                    "title": "Messages",
+                    "type": "array"
+                  },
+                  "profile": {
+                    "enum": [
+                      "agent-runtime",
+                      "agent-compiler",
+                      "agent-polisher"
+                    ],
+                    "title": "Profile",
+                    "type": "string"
+                  },
+                  "timeout_seconds": {
+                    "default": 300,
+                    "maximum": 900.0,
+                    "minimum": 180.0,
+                    "title": "Timeout Seconds",
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "profile",
+                  "messages"
+                ],
+                "title": "ModuleModelChatCompletionApiRequest",
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModuleModelChatCapabilityApiResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModuleErrorResponse"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModuleErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModuleErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModuleErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModuleErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModuleErrorResponse"
+                }
+              }
+            },
+            "description": "Content Too Large"
+          },
+          "502": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModuleErrorResponse"
+                }
+              }
+            },
+            "description": "Bad Gateway"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModuleErrorResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "security": [
+          {
+            "ModuleCapabilityBearer": []
+          }
+        ],
+        "summary": "Module Capability Model Chat Completion"
+      }
+    },
     "/api/module-capabilities/v1/model/invoke": {
       "post": {
         "operationId": "module_capability_model_api_module_capabilities_v1_model_invoke_post",
@@ -2562,6 +3292,210 @@
           }
         ],
         "summary": "Module Capability Model"
+      }
+    },
+    "/api/module-capabilities/v1/openai/chat/completions": {
+      "post": {
+        "operationId": "module_capability_openai_chat_completion_api_module_capabilities_v1_openai_chat_completions_post",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModuleErrorResponse"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModuleErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModuleErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModuleErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModuleErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModuleErrorResponse"
+                }
+              }
+            },
+            "description": "Content Too Large"
+          },
+          "502": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModuleErrorResponse"
+                }
+              }
+            },
+            "description": "Bad Gateway"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModuleErrorResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "security": [
+          {
+            "ModuleCapabilityBearer": []
+          }
+        ],
+        "summary": "Module Capability Openai Chat Completion"
+      }
+    },
+    "/api/module-capabilities/v1/principal": {
+      "get": {
+        "operationId": "module_capability_principal_api_module_capabilities_v1_principal_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModulePrincipalCapabilityApiResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModuleErrorResponse"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModuleErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModuleErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModuleErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModuleErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModuleErrorResponse"
+                }
+              }
+            },
+            "description": "Content Too Large"
+          },
+          "502": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModuleErrorResponse"
+                }
+              }
+            },
+            "description": "Bad Gateway"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModuleErrorResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "security": [
+          {
+            "ModuleCapabilityBearer": []
+          }
+        ],
+        "summary": "Module Capability Principal"
       }
     },
     "/api/module-capabilities/v1/resource-stream/{resource_id}": {
@@ -2808,6 +3742,254 @@
           }
         ],
         "summary": "Module Capability Resource"
+      }
+    },
+    "/api/module-capabilities/v1/rules/{document_id}": {
+      "get": {
+        "operationId": "module_capability_rule_api_module_capabilities_v1_rules__document_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "document_id",
+            "required": true,
+            "schema": {
+              "title": "Document Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModuleRuleCapabilityApiResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModuleErrorResponse"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModuleErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModuleErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModuleErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModuleErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModuleErrorResponse"
+                }
+              }
+            },
+            "description": "Content Too Large"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "502": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModuleErrorResponse"
+                }
+              }
+            },
+            "description": "Bad Gateway"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModuleErrorResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "security": [
+          {
+            "ModuleCapabilityBearer": []
+          }
+        ],
+        "summary": "Module Capability Rule"
+      }
+    },
+    "/api/module-capabilities/v1/skills/{skill_id}": {
+      "get": {
+        "operationId": "module_capability_skill_api_module_capabilities_v1_skills__skill_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "skill_id",
+            "required": true,
+            "schema": {
+              "title": "Skill Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModuleSkillCapabilityApiResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModuleErrorResponse"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModuleErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModuleErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModuleErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModuleErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModuleErrorResponse"
+                }
+              }
+            },
+            "description": "Content Too Large"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "502": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModuleErrorResponse"
+                }
+              }
+            },
+            "description": "Bad Gateway"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModuleErrorResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "security": [
+          {
+            "ModuleCapabilityBearer": []
+          }
+        ],
+        "summary": "Module Capability Skill"
       }
     },
     "/api/module-features/{module_id}": {
@@ -3296,6 +4478,14 @@
                     "minLength": 1,
                     "title": "Action Id",
                     "type": "string"
+                  },
+                  "active_skill_ids": {
+                    "items": {
+                      "type": "string"
+                    },
+                    "maxItems": 5,
+                    "title": "Active Skill Ids",
+                    "type": "array"
                   },
                   "chat_id": {
                     "anyOf": [

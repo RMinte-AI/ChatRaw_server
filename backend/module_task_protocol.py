@@ -37,14 +37,19 @@ TASK_EVENTS = {
     "output.snapshot",
     "approval.requested",
     "approval.resolved",
+    "activity.updated",
     "artifact.added",
     "task.terminal",
 }
 HOST_CAPABILITIES = {
     "chat.read",
+    "principal.read",
     "resource.read",
     "resource.stream",
     "model.invoke",
+    "model.chat.completions",
+    "skill.read",
+    "rule.read",
 }
 MAX_TASK_REQUEST_BYTES = 256 * 1024
 MAX_TASK_RESPONSE_BYTES = 512 * 1024
@@ -54,6 +59,7 @@ MAX_IDEMPOTENCY_KEY_LENGTH = 200
 MAX_TASK_LIST_LIMIT = 100
 MAX_INPUT_RESOURCES = 64
 CAPABILITY_TOKEN_TTL_SECONDS = 15 * 60
+MAX_CAPABILITY_TOKEN_TTL_SECONDS = (2 * 60 * 60) + 60
 _IDENTIFIER = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,159}$")
 _TASK_SCHEMA_PATH = (
     Path(__file__).resolve().parent

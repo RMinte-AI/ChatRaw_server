@@ -418,6 +418,16 @@ def permission_projection(manifest: dict[str, Any]) -> dict[str, Any]:
                 "supports_chat_projection": action[
                     "supports_chat_projection"
                 ],
+                **(
+                    {"supports_skills": True}
+                    if action.get("supports_skills", False)
+                    else {}
+                ),
+                **(
+                    {"supports_rules": True}
+                    if action.get("supports_rules", False)
+                    else {}
+                ),
             }
         )
     actions.sort(key=lambda item: item["action_id"])

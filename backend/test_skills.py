@@ -6,6 +6,7 @@ import shutil
 import sys
 import tempfile
 import unittest
+import uuid
 import zipfile
 
 TEST_DATA_DIR = tempfile.mkdtemp(prefix="chatraw-skills-test-")
@@ -78,6 +79,9 @@ class SkillRegistryTests(unittest.TestCase):
         conn = main.db.get_conn()
         cursor = conn.cursor()
         for table in (
+            "module_task_skill_activations",
+            "agent_skill_versions",
+            "agent_skills",
             "chat_skill_activations",
             "chat_compactions",
             "messages",
@@ -86,6 +90,50 @@ class SkillRegistryTests(unittest.TestCase):
             cursor.execute(f"DELETE FROM {table}")
         conn.commit()
         main._context_compaction_locks.clear()
+
+    def personal_user(self):
+        user_id = str(uuid.uuid4())
+        now = "2026-07-26T00:00:00Z"
+        with main.db.connection(write=True) as connection:
+            connection.execute(
+                """
+                INSERT INTO users (
+                    id, username, password_hash, role, enabled,
+                    created_at, updated_at, password_changed_at
+                ) VALUES (?, ?, 'hash', 'member', 1, ?, ?, ?)
+                """,
+                (
+                    user_id,
+                    f"agent-skill-{user_id}",
+                    now,
+                    now,
+                    now,
+                ),
+            )
+        self.addCleanup(self._delete_personal_user, user_id)
+        return user_id
+
+    def _delete_personal_user(self, user_id):
+        with main.db.connection(write=True) as connection:
+            connection.execute(
+                "DELETE FROM module_task_skill_activations "
+                "WHERE skill_id IN ("
+                "SELECT id FROM agent_skills WHERE owner_user_id = ?"
+                ")",
+                (user_id,),
+            )
+            connection.execute(
+                "DELETE FROM agent_skill_versions "
+                "WHERE skill_id IN ("
+                "SELECT id FROM agent_skills WHERE owner_user_id = ?"
+                ")",
+                (user_id,),
+            )
+            connection.execute(
+                "DELETE FROM agent_skills WHERE owner_user_id = ?",
+                (user_id,),
+            )
+            connection.execute("DELETE FROM users WHERE id = ?", (user_id,))
 
     def write_config(self, skills):
         main.save_skill_config({"schema_version": 1, "skills": skills})
@@ -164,6 +212,7 @@ class SkillRegistryTests(unittest.TestCase):
     def patch_github(self, contents, downloads, default_branches=None, licenses=None):
         original_contents = main.fetch_github_contents
         original_default_branch = main.fetch_github_default_branch
+        original_commit = main.fetch_github_commit_sha
         original_license = main.fetch_github_license
         original_bytes = main.fetch_url_bytes
         original_session = main.get_http_session
@@ -174,10 +223,29 @@ class SkillRegistryTests(unittest.TestCase):
             return object()
 
         async def fake_contents(session, owner, repo, path, ref):
-            return contents.get((owner, repo, path, ref))
+            direct = contents.get((owner, repo, path, ref))
+            if direct is not None:
+                return direct
+            if ref == "a" * 40:
+                matches = [
+                    value
+                    for (item_owner, item_repo, item_path, _item_ref), value
+                    in contents.items()
+                    if (
+                        item_owner == owner
+                        and item_repo == repo
+                        and item_path == path
+                    )
+                ]
+                if len(matches) == 1:
+                    return matches[0]
+            return None
 
         async def fake_default_branch(session, owner, repo):
             return default_branches.get((owner, repo), "main")
+
+        async def fake_commit(session, owner, repo, ref):
+            return "a" * 40
 
         async def fake_license(session, owner, repo):
             return licenses.get((owner, repo), "")
@@ -191,6 +259,7 @@ class SkillRegistryTests(unittest.TestCase):
         main.get_http_session = fake_session
         main.fetch_github_contents = fake_contents
         main.fetch_github_default_branch = fake_default_branch
+        main.fetch_github_commit_sha = fake_commit
         main.fetch_github_license = fake_license
         main.fetch_url_bytes = fake_bytes
         self.addCleanup(lambda: setattr(main, "get_http_session", original_session))
@@ -199,6 +268,9 @@ class SkillRegistryTests(unittest.TestCase):
         )
         self.addCleanup(
             lambda: setattr(main, "fetch_github_default_branch", original_default_branch)
+        )
+        self.addCleanup(
+            lambda: setattr(main, "fetch_github_commit_sha", original_commit)
         )
         self.addCleanup(lambda: setattr(main, "fetch_github_license", original_license))
         self.addCleanup(lambda: setattr(main, "fetch_url_bytes", original_bytes))
@@ -267,6 +339,10 @@ class SkillRegistryTests(unittest.TestCase):
         main.get_http_session = fake_get_http_session
         self.addCleanup(lambda: setattr(main, "get_http_session", original_session))
         return fake_session
+
+    @staticmethod
+    def primary_chat_payload(fake_session):
+        return fake_session.posts[0]["json"]
 
     def write_registered_skill(
         self,
@@ -921,6 +997,68 @@ Use this skill for PDF work.
         self.assertEqual(data["skill"]["source"]["owner"], "acme")
         self.assertEqual(data["skill"]["source"]["path"], "pdf/SKILL.md")
 
+    def test_personal_agent_skill_install_is_owner_scoped_and_commit_pinned(self):
+        owner_id = self.personal_user()
+        skill_text = (
+            b"---\n"
+            b"name: owner-clock\n"
+            b"description: Owner clock workflow\n"
+            b"---\n"
+            b"Use the time tool."
+        )
+        self.patch_github(
+            contents={
+                ("acme", "skills", "clock/SKILL.md", "main"): {
+                    "type": "file",
+                    "path": "clock/SKILL.md",
+                    "size": len(skill_text),
+                    "download_url": "https://download.test/owner-clock",
+                },
+            },
+            downloads={
+                "https://download.test/owner-clock": skill_text,
+            },
+        )
+        stage_dir = main.create_skill_stage_dir()
+        try:
+            prepared = asyncio.run(
+                main.prepare_github_skill_from_url(
+                    "https://github.com/acme/skills/blob/main/"
+                    "clock/SKILL.md",
+                    stage_dir,
+                )
+            )
+            skill = main.install_personal_agent_skill(
+                stage_dir=stage_dir,
+                owner_user_id=owner_id,
+                source=prepared["source"],
+                source_metadata=prepared["source_metadata"],
+                overwrite=False,
+                enabled=True,
+            )
+        finally:
+            if stage_dir.exists():
+                shutil.rmtree(stage_dir, ignore_errors=True)
+
+        self.assertEqual(skill["name"], "owner-clock")
+        self.assertEqual(skill["commit"], "a" * 40)
+        self.assertEqual(skill["source"]["ref"], "main")
+        self.assertEqual(skill["source"]["commit"], "a" * 40)
+        self.assertEqual(
+            main.list_personal_agent_skills(owner_id),
+            [skill],
+        )
+        with main.db.connection() as connection:
+            version = connection.execute(
+                """
+                SELECT skill_markdown, package_path
+                FROM agent_skill_versions WHERE id = ?
+                """,
+                (skill["version_id"],),
+            ).fetchone()
+        self.assertIn("Use the time tool.", version["skill_markdown"])
+        self.assertNotIn("main", version["package_path"])
+
     def test_github_raw_install_uses_contents_api_without_network(self):
         skill_text = b"---\nname: github-raw\ndescription: GitHub raw\n---\nBody"
         self.patch_github(
@@ -1370,7 +1508,7 @@ Use this skill for PDF work.
         self.assertEqual(
             set(data.keys()), {"chat_id", "content", "thinking", "references"}
         )
-        payload = fake_session.posts[-1]["json"]
+        payload = self.primary_chat_payload(fake_session)
         system_content = payload["messages"][0]["content"]
         self.assertIn("Base system prompt.", system_content)
         self.assertIn(
@@ -1467,7 +1605,10 @@ Use this skill for PDF work.
         )
 
         self.assertEqual(status, 200)
-        payload_text = json.dumps(fake_session.posts[-1]["json"], ensure_ascii=False)
+        payload_text = json.dumps(
+            self.primary_chat_payload(fake_session),
+            ensure_ascii=False,
+        )
         self.assertNotIn("trusted-skill", payload_text)
         self.assertNotIn("SECRET-TRUSTED-BODY", payload_text)
         self.assertEqual(self.activation_rows(data["chat_id"]), [])
@@ -1502,7 +1643,7 @@ Use this skill for PDF work.
         status, _ = self.chat({"message": "hi", "active_skills": ["tool-skill"]})
 
         self.assertEqual(status, 200)
-        payload = fake_session.posts[-1]["json"]
+        payload = self.primary_chat_payload(fake_session)
         system_content = payload["messages"][0]["content"]
         self.assertNotIn("tools", payload)
         self.assertIn("allowed-tools: Bash(*)", system_content)
@@ -1550,7 +1691,9 @@ Use this skill for PDF work.
         )
 
         self.assertEqual(status, 200)
-        system_content = fake_session.posts[-1]["json"]["messages"][0]["content"]
+        system_content = self.primary_chat_payload(fake_session)["messages"][0][
+            "content"
+        ]
         self.assertIn('<active_skill name="diagnostic-skill">', system_content)
         self.assertIn("Stored install diagnostic", system_content)
         self.assertIn("Missing required field: description", system_content)
@@ -1583,7 +1726,9 @@ Use this skill for PDF work.
         )
 
         self.assertEqual(status, 200)
-        system_content = fake_session.posts[-1]["json"]["messages"][0]["content"]
+        system_content = self.primary_chat_payload(fake_session)["messages"][0][
+            "content"
+        ]
         self.assertEqual(system_content.count('<active_skill name="second-skill">'), 1)
         self.assertLess(
             system_content.index('<active_skill name="second-skill">'),
@@ -1621,7 +1766,9 @@ Use this skill for PDF work.
         )
 
         self.assertEqual(status, 200)
-        system_content = fake_session.posts[-1]["json"]["messages"][0]["content"]
+        system_content = self.primary_chat_payload(fake_session)["messages"][0][
+            "content"
+        ]
         self.assertLess(
             system_content.index("Base system prompt."),
             system_content.index("Active skills are"),
@@ -1664,7 +1811,9 @@ Use this skill for PDF work.
         chunks = asyncio.run(call_and_collect())
 
         self.assertIn('"chat_id"', chunks[0])
-        system_content = fake_session.posts[-1]["json"]["messages"][0]["content"]
+        system_content = self.primary_chat_payload(fake_session)["messages"][0][
+            "content"
+        ]
         self.assertIn('<active_skill name="stream-skill">', system_content)
         self.assertIn("SECRET-SKILL-BODY stream-skill", system_content)
 
@@ -1692,7 +1841,7 @@ Use this skill for PDF work.
         )
 
         self.assertEqual(status, 200)
-        payload = fake_session.posts[-1]["json"]
+        payload = self.primary_chat_payload(fake_session)
         self.assertIn(
             '<active_skill name="rag-skill">', payload["messages"][0]["content"]
         )
@@ -1714,7 +1863,7 @@ Use this skill for PDF work.
         )
 
         self.assertEqual(status, 200)
-        payload = fake_session.posts[-1]["json"]
+        payload = self.primary_chat_payload(fake_session)
         self.assertIn(
             '<active_skill name="vision-skill">', payload["messages"][0]["content"]
         )

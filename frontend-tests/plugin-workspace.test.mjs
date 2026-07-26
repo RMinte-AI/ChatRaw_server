@@ -8,8 +8,14 @@ import { JSDOM } from 'jsdom';
 const appSource = fs.readFileSync('backend/static/app.js', 'utf8');
 const appHtml = fs.readFileSync('backend/static/index.html', 'utf8');
 const appCss = fs.readFileSync('backend/static/styles.css', 'utf8');
+const pluginUiContract = JSON.parse(
+    fs.readFileSync('backend/contracts/plugin-ui-sdk-v1.json', 'utf8')
+);
 
-function createHost({ deferAnimationFrame = false } = {}) {
+function createHost({
+    deferAnimationFrame = false,
+    userActivated = false
+} = {}) {
     const animationFrames = [];
     const dom = new JSDOM(`<!doctype html><body>
         <button id="launcher">Open</button>
@@ -18,6 +24,14 @@ function createHost({ deferAnimationFrame = false } = {}) {
     </body>`, {
         runScripts: 'outside-only',
         url: 'http://chatraw.test/'
+    });
+    const userActivation = {
+        isActive: userActivated,
+        hasBeenActive: userActivated
+    };
+    Object.defineProperty(dom.window.navigator, 'userActivation', {
+        configurable: true,
+        value: userActivation
     });
     dom.window.matchMedia = () => ({ matches: false });
     dom.window.requestAnimationFrame = callback => {
@@ -46,6 +60,10 @@ function createHost({ deferAnimationFrame = false } = {}) {
             while (animationFrames.length > 0) {
                 animationFrames.shift()(0);
             }
+        },
+        setUserActivation(active) {
+            userActivation.isActive = active;
+            userActivation.hasBeenActive ||= active;
         }
     };
 }
@@ -116,10 +134,7 @@ test('workspace API mounts interactive DOM and closes with one disposal', () => 
     assert.equal(state.mounts, 1);
     assert.deepEqual(state.placements, ['right']);
     assert.equal(host.pluginWorkspace.show, true);
-    assert.equal(
-        dom.window.document.activeElement,
-        dom.window.document.getElementById('plugin-workspace-close')
-    );
+    assert.equal(dom.window.document.activeElement, launcher);
 
     assert.equal(
         ui.closeWorkspacePanel('inspection', 'plugin-one'),
@@ -168,35 +183,271 @@ test('workspace open options distinguish omission from invalid explicit values',
     }
 });
 
-test('workspace focus moves only after visibility updates and ignores stale opens', () => {
+test('workspace focus moves only for a synchronous Host entry activation', async () => {
     const {
         dom,
+        host,
         ui,
-        flushAnimationFrames
-    } = createHost({ deferAnimationFrame: true });
+        flushAnimationFrames,
+        setUserActivation
+    } = createHost({
+        deferAnimationFrame: true,
+        userActivated: true
+    });
     const launcher = dom.window.document.getElementById('launcher');
     launcher.focus();
     ui.registerWorkspacePanel(
         panelDefinition('deferred-focus', counters()),
         'plugin-one'
     );
+    assert.equal(
+        ui.registerToolbarButton(
+            {
+                id: 'open-deferred-focus',
+                icon: 'ri-layout-right-line',
+                onClick() {
+                    return ui.openWorkspacePanel(
+                        'deferred-focus',
+                        undefined,
+                        'plugin-one'
+                    );
+                }
+            },
+            'plugin-one'
+        ),
+        true
+    );
+    const entry = host.pluginToolbarButtons.find(
+        button => button.id === 'open-deferred-focus'
+    );
 
-    ui.openWorkspacePanel('deferred-focus', undefined, 'plugin-one');
+    const firstClick = host.handlePluginButtonClick(entry, launcher);
     assert.equal(dom.window.document.activeElement, launcher);
     flushAnimationFrames();
     assert.equal(
         dom.window.document.activeElement,
         dom.window.document.getElementById('plugin-workspace-close')
     );
+    assert.equal(await firstClick, true);
 
+    setUserActivation(false);
     ui.closeWorkspacePanel('deferred-focus', 'plugin-one');
     assert.notEqual(dom.window.document.activeElement, launcher);
     flushAnimationFrames();
     assert.equal(dom.window.document.activeElement, launcher);
 
-    ui.openWorkspacePanel('deferred-focus', undefined, 'plugin-one');
+    setUserActivation(true);
+    const staleClick = host.handlePluginButtonClick(entry, launcher);
     ui.closeWorkspacePanel('deferred-focus', 'plugin-one');
     flushAnimationFrames();
+    assert.equal(await staleClick, true);
+    assert.equal(dom.window.document.activeElement, launcher);
+});
+
+test('direct API open preserves focus even during unrelated user activation', () => {
+    const {
+        dom,
+        host,
+        ui,
+        flushAnimationFrames
+    } = createHost({
+        deferAnimationFrame: true,
+        userActivated: true
+    });
+    const launcher = dom.window.document.getElementById('launcher');
+    launcher.focus();
+    ui.registerWorkspacePanel(
+        panelDefinition('background-open', counters()),
+        'plugin-one'
+    );
+
+    assert.throws(
+        () => ui.openWorkspacePanel(
+            'background-open',
+            { focus: true },
+            'plugin-one'
+        ),
+        /Invalid Plugin Workspace open request/
+    );
+    assert.equal(host.pluginWorkspace.show, false);
+
+    ui.openWorkspacePanel('background-open', undefined, 'plugin-one');
+    flushAnimationFrames();
+
+    assert.equal(host.pluginWorkspace.show, true);
+    assert.equal(dom.window.document.activeElement, launcher);
+
+    ui.closeWorkspacePanel('background-open', 'plugin-one');
+    flushAnimationFrames();
+    assert.equal(dom.window.document.activeElement, launcher);
+});
+
+test('async and cross-owner entry callbacks cannot transfer workspace focus', async () => {
+    const {
+        dom,
+        host,
+        ui,
+        flushAnimationFrames
+    } = createHost({
+        deferAnimationFrame: true,
+        userActivated: true
+    });
+    const launcher = dom.window.document.getElementById('launcher');
+    launcher.focus();
+    ui.registerWorkspacePanel(
+        panelDefinition('async-open', counters()),
+        'plugin-one'
+    );
+    ui.registerWorkspacePanel(
+        panelDefinition('other-owner', counters()),
+        'plugin-two'
+    );
+    ui.registerToolbarButton(
+        {
+            id: 'async-entry',
+            icon: 'ri-layout-right-line',
+            async onClick() {
+                await Promise.resolve();
+                ui.openWorkspacePanel(
+                    'async-open',
+                    undefined,
+                    'plugin-one'
+                );
+            }
+        },
+        'plugin-one'
+    );
+    const asyncEntry = host.pluginToolbarButtons.find(
+        button => button.id === 'async-entry'
+    );
+
+    assert.equal(
+        await host.handlePluginButtonClick(asyncEntry, launcher),
+        true
+    );
+    flushAnimationFrames();
+    assert.equal(host.pluginWorkspace.panelId, 'async-open');
+    assert.equal(dom.window.document.activeElement, launcher);
+    ui.closeWorkspacePanel('async-open', 'plugin-one');
+
+    ui.registerToolbarButton(
+        {
+            id: 'cross-owner-entry',
+            icon: 'ri-layout-right-line',
+            onClick() {
+                ui.openWorkspacePanel(
+                    'other-owner',
+                    undefined,
+                    'plugin-two'
+                );
+            }
+        },
+        'plugin-one'
+    );
+    const crossOwnerEntry = host.pluginToolbarButtons.find(
+        button => button.id === 'cross-owner-entry'
+    );
+    assert.equal(
+        await host.handlePluginButtonClick(crossOwnerEntry, launcher),
+        true
+    );
+    flushAnimationFrames();
+    assert.equal(host.pluginWorkspace.panelId, 'other-owner');
+    assert.equal(dom.window.document.activeElement, launcher);
+});
+
+test('an entry click can activate an already-open background workspace', async () => {
+    const {
+        dom,
+        host,
+        ui,
+        flushAnimationFrames
+    } = createHost({
+        deferAnimationFrame: true,
+        userActivated: true
+    });
+    const launcher = dom.window.document.getElementById('launcher');
+    launcher.focus();
+    ui.registerWorkspacePanel(
+        panelDefinition('already-open', counters()),
+        'plugin-one'
+    );
+    ui.openWorkspacePanel('already-open', undefined, 'plugin-one');
+    flushAnimationFrames();
+    assert.equal(dom.window.document.activeElement, launcher);
+    ui.registerToolbarButton(
+        {
+            id: 'activate-existing',
+            icon: 'ri-layout-right-line',
+            onClick() {
+                ui.openWorkspacePanel(
+                    'already-open',
+                    undefined,
+                    'plugin-one'
+                );
+            }
+        },
+        'plugin-one'
+    );
+    const entry = host.pluginToolbarButtons.find(
+        button => button.id === 'activate-existing'
+    );
+
+    assert.equal(
+        await host.handlePluginButtonClick(entry, launcher),
+        true
+    );
+    flushAnimationFrames();
+    assert.equal(
+        dom.window.document.activeElement,
+        dom.window.document.getElementById('plugin-workspace-close')
+    );
+    ui.closeWorkspacePanel('already-open', 'plugin-one');
+    flushAnimationFrames();
+    assert.equal(dom.window.document.activeElement, launcher);
+});
+
+test('missing browser user-activation support fails closed for focus', async () => {
+    const {
+        dom,
+        host,
+        ui,
+        flushAnimationFrames
+    } = createHost({
+        deferAnimationFrame: true,
+        userActivated: true
+    });
+    const launcher = dom.window.document.getElementById('launcher');
+    launcher.focus();
+    ui.registerWorkspacePanel(
+        panelDefinition('no-user-activation-api', counters()),
+        'plugin-one'
+    );
+    ui.registerToolbarButton(
+        {
+            id: 'no-user-activation-entry',
+            icon: 'ri-layout-right-line',
+            onClick() {
+                ui.openWorkspacePanel(
+                    'no-user-activation-api',
+                    undefined,
+                    'plugin-one'
+                );
+            }
+        },
+        'plugin-one'
+    );
+    const entry = host.pluginToolbarButtons.find(
+        button => button.id === 'no-user-activation-entry'
+    );
+    delete dom.window.navigator.userActivation;
+
+    assert.equal(
+        await host.handlePluginButtonClick(entry, launcher),
+        true
+    );
+    flushAnimationFrames();
+    assert.equal(host.pluginWorkspace.show, true);
     assert.equal(dom.window.document.activeElement, launcher);
 });
 
@@ -332,8 +583,8 @@ test('plugin cleanup unregisters panels after an invalid async disposer', async 
     );
 });
 
-test('workspace replacement failure restores the original trigger focus', () => {
-    const { dom, host, ui } = createHost();
+test('workspace replacement failure restores the original trigger focus', async () => {
+    const { dom, host, ui } = createHost({ userActivated: true });
     const launcher = dom.window.document.getElementById('launcher');
     launcher.focus();
     ui.registerWorkspacePanel(
@@ -353,7 +604,27 @@ test('workspace replacement failure restores the original trigger focus', () => 
         panelDefinition('replacement', counters()),
         'plugin-two'
     );
-    ui.openWorkspacePanel('dispose-failure', undefined, 'plugin-one');
+    ui.registerToolbarButton(
+        {
+            id: 'open-dispose-failure',
+            icon: 'ri-layout-right-line',
+            onClick() {
+                ui.openWorkspacePanel(
+                    'dispose-failure',
+                    undefined,
+                    'plugin-one'
+                );
+            }
+        },
+        'plugin-one'
+    );
+    const entry = host.pluginToolbarButtons.find(
+        button => button.id === 'open-dispose-failure'
+    );
+    assert.equal(
+        await host.handlePluginButtonClick(entry, launcher),
+        true
+    );
     dom.window.document.querySelector(
         '#plugin-workspace-mount input'
     ).focus();
@@ -618,6 +889,35 @@ test('workspace layout is non-modal, responsive, and isolated from Alpine', () =
     assert.match(appCss, /@media \(max-height: 420px\)/);
     assert.match(appCss, /contain:\s*layout paint/);
     assert.match(appCss, /isolation:\s*isolate/);
+    assert.match(appHtml, /x-ref="pluginMoreButton"/);
+    assert.match(
+        appHtml,
+        /<button class="plugin-more-item"[\s\S]*handlePluginMoreButtonClick\(btn, \$refs\.pluginMoreButton\)/
+    );
+});
+
+test('focus contract and Host entry wiring describe the same authorization boundary', () => {
+    assert.match(
+        pluginUiContract.focus.host_focus_authorization,
+        /Host-rendered toolbar or sidebar entry/
+    );
+    assert.match(
+        pluginUiContract.focus.host_focus_authorization,
+        /entry pluginId equals the workspace owner/
+    );
+    assert.match(
+        pluginUiContract.focus.unauthorized_open,
+        /direct API calls.*asynchronous callback continuations.*cross-owner/s
+    );
+    assert.equal(pluginUiContract.focus.plugin_override, false);
+    assert.match(
+        appHtml,
+        /handlePluginButtonClick\(btn, \$event\.currentTarget\)/
+    );
+    assert.match(
+        appSource,
+        /activation\?\.pluginId === owner[\s\S]*navigator\.userActivation\?\.isActive === true/
+    );
 });
 
 test('plugin lifecycle paths use one shared runtime cleanup', () => {

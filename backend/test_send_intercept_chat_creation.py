@@ -37,6 +37,8 @@ class SendInterceptChatCreationTests(unittest.TestCase):
                 {{ filename: 'app.js' }}
             );
             const instance = app();
+            instance.$nextTick = callback => callback();
+            instance.scrollToBottom = () => {{}};
             const requests = [];
             global.fetch = async (url, options = {{}}) => {{
                 requests.push({{ url, options }});
@@ -75,6 +77,15 @@ class SendInterceptChatCreationTests(unittest.TestCase):
                 assert.equal(interceptContext.currentChatId, 'chat-first');
                 assert.equal(interceptContext.message, 'first module message');
                 assert.equal(instance.isGenerating, false);
+                instance.messages = [];
+                instance.applySendInterceptResult({{
+                    success: true,
+                    handled: true,
+                    userMessage: false,
+                    clearInput: false,
+                    clearAttachments: false
+                }}, 'must not be duplicated');
+                assert.deepEqual(instance.messages, []);
             }})().catch(error => {{
                 console.error(error);
                 process.exitCode = 1;

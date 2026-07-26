@@ -97,6 +97,11 @@ def setup_logging():
 # Initialize logger
 logger = setup_logging()
 
+DEFAULT_CHAT_TITLE = "New Chat"
+MAX_CHAT_TITLE_LENGTH = 200
+CHAT_TITLE_MAX_TOKENS = 64
+CHAT_TITLE_CONTEXT_TOKENS = 2048
+
 from fastapi import FastAPI, HTTPException, UploadFile, File, Request, Form
 from fastapi.responses import StreamingResponse, JSONResponse, FileResponse, Response
 from fastapi.staticfiles import StaticFiles
@@ -128,6 +133,15 @@ try:
         SESSION_COOKIE,
         ensure_setup_secret,
     )
+    from .agent_rules import (
+        AgentRuleError,
+        AgentRuleService,
+        COMPILED_RULE_JSON_SCHEMA,
+        COMPILER_SPECIFICATION,
+        MAX_ACTIVE_RULES_PER_TASK,
+        SPECIFICATION_VERSION,
+        TARGET_MODULE_ID as AGENT_RULE_TARGET_MODULE_ID,
+    )
     from .module_protocol import MAX_CONFIG_BYTES
     from .module_registry import (
         ModuleAddressPolicy,
@@ -154,6 +168,15 @@ except ImportError:
         Principal,
         SESSION_COOKIE,
         ensure_setup_secret,
+    )
+    from agent_rules import (
+        AgentRuleError,
+        AgentRuleService,
+        COMPILED_RULE_JSON_SCHEMA,
+        COMPILER_SPECIFICATION,
+        MAX_ACTIVE_RULES_PER_TASK,
+        SPECIFICATION_VERSION,
+        TARGET_MODULE_ID as AGENT_RULE_TARGET_MODULE_ID,
     )
     from module_protocol import MAX_CONFIG_BYTES
     from module_registry import (
@@ -326,6 +349,10 @@ class ModuleTaskCreateApiRequest(BaseModel):
         default_factory=list,
         max_length=64,
     )
+    active_skill_ids: List[str] = Field(
+        default_factory=list,
+        max_length=5,
+    )
 
 
 class ModuleTaskApprovalApiRequest(BaseModel):
@@ -338,6 +365,18 @@ class ModuleModelInvokeApiRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     prompt: str = Field(min_length=1, max_length=65536)
+
+
+class ModuleModelChatCompletionApiRequest(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+    profile: Literal[
+        "agent-runtime",
+        "agent-compiler",
+        "agent-polisher",
+    ]
+    messages: List[Dict[str, Any]] = Field(min_length=1, max_length=256)
+    timeout_seconds: int = Field(default=300, ge=180, le=900)
 
 
 class ModuleArtifactApiView(BaseModel):
@@ -398,6 +437,8 @@ class ModuleTaskApiView(BaseModel):
     accepted_at: Optional[str]
     updated_at: str
     terminal_at: Optional[str]
+    user_message_id: Optional[str]
+    assistant_message_id: Optional[str]
     is_creator: bool
     can_control: bool
     artifacts: List[ModuleArtifactApiView]
@@ -414,7 +455,7 @@ class ModuleTaskListApiResponse(BaseModel):
 class ModuleFeatureApiResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    sdk_version: Literal["1.2.0"]
+    sdk_version: Literal["1.5.0"]
     module_id: str
     name: str
     module_version: Optional[str]
@@ -447,6 +488,14 @@ class ModuleChatCapabilityApiResponse(BaseModel):
     messages: List[Dict[str, Any]]
 
 
+class ModulePrincipalCapabilityApiResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    task_id: str
+    actor_ref: str
+    role: Literal["admin", "member"]
+
+
 class ModuleResourceCapabilityApiResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -459,6 +508,27 @@ class ModuleModelCapabilityApiResponse(BaseModel):
 
     task_id: str
     content: str
+
+
+class ModuleModelChatCapabilityApiResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    task_id: str
+    completion: Dict[str, Any]
+
+
+class ModuleSkillCapabilityApiResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    task_id: str
+    skill: Dict[str, Any]
+
+
+class ModuleRuleCapabilityApiResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    task_id: str
+    rule: Dict[str, Any]
 
 
 def encode_chat_cursor(updated_at: str, chat_id: str) -> str:
@@ -821,7 +891,7 @@ class Database:
     
     def create_chat(
         self,
-        title: str = "New Chat",
+        title: str = DEFAULT_CHAT_TITLE,
         owner_user_id: Optional[str] = None,
     ) -> Chat:
         chat_id = str(uuid.uuid4())
@@ -845,6 +915,23 @@ class Database:
                 (title, datetime.now().isoformat(), chat_id),
             )
 
+    def update_chat_title_if_default(self, chat_id: str, title: str) -> bool:
+        with self.connection(write=True, immediate=True) as connection:
+            cursor = connection.execute(
+                """
+                UPDATE chats
+                SET title = ?, updated_at = ?
+                WHERE id = ? AND title = ?
+                """,
+                (
+                    title,
+                    datetime.now().isoformat(),
+                    chat_id,
+                    DEFAULT_CHAT_TITLE,
+                ),
+            )
+        return cursor.rowcount == 1
+
     def get_chat_owner(self, chat_id: str) -> Optional[str]:
         with self.connection() as connection:
             row = connection.execute(
@@ -859,18 +946,35 @@ class Database:
         with self.connection() as connection:
             row = connection.execute(
                 """
-                SELECT chats.owner_user_id, messages.author_user_id
+                SELECT
+                    chats.title,
+                    chats.owner_user_id,
+                    first_message.author_user_id,
+                    first_message.role AS first_role,
+                    second_message.role AS second_role,
+                    (
+                        SELECT COUNT(*)
+                        FROM messages
+                        WHERE messages.chat_id = chats.id
+                    ) AS message_count
                 FROM chats
-                LEFT JOIN messages
-                  ON messages.chat_id = chats.id
-                 AND messages.sequence = 1
+                LEFT JOIN messages AS first_message
+                  ON first_message.chat_id = chats.id
+                 AND first_message.sequence = 1
+                LEFT JOIN messages AS second_message
+                  ON second_message.chat_id = chats.id
+                 AND second_message.sequence = 2
                 WHERE chats.id = ?
                 """,
                 (chat_id,),
             ).fetchone()
         return bool(
             row
+            and row["title"] == DEFAULT_CHAT_TITLE
             and row["owner_user_id"] == row["author_user_id"]
+            and row["first_role"] == "user"
+            and row["second_role"] == "assistant"
+            and row["message_count"] == 2
         )
     
     def delete_chat(self, chat_id: str):
@@ -1259,11 +1363,149 @@ def extract_openai_message_text(message: Any) -> str:
     return ""
 
 
-# ============ LLM Service ============
+# ============ Chat title and LLM services ============
+
+class ChatTitleService:
+    def __init__(self, db: Database, llm_service: Any):
+        self.db = db
+        self.llm_service = llm_service
+
+    @staticmethod
+    def _fallback_title(user_message: str) -> str:
+        normalized = " ".join(user_message.split())
+        if len(normalized) > 30:
+            return normalized[:30] + "..."
+        return normalized
+
+    @staticmethod
+    def _normalize_model_title(value: str) -> str:
+        lines = [
+            line.strip()
+            for line in value.splitlines()
+            if line.strip()
+        ]
+        if not lines:
+            return ""
+        title = " ".join(lines[0].split())
+        for opening, closing in (
+            ('"', '"'),
+            ("'", "'"),
+            ("`", "`"),
+            ("“", "”"),
+            ("「", "」"),
+            ("《", "》"),
+        ):
+            if (
+                len(title) >= 2
+                and title.startswith(opening)
+                and title.endswith(closing)
+            ):
+                title = title[len(opening):-len(closing)].strip()
+                break
+        if not title or title.casefold() == DEFAULT_CHAT_TITLE.casefold():
+            return ""
+        return title[:MAX_CHAT_TITLE_LENGTH].rstrip()
+
+    def _prompt_messages(
+        self,
+        config: ModelConfig,
+        user_message: str,
+        assistant_message: str,
+    ) -> List[dict]:
+        input_budget = self.llm_service._get_input_budget(config)
+        content_budget = min(
+            CHAT_TITLE_CONTEXT_TOKENS,
+            input_budget - 256,
+        )
+        if content_budget < 128:
+            raise ValueError("Chat model context is too small for title generation")
+        user_budget = content_budget // 2
+        assistant_budget = content_budget - user_budget
+        user_excerpt = self.llm_service._truncate_to_token_budget(
+            user_message,
+            user_budget,
+        )
+        assistant_excerpt = self.llm_service._truncate_to_token_budget(
+            assistant_message,
+            assistant_budget,
+        )
+        return [
+            {
+                "role": "system",
+                "content": (
+                    "Generate a concise title for the conversation. "
+                    "Use the conversation's dominant language. "
+                    "Capture the user's actual topic, not the act of chatting. "
+                    "Return only one plain-text title with no quotes, labels, "
+                    "Markdown, or explanation."
+                ),
+            },
+            {
+                "role": "user",
+                "content": (
+                    "<user_message>\n"
+                    f"{user_excerpt}\n"
+                    "</user_message>\n"
+                    "<assistant_message>\n"
+                    f"{assistant_excerpt}\n"
+                    "</assistant_message>"
+                ),
+            },
+        ]
+
+    async def maybe_title_chat(
+        self,
+        chat_id: str,
+        user_message: str,
+        assistant_message: str,
+    ) -> bool:
+        try:
+            if not self.db.chat_can_auto_title(chat_id):
+                return False
+
+            title = self._fallback_title(user_message)
+            config = self.db.get_model_by_type("chat")
+            if config and config.api_url and config.model_id:
+                try:
+                    generated = await self.llm_service._call_chat_completion_raw(
+                        config,
+                        self._prompt_messages(
+                            config,
+                            user_message,
+                            assistant_message,
+                        ),
+                        max_tokens=min(
+                            CHAT_TITLE_MAX_TOKENS,
+                            max(1, config.max_output),
+                        ),
+                        temperature=0.2,
+                    )
+                    model_title = self._normalize_model_title(generated)
+                    if model_title:
+                        title = model_title
+                except Exception as error:
+                    logger.warning(
+                        "Chat title model call failed for chat %s (%s)",
+                        chat_id,
+                        error.__class__.__name__,
+                    )
+
+            if not title:
+                return False
+            return self.db.update_chat_title_if_default(chat_id, title)
+        except Exception as error:
+            logger.warning(
+                "Chat title update failed for chat %s (%s)",
+                chat_id,
+                error.__class__.__name__,
+            )
+            return False
+
 
 class LLMService:
     def __init__(self, db: Database):
         self.db = db
+        self.chat_title_service = ChatTitleService(db, self)
 
     def _get_input_budget(self, config: ModelConfig) -> int:
         context_length = int(config.context_length or 0)
@@ -1736,7 +1978,14 @@ class LLMService:
                                 continue
             
             if full_response:
-                save_assistant_message(self.db, chat_id, message, full_response, full_thinking)
+                await save_assistant_message(
+                    self.db,
+                    chat_id,
+                    message,
+                    full_response,
+                    full_thinking,
+                    title_service=self.chat_title_service,
+                )
             
             # Send references if RAG was used
             if rag_references:
@@ -1799,7 +2048,14 @@ class LLMService:
             if use_thinking:
                 thinking = msg_data.get("reasoning_content", "") or msg_data.get("reasoning", "") or msg_data.get("thinking", "")
             
-            save_assistant_message(self.db, chat_id, message, content, thinking)
+            await save_assistant_message(
+                self.db,
+                chat_id,
+                message,
+                content,
+                thinking,
+                title_service=self.chat_title_service,
+            )
             
             return {"content": content, "thinking": thinking, "references": rag_references}
     
@@ -2119,6 +2375,8 @@ MAX_SKILL_PACKAGE_FILES = int(os.environ.get("MAX_SKILL_PACKAGE_FILES", "200"))
 SKILL_MANAGER_PLUGIN_ID = "skill-manager"
 MAX_ACTIVE_SKILLS_PER_REQUEST = int(os.environ.get("MAX_ACTIVE_SKILLS_PER_REQUEST", "5"))
 MAX_SKILL_PROMPT_RESOURCE_PATHS = int(os.environ.get("MAX_SKILL_PROMPT_RESOURCE_PATHS", "20"))
+AGENT_SKILL_TARGET_MODULE_ID = "chatraw.agent"
+AGENT_SKILLS_DIR = os.path.join(SKILLS_DIR, "agent-personal")
 
 # Ensure skill directories exist without scanning installed skills.
 os.makedirs(SKILLS_INSTALLED_DIR, exist_ok=True)
@@ -3271,16 +3529,27 @@ def build_effective_system_prompt(system_prompt: str, active_skill_context: str)
     )
 
 
-def save_assistant_message(db_instance: Database, chat_id: str, original_user_message: str, content: str, thinking: str = "") -> Message:
+async def save_assistant_message(
+    db_instance: Database,
+    chat_id: str,
+    original_user_message: str,
+    content: str,
+    thinking: str = "",
+    *,
+    title_service: ChatTitleService,
+) -> Message:
     save_content = content or ""
     if thinking:
         save_content = f"<thinking>\n{thinking}\n</thinking>\n\n{save_content}"
     message = db_instance.add_message(chat_id, "assistant", save_content)
 
     messages_count = len(db_instance.get_messages(chat_id))
-    if messages_count <= 2 and db_instance.chat_can_auto_title(chat_id):
-        title = original_user_message[:30] + "..." if len(original_user_message) > 30 else original_user_message
-        db_instance.update_chat_title(chat_id, title)
+    if messages_count == 2:
+        await title_service.maybe_title_chat(
+            chat_id,
+            original_user_message,
+            content,
+        )
 
     return message
 
@@ -3335,7 +3604,7 @@ async def prepare_chat_submission(
 
     if not chat_id or not db.chat_exists(chat_id):
         chat_obj = db.create_chat(
-            "New Chat",
+            DEFAULT_CHAT_TITLE,
             owner_user_id=principal.id if principal else None,
         )
         chat_id = chat_obj.id
@@ -3773,6 +4042,13 @@ def _github_license_api_url(owner: str, repo: str) -> str:
     return f"{_github_repo_api_url(owner, repo)}/license"
 
 
+def _github_commit_api_url(owner: str, repo: str, ref: str) -> str:
+    return (
+        f"{_github_repo_api_url(owner, repo)}/commits/"
+        f"{quote(ref, safe='')}"
+    )
+
+
 def github_api_headers() -> dict:
     headers = {
         "Accept": "application/vnd.github+json",
@@ -3802,6 +4078,35 @@ async def fetch_github_default_branch(
     if not isinstance(default_branch, str) or not default_branch.strip():
         raise SkillInstallError("GitHub repository is missing a default branch")
     return default_branch.strip()
+
+
+async def fetch_github_commit_sha(
+    session: aiohttp.ClientSession,
+    owner: str,
+    repo: str,
+    ref: str,
+) -> str:
+    url = _github_commit_api_url(owner, repo, ref)
+    headers = github_api_headers()
+    async with session.get(
+        url,
+        headers=headers,
+        timeout=aiohttp.ClientTimeout(total=20),
+    ) as resp:
+        if resp.status == 404:
+            raise SkillInstallError("GitHub ref was not found", 404)
+        if resp.status != 200:
+            raise SkillInstallError(
+                f"GitHub API error: HTTP {resp.status}"
+            )
+        data = await resp.json()
+    commit_sha = data.get("sha") if isinstance(data, dict) else None
+    if (
+        not isinstance(commit_sha, str)
+        or not re.fullmatch(r"[0-9a-fA-F]{40}", commit_sha)
+    ):
+        raise SkillInstallError("GitHub returned an invalid commit")
+    return commit_sha.lower()
 
 
 def parse_github_license_payload(data: Any) -> str:
@@ -4119,10 +4424,45 @@ async def prepare_github_skill_from_url(source_url: str, stage_dir: Path) -> dic
     source_metadata = {"license": await fetch_github_license(session, owner, repo)}
 
     if kind in ("raw", "blob"):
-        ref, path, data = await resolve_github_ref_path(session, owner, repo, segments, "file")
+        ref, path, _ = await resolve_github_ref_path(
+            session,
+            owner,
+            repo,
+            segments,
+            "file",
+        )
         if PurePosixPath(path).name != "SKILL.md":
             raise SkillInstallError("GitHub file URL must point to SKILL.md")
-        source = await stage_github_file_skill(session, owner, repo, ref, path, data, stage_dir)
+        commit_sha = await fetch_github_commit_sha(
+            session,
+            owner,
+            repo,
+            ref,
+        )
+        data = await fetch_github_contents(
+            session,
+            owner,
+            repo,
+            path,
+            commit_sha,
+        )
+        if not isinstance(data, dict) or data.get("type") != "file":
+            raise SkillInstallError(
+                "GitHub skill changed while it was being resolved",
+                409,
+            )
+        source = await stage_github_file_skill(
+            session,
+            owner,
+            repo,
+            commit_sha,
+            path,
+            data,
+            stage_dir,
+        )
+        source["ref"] = ref
+        source["requested_ref"] = ref
+        source["commit"] = commit_sha
         source["url"] = source_url
         return {"source": source, "source_metadata": source_metadata}
 
@@ -4134,7 +4474,23 @@ async def prepare_github_skill_from_url(source_url: str, stage_dir: Path) -> dic
         path = await resolve_repo_skill_tree_path(session, owner, repo, ref)
     else:
         ref, path, _ = await resolve_github_ref_path(session, owner, repo, segments, "dir")
-    source = await stage_github_tree_skill(session, owner, repo, ref, path, stage_dir)
+    commit_sha = await fetch_github_commit_sha(
+        session,
+        owner,
+        repo,
+        ref,
+    )
+    source = await stage_github_tree_skill(
+        session,
+        owner,
+        repo,
+        commit_sha,
+        path,
+        stage_dir,
+    )
+    source["ref"] = ref
+    source["requested_ref"] = ref
+    source["commit"] = commit_sha
     source["url"] = source_url
     return {"source": source, "source_metadata": source_metadata}
 
@@ -4314,7 +4670,7 @@ async def get_chats_page(
 @app.post("/api/chats")
 async def create_chat(request: Request):
     principal = current_principal(request)
-    chat = db.create_chat("New Chat", owner_user_id=principal.id)
+    chat = db.create_chat(DEFAULT_CHAT_TITLE, owner_user_id=principal.id)
     return chat.model_dump()
 
 
@@ -4720,9 +5076,46 @@ class SkillInstallRequest(BaseModel):
     overwrite: bool = False
     enabled: bool = True
 
+class AgentSkillInstallRequest(BaseModel):
+    """Install or update a personal Agent skill from public GitHub."""
+    source_url: str = Field(min_length=1, max_length=4096)
+    overwrite: bool = False
+    enabled: bool = True
+
 class SkillToggleRequest(BaseModel):
     """Request model for skill enable/disable."""
     enabled: bool
+
+class AgentSkillToggleRequest(BaseModel):
+    """Enable or disable one personal Agent skill."""
+    enabled: bool
+
+
+class AgentRuleCreateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    name: str = Field(min_length=1, max_length=200)
+    source_document: str = Field(min_length=1)
+
+
+class AgentRuleSourceUpdateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    expected_source_version_id: str = Field(min_length=1, max_length=64)
+    source_document: str = Field(min_length=1)
+
+
+class AgentRuleCompileRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    source_version_id: str = Field(min_length=1, max_length=64)
+
+
+class AgentRuleActivationRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    compiled_version_id: str | None = Field(default=None, max_length=64)
+
 
 class SkillTrustRequest(BaseModel):
     """Request model for marking a skill trusted/untrusted."""
@@ -4876,6 +5269,456 @@ async def parse_url(request: ParseUrlRequest):
         return JSONResponse({"success": False, "error": f"Failed to parse URL: {str(e)}"}, status_code=500)
 
 # ============ Skill Management ============
+
+def _agent_skill_package_snapshot(stage_dir: Path) -> dict:
+    stage_root = stage_dir.resolve()
+    digest = hashlib.sha256()
+    resources = []
+    for file_path in sorted(
+        (path for path in stage_root.rglob("*") if path.is_file()),
+        key=lambda path: path.relative_to(stage_root).as_posix(),
+    ):
+        if file_path.is_symlink():
+            raise SkillInstallError(
+                "Skill package contains unsupported file type"
+            )
+        relative = file_path.relative_to(stage_root).as_posix()
+        content = file_path.read_bytes()
+        digest.update(relative.encode("utf-8"))
+        digest.update(b"\0")
+        digest.update(content)
+        digest.update(b"\0")
+        if relative != "SKILL.md":
+            resources.append(
+                {
+                    "path": relative,
+                    "size": len(content),
+                    "sha256": hashlib.sha256(content).hexdigest(),
+                }
+            )
+    skill_markdown = (stage_root / "SKILL.md").read_text(
+        encoding="utf-8"
+    )
+    return {
+        "content_sha256": digest.hexdigest(),
+        "skill_markdown": skill_markdown,
+        "resources": resources,
+    }
+
+
+def _agent_skill_view(row: Any) -> dict:
+    source = json.loads(row["source_json"])
+    return {
+        "id": row["id"],
+        "name": row["name"],
+        "description": row["description"],
+        "license": row["license"],
+        "enabled": bool(row["enabled"]),
+        "target_module_id": row["target_module_id"],
+        "version_id": row["active_version_id"],
+        "commit": row["commit_sha"],
+        "content_sha256": row["content_sha256"],
+        "source": source,
+        "installed_at": row["created_at"],
+        "updated_at": row["updated_at"],
+    }
+
+
+def list_personal_agent_skills(owner_user_id: str) -> list[dict]:
+    with db.connection() as connection:
+        rows = connection.execute(
+            """
+            SELECT skills.*, versions.commit_sha,
+                   versions.content_sha256, versions.source_json
+            FROM agent_skills AS skills
+            JOIN agent_skill_versions AS versions
+              ON versions.id = skills.active_version_id
+            WHERE skills.owner_user_id = ?
+              AND skills.target_module_id = ?
+            ORDER BY skills.updated_at DESC, skills.name
+            """,
+            (owner_user_id, AGENT_SKILL_TARGET_MODULE_ID),
+        ).fetchall()
+    return [_agent_skill_view(row) for row in rows]
+
+
+def get_personal_agent_skill(
+    owner_user_id: str,
+    skill_id: str,
+) -> dict:
+    with db.connection() as connection:
+        row = connection.execute(
+            """
+            SELECT skills.*, versions.commit_sha,
+                   versions.content_sha256, versions.source_json
+            FROM agent_skills AS skills
+            JOIN agent_skill_versions AS versions
+              ON versions.id = skills.active_version_id
+            WHERE skills.id = ? AND skills.owner_user_id = ?
+              AND skills.target_module_id = ?
+            """,
+            (
+                skill_id,
+                owner_user_id,
+                AGENT_SKILL_TARGET_MODULE_ID,
+            ),
+        ).fetchone()
+    if row is None:
+        raise SkillInstallError("Agent skill not found", 404)
+    return _agent_skill_view(row)
+
+
+def install_personal_agent_skill(
+    *,
+    stage_dir: Path,
+    owner_user_id: str,
+    source: dict,
+    source_metadata: Optional[dict],
+    overwrite: bool,
+    enabled: bool,
+) -> dict:
+    skill_name, frontmatter, _diagnostics = validate_staged_skill(
+        stage_dir
+    )
+    snapshot = _agent_skill_package_snapshot(stage_dir)
+    source_metadata = (
+        source_metadata if isinstance(source_metadata, dict) else {}
+    )
+    description = str(frontmatter.get("description", "")).strip()
+    license_name = (
+        str(frontmatter.get("license", "")).strip()
+        or str(source_metadata.get("license", "")).strip()
+    )
+    commit_sha = str(source.get("commit", "")).strip().lower()
+    if not re.fullmatch(r"[0-9a-f]{40}", commit_sha):
+        raise SkillInstallError(
+            "Agent skills must be pinned to a GitHub commit"
+        )
+
+    with db.connection() as connection:
+        existing = connection.execute(
+            """
+            SELECT * FROM agent_skills
+            WHERE owner_user_id = ? AND target_module_id = ? AND name = ?
+            """,
+            (
+                owner_user_id,
+                AGENT_SKILL_TARGET_MODULE_ID,
+                skill_name,
+            ),
+        ).fetchone()
+        existing_version = None
+        if existing is not None:
+            existing_version = connection.execute(
+                """
+                SELECT * FROM agent_skill_versions
+                WHERE skill_id = ? AND content_sha256 = ?
+                """,
+                (existing["id"], snapshot["content_sha256"]),
+            ).fetchone()
+
+    if existing is not None and not overwrite:
+        raise SkillInstallError("Agent skill already installed", 409)
+
+    skill_id = existing["id"] if existing is not None else str(uuid.uuid4())
+    now = _skill_timestamp()
+    installed_at = existing["created_at"] if existing is not None else now
+    moved_dir = None
+    if existing_version is None:
+        version_id = str(uuid.uuid4())
+        target_dir = (
+            Path(AGENT_SKILLS_DIR).resolve()
+            / owner_user_id
+            / skill_id
+            / version_id
+        )
+        target_dir.parent.mkdir(parents=True, exist_ok=True)
+        if target_dir.exists():
+            raise SkillInstallError("Agent skill version already exists", 409)
+        shutil.move(str(stage_dir), str(target_dir))
+        moved_dir = target_dir
+        package_path = target_dir.relative_to(
+            Path(SKILLS_DIR).resolve()
+        ).as_posix()
+    else:
+        version_id = existing_version["id"]
+        package_path = existing_version["package_path"]
+
+    try:
+        with db.connection(write=True, immediate=True) as connection:
+            if existing is None:
+                connection.execute(
+                    """
+                    INSERT INTO agent_skills (
+                        id, owner_user_id, target_module_id, name,
+                        description, license, enabled, active_version_id,
+                        created_at, updated_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, NULL, ?, ?)
+                    """,
+                    (
+                        skill_id,
+                        owner_user_id,
+                        AGENT_SKILL_TARGET_MODULE_ID,
+                        skill_name,
+                        description,
+                        license_name,
+                        int(enabled),
+                        installed_at,
+                        now,
+                    ),
+                )
+            if existing_version is None:
+                connection.execute(
+                    """
+                    INSERT INTO agent_skill_versions (
+                        id, skill_id, commit_sha, content_sha256,
+                        source_json, skill_markdown, resources_json,
+                        package_path, created_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        version_id,
+                        skill_id,
+                        commit_sha,
+                        snapshot["content_sha256"],
+                        json.dumps(
+                            source,
+                            ensure_ascii=False,
+                            sort_keys=True,
+                            separators=(",", ":"),
+                        ),
+                        snapshot["skill_markdown"],
+                        json.dumps(
+                            snapshot["resources"],
+                            ensure_ascii=False,
+                            sort_keys=True,
+                            separators=(",", ":"),
+                        ),
+                        package_path,
+                        now,
+                    ),
+                )
+            connection.execute(
+                """
+                UPDATE agent_skills
+                SET description = ?, license = ?, enabled = ?,
+                    active_version_id = ?, updated_at = ?
+                WHERE id = ? AND owner_user_id = ?
+                """,
+                (
+                    description,
+                    license_name,
+                    int(enabled),
+                    version_id,
+                    now,
+                    skill_id,
+                    owner_user_id,
+                ),
+            )
+    except Exception:
+        if moved_dir is not None and moved_dir.exists():
+            shutil.rmtree(moved_dir)
+        raise
+    return get_personal_agent_skill(owner_user_id, skill_id)
+
+
+@app.get("/api/agent-skills")
+async def get_agent_skills(request: Request):
+    """List only the current user's skills for the Agent module."""
+    principal = current_principal(request)
+    return {
+        "target_module_id": AGENT_SKILL_TARGET_MODULE_ID,
+        "max_active_per_task": MAX_ACTIVE_SKILLS_PER_REQUEST,
+        "skills": list_personal_agent_skills(principal.id),
+    }
+
+
+@app.post("/api/agent-skills/install")
+async def install_agent_skill(
+    payload: AgentSkillInstallRequest,
+    request: Request,
+):
+    """Install a prompt-only personal Agent skill from public GitHub."""
+    principal = current_principal(request)
+    stage_dir = create_skill_stage_dir()
+    try:
+        prepared = await prepare_github_skill_from_url(
+            payload.source_url,
+            stage_dir,
+        )
+        skill = install_personal_agent_skill(
+            stage_dir=stage_dir,
+            owner_user_id=principal.id,
+            source=prepared["source"],
+            source_metadata=prepared.get("source_metadata"),
+            overwrite=payload.overwrite,
+            enabled=payload.enabled,
+        )
+        return {"success": True, "skill": skill}
+    except SkillInstallError as error:
+        return _skill_error(error.message, error.status_code)
+    except (aiohttp.ClientError, asyncio.TimeoutError) as error:
+        logger.warning("Agent skill GitHub install failed: %s", error)
+        return _skill_error("Unable to download Agent skill", 400)
+    except Exception:
+        logger.exception("Failed to install personal Agent skill")
+        return _skill_error("Failed to install Agent skill", 500)
+    finally:
+        if stage_dir.exists():
+            shutil.rmtree(stage_dir, ignore_errors=True)
+
+
+@app.post("/api/agent-skills/{skill_id}/toggle")
+async def toggle_agent_skill(
+    skill_id: str,
+    payload: AgentSkillToggleRequest,
+    request: Request,
+):
+    principal = current_principal(request)
+    with db.connection(write=True) as connection:
+        cursor = connection.execute(
+            """
+            UPDATE agent_skills
+            SET enabled = ?, updated_at = ?
+            WHERE id = ? AND owner_user_id = ?
+              AND target_module_id = ?
+            """,
+            (
+                int(payload.enabled),
+                _skill_timestamp(),
+                skill_id,
+                principal.id,
+                AGENT_SKILL_TARGET_MODULE_ID,
+            ),
+        )
+        if cursor.rowcount != 1:
+            return _skill_error("Agent skill not found", 404)
+    return {
+        "success": True,
+        "skill": get_personal_agent_skill(principal.id, skill_id),
+    }
+
+
+def _agent_rule_error(error: AgentRuleError) -> JSONResponse:
+    return JSONResponse(
+        {
+            "detail": error.message,
+            "code": error.code,
+        },
+        status_code=error.status_code,
+    )
+
+
+@app.get("/api/agent-rules/specification")
+async def get_agent_rule_specification(request: Request):
+    current_principal(request)
+    return {
+        "target_module_id": AGENT_RULE_TARGET_MODULE_ID,
+        "specification_version": SPECIFICATION_VERSION,
+        "specification": COMPILER_SPECIFICATION,
+        "compiled_rule_schema": COMPILED_RULE_JSON_SCHEMA,
+    }
+
+
+@app.get("/api/agent-rules")
+async def get_agent_rules(request: Request):
+    principal = current_principal(request)
+    return {
+        "target_module_id": AGENT_RULE_TARGET_MODULE_ID,
+        "max_active_per_task": MAX_ACTIVE_RULES_PER_TASK,
+        "rules": agent_rule_service.list_documents(principal.id),
+    }
+
+
+@app.post("/api/agent-rules")
+async def create_agent_rule(
+    payload: AgentRuleCreateRequest,
+    request: Request,
+):
+    principal = current_principal(request)
+    try:
+        rule = agent_rule_service.create_document(
+            principal.id,
+            name=payload.name,
+            source_document=payload.source_document,
+        )
+        return {"success": True, "rule": rule}
+    except AgentRuleError as error:
+        return _agent_rule_error(error)
+
+
+@app.get("/api/agent-rules/{document_id}")
+async def get_agent_rule(document_id: str, request: Request):
+    principal = current_principal(request)
+    try:
+        return {
+            "rule": agent_rule_service.get_document(
+                principal.id,
+                document_id,
+            )
+        }
+    except AgentRuleError as error:
+        return _agent_rule_error(error)
+
+
+@app.put("/api/agent-rules/{document_id}/source")
+async def update_agent_rule_source(
+    document_id: str,
+    payload: AgentRuleSourceUpdateRequest,
+    request: Request,
+):
+    principal = current_principal(request)
+    try:
+        rule = agent_rule_service.update_source(
+            principal.id,
+            document_id,
+            expected_source_version_id=(
+                payload.expected_source_version_id
+            ),
+            source_document=payload.source_document,
+        )
+        return {"success": True, "rule": rule}
+    except AgentRuleError as error:
+        return _agent_rule_error(error)
+
+
+@app.post("/api/agent-rules/{document_id}/compile")
+async def compile_agent_rule(
+    document_id: str,
+    payload: AgentRuleCompileRequest,
+    request: Request,
+):
+    principal = current_principal(request)
+    try:
+        rule = await agent_rule_service.compile_document(
+            principal.id,
+            document_id,
+            source_version_id=payload.source_version_id,
+        )
+        return {"success": True, "rule": rule}
+    except AgentRuleError as error:
+        return _agent_rule_error(error)
+    except ModuleTaskError as error:
+        return _module_task_error_response(error)
+
+
+@app.post("/api/agent-rules/{document_id}/activate")
+async def activate_agent_rule(
+    document_id: str,
+    payload: AgentRuleActivationRequest,
+    request: Request,
+):
+    principal = current_principal(request)
+    try:
+        rule = agent_rule_service.activate(
+            principal.id,
+            document_id,
+            compiled_version_id=payload.compiled_version_id,
+        )
+        return {"success": True, "rule": rule}
+    except AgentRuleError as error:
+        return _agent_rule_error(error)
+
 
 @app.get("/api/skills")
 async def get_skills(
@@ -6413,7 +7256,14 @@ async def _consume_hermes_run(submission: dict, config: dict, request: Request, 
             raise HermesBridgeError(message, status_code=502)
 
         if completed and (full_response or full_thinking):
-            save_assistant_message(db, submission["chat_id"], submission["message"], full_response, full_thinking)
+            await save_assistant_message(
+                db,
+                submission["chat_id"],
+                submission["message"],
+                full_response,
+                full_thinking,
+                title_service=llm_service.chat_title_service,
+            )
         if stream and references:
             yield json.dumps({"references": references})
         if stream:
@@ -6500,7 +7350,14 @@ async def _call_hermes_non_stream(submission: dict, config: dict) -> dict:
 
     content = _extract_openai_content(message)
     thinking = _extract_openai_thinking(message) if submission["use_thinking"] else ""
-    save_assistant_message(db, submission["chat_id"], submission["message"], content, thinking)
+    await save_assistant_message(
+        db,
+        submission["chat_id"],
+        submission["message"],
+        content,
+        thinking,
+        title_service=llm_service.chat_title_service,
+    )
     return {"content": content, "thinking": thinking, "references": references}
 
 
@@ -6637,7 +7494,14 @@ async def _stream_hermes_chat_chunks(submission: dict, config: dict) -> AsyncGen
                     yield json.dumps({"content": content})
 
         if full_response or full_thinking:
-            save_assistant_message(db, submission["chat_id"], submission["message"], full_response, full_thinking)
+            await save_assistant_message(
+                db,
+                submission["chat_id"],
+                submission["message"],
+                full_response,
+                full_thinking,
+                title_service=llm_service.chat_title_service,
+            )
         if references:
             yield json.dumps({"references": references})
         yield json.dumps({"done": True})
@@ -8040,6 +8904,175 @@ async def _module_host_model_invoke(prompt: str) -> str:
     )
 
 
+async def _module_host_model_chat_completion(
+    request: dict[str, Any],
+) -> dict[str, Any]:
+    profile = request["profile"]
+    config = (
+        db.get_model_by_type(profile)
+        or db.get_model_by_type("chat")
+    )
+    if config is None or not config.api_url or not config.model_id:
+        raise ModuleTaskError(
+            "model_unavailable",
+            "Requested model profile is not configured",
+            status_code=503,
+        )
+    if request.get("tools") and not config.capability.tools:
+        raise ModuleTaskError(
+            "model_tool_calling_unavailable",
+            "Requested model profile does not support native tool calling",
+            status_code=409,
+        )
+
+    settings = db.get_settings()
+    upstream = {
+        "model": config.model_id,
+        "messages": request["messages"],
+        "temperature": request.get("temperature", 0.2),
+        "top_p": request.get(
+            "top_p",
+            settings.chat_settings.top_p,
+        ),
+        "max_tokens": min(
+            request.get("max_tokens", config.max_output),
+            config.max_output,
+        ),
+        "stream": False,
+    }
+    for field in (
+        "tools",
+        "tool_choice",
+        "response_format",
+        "parallel_tool_calls",
+    ):
+        if field in request:
+            upstream[field] = request[field]
+
+    headers = {"Content-Type": "application/json"}
+    if config.api_key:
+        headers["Authorization"] = f"Bearer {config.api_key}"
+    timeout_seconds = request.get("timeout_seconds", 300)
+    timeout = aiohttp.ClientTimeout(
+        total=timeout_seconds,
+        connect=min(30, timeout_seconds),
+    )
+    try:
+        session = await get_http_session()
+        async with session.post(
+            config.api_url.rstrip("/") + "/chat/completions",
+            json=upstream,
+            headers=headers,
+            timeout=timeout,
+        ) as response:
+            if response.status != 200:
+                logger.warning(
+                    "Module model profile %s returned HTTP %s",
+                    profile,
+                    response.status,
+                )
+                raise ModuleTaskError(
+                    "model_request_failed",
+                    "Model request failed",
+                    status_code=502,
+                )
+            try:
+                data = await response.json()
+            except (aiohttp.ContentTypeError, json.JSONDecodeError):
+                raise ModuleTaskError(
+                    "invalid_model_response",
+                    "Model returned an invalid response",
+                    status_code=502,
+                ) from None
+    except asyncio.TimeoutError:
+        raise ModuleTaskError(
+            "model_timeout",
+            "Model request timed out",
+            status_code=504,
+        ) from None
+
+    choices = data.get("choices") if isinstance(data, dict) else None
+    if not isinstance(choices, list) or not choices:
+        raise ModuleTaskError(
+            "invalid_model_response",
+            "Model returned an invalid response",
+            status_code=502,
+        )
+    choice = choices[0]
+    message = choice.get("message") if isinstance(choice, dict) else None
+    if not isinstance(message, dict):
+        raise ModuleTaskError(
+            "invalid_model_response",
+            "Model returned an invalid response",
+            status_code=502,
+        )
+    content = message.get("content")
+    if content is not None and not isinstance(content, str):
+        raise ModuleTaskError(
+            "invalid_model_response",
+            "Model returned invalid content",
+            status_code=502,
+        )
+    normalized_tool_calls = []
+    tool_calls = message.get("tool_calls", [])
+    if not isinstance(tool_calls, list) or len(tool_calls) > 128:
+        raise ModuleTaskError(
+            "invalid_model_response",
+            "Model returned invalid tool calls",
+            status_code=502,
+        )
+    for tool_call in tool_calls:
+        function = (
+            tool_call.get("function")
+            if isinstance(tool_call, dict)
+            else None
+        )
+        if (
+            not isinstance(function, dict)
+            or not isinstance(tool_call.get("id"), str)
+            or not isinstance(function.get("name"), str)
+            or not isinstance(function.get("arguments"), str)
+        ):
+            raise ModuleTaskError(
+                "invalid_model_response",
+                "Model returned invalid tool calls",
+                status_code=502,
+            )
+        normalized_tool_calls.append(
+            {
+                "id": tool_call["id"],
+                "name": function["name"],
+                "arguments": function["arguments"],
+            }
+        )
+    usage = data.get("usage")
+    normalized_usage = {}
+    if isinstance(usage, dict):
+        for source, target in (
+            ("prompt_tokens", "input_tokens"),
+            ("completion_tokens", "output_tokens"),
+            ("total_tokens", "total_tokens"),
+        ):
+            value = usage.get(source)
+            if isinstance(value, int) and not isinstance(value, bool):
+                normalized_usage[target] = max(0, value)
+    return {
+        "profile": profile,
+        "model": config.model_id,
+        "content": content,
+        "tool_calls": normalized_tool_calls,
+        "finish_reason": choice.get("finish_reason"),
+        "usage": normalized_usage,
+    }
+
+
+agent_rule_service = AgentRuleService(
+    db.connection,
+    compile_model=_module_host_model_chat_completion,
+    audit=auth_service.audit,
+)
+
+
 module_task_service = ModuleTaskService(
     db.db_path,
     busy_timeout_ms=db.busy_timeout_ms,
@@ -8047,6 +9080,8 @@ module_task_service = ModuleTaskService(
     audit=auth_service.audit,
     chat_generation_active=_chat_generation_active,
     model_invoke=_module_host_model_invoke,
+    model_chat_completion=_module_host_model_chat_completion,
+    chat_auto_title=llm_service.chat_title_service.maybe_title_chat,
     capability_base_url=MODULE_CAPABILITY_BASE_URL,
 )
 
@@ -8275,7 +9310,7 @@ async def get_module_feature_status(module_id: str, request: Request):
     except ModuleRegistryError as error:
         if error.code == "module_not_found":
             return {
-                "sdk_version": "1.2.0",
+                "sdk_version": "1.5.0",
                 "module_id": module_id,
                 "name": module_id,
                 "module_version": None,
@@ -8919,6 +9954,23 @@ async def module_capability_chat(request: Request):
 
 
 @app.get(
+    "/api/module-capabilities/v1/principal",
+    response_model=ModulePrincipalCapabilityApiResponse,
+    responses=MODULE_API_ERROR_RESPONSES,
+    openapi_extra={
+        "security": [{"ModuleCapabilityBearer": []}],
+    },
+)
+async def module_capability_principal(request: Request):
+    try:
+        return await module_task_service.capability_principal_read(
+            _module_capability_bearer(request)
+        )
+    except ModuleTaskError as error:
+        return _module_task_error_response(error)
+
+
+@app.get(
     "/api/module-capabilities/v1/resources/{resource_id}",
     response_model=ModuleResourceCapabilityApiResponse,
     responses=MODULE_API_ERROR_RESPONSES,
@@ -8929,6 +9981,38 @@ async def module_capability_resource(resource_id: str, request: Request):
         return await module_task_service.capability_resource_read(
             _module_capability_bearer(request),
             resource_id,
+        )
+    except ModuleTaskError as error:
+        return _module_task_error_response(error)
+
+
+@app.get(
+    "/api/module-capabilities/v1/skills/{skill_id}",
+    response_model=ModuleSkillCapabilityApiResponse,
+    responses=MODULE_API_ERROR_RESPONSES,
+    openapi_extra={"security": [{"ModuleCapabilityBearer": []}]},
+)
+async def module_capability_skill(skill_id: str, request: Request):
+    try:
+        return await module_task_service.capability_skill_read(
+            _module_capability_bearer(request),
+            skill_id,
+        )
+    except ModuleTaskError as error:
+        return _module_task_error_response(error)
+
+
+@app.get(
+    "/api/module-capabilities/v1/rules/{document_id}",
+    response_model=ModuleRuleCapabilityApiResponse,
+    responses=MODULE_API_ERROR_RESPONSES,
+    openapi_extra={"security": [{"ModuleCapabilityBearer": []}]},
+)
+async def module_capability_rule(document_id: str, request: Request):
+    try:
+        return await module_task_service.capability_rule_read(
+            _module_capability_bearer(request),
+            document_id,
         )
     except ModuleTaskError as error:
         return _module_task_error_response(error)
@@ -8985,6 +10069,54 @@ async def module_capability_model(request: Request):
         return await module_task_service.capability_model_invoke(
             token,
             payload["prompt"],
+        )
+    except ModuleTaskError as error:
+        return _module_task_error_response(error)
+
+
+@app.post(
+    "/api/module-capabilities/v1/model/chat-completions",
+    response_model=ModuleModelChatCapabilityApiResponse,
+    responses=MODULE_API_ERROR_RESPONSES,
+    openapi_extra={
+        "security": [{"ModuleCapabilityBearer": []}],
+        "requestBody": _module_json_body(
+            ModuleModelChatCompletionApiRequest
+        ),
+    },
+)
+async def module_capability_model_chat_completion(request: Request):
+    try:
+        token = _module_capability_bearer(request)
+        payload = await _module_admin_body(
+            request,
+            max_bytes=1024 * 1024,
+        )
+        return await module_task_service.capability_model_chat_completion(
+            token,
+            payload,
+        )
+    except ModuleTaskError as error:
+        return _module_task_error_response(error)
+
+
+@app.post(
+    "/api/module-capabilities/v1/openai/chat/completions",
+    responses=MODULE_API_ERROR_RESPONSES,
+    openapi_extra={
+        "security": [{"ModuleCapabilityBearer": []}],
+    },
+)
+async def module_capability_openai_chat_completion(request: Request):
+    try:
+        token = _module_capability_bearer(request)
+        payload = await _module_admin_body(
+            request,
+            max_bytes=1024 * 1024,
+        )
+        return await module_task_service.capability_openai_chat_completion(
+            token,
+            payload,
         )
     except ModuleTaskError as error:
         return _module_task_error_response(error)

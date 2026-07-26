@@ -11,6 +11,10 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class T6DeploymentTests(unittest.TestCase):
+    def test_server_image_contains_agent_rule_runtime_module(self):
+        dockerfile = (ROOT / "Dockerfile").read_text(encoding="utf-8")
+        self.assertIn("COPY backend/agent_rules.py .", dockerfile)
+
     def test_source_accepts_loopback_but_container_requires_service_name(self):
         source = ModuleAddressPolicy()
         self.assertEqual(
@@ -153,6 +157,17 @@ class T6DeploymentTests(unittest.TestCase):
         runner = "scripts/t6-deployment-acceptance.py"
         self.assertIn(runner, source_gate)
         self.assertIn(runner, compose_gate)
+
+    def test_reference_module_accepts_the_current_task_envelope(self):
+        reference = (
+            ROOT / "examples/reference-module/app.py"
+        ).read_text(encoding="utf-8")
+        conformance = (
+            ROOT / "scripts/module-conformance.py"
+        ).read_text(encoding="utf-8")
+        for field in ("active_skills", "active_rules"):
+            self.assertIn(f'"{field}"', reference)
+            self.assertIn(f'"{field}": []', conformance)
 
 
 if __name__ == "__main__":

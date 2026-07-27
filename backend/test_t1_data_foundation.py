@@ -313,6 +313,214 @@ class MigrationTests(unittest.TestCase):
                     set(),
                     set(contract["new_indexes"]) - indexes,
                 )
+                input_resource_unique_columns = {
+                    tuple(
+                        column["name"]
+                        for column in connection.execute(
+                            f'PRAGMA index_info("{index["name"]}")'
+                        )
+                    )
+                    for index in connection.execute(
+                        "PRAGMA index_list(module_task_input_resources)"
+                    )
+                    if index["unique"]
+                }
+                self.assertIn(
+                    ("storage_name",),
+                    input_resource_unique_columns,
+                )
+                self.assertNotIn(
+                    ("bound_task_id",),
+                    input_resource_unique_columns,
+                )
+                self.assertEqual(
+                    contract["module_task_input_resources"],
+                    {
+                        "one_task_per_resource": True,
+                        "multiple_resources_per_task": True,
+                    },
+                )
+            finally:
+                connection.close()
+
+    def test_v13_allows_multiple_input_resources_per_task(self):
+        with tempfile.TemporaryDirectory(prefix="chatraw-t1-v12-") as temp:
+            database = main.Database(str(Path(temp) / "chatraw.db"))
+            connection = database.get_conn()
+            try:
+                connection.commit()
+                connection.execute("PRAGMA foreign_keys = OFF")
+                connection.execute(
+                    "ALTER TABLE module_task_input_resources "
+                    "RENAME TO module_task_input_resources_v13_test"
+                )
+                connection.execute(
+                    """
+                    CREATE TABLE module_task_input_resources (
+                        resource_id TEXT PRIMARY KEY,
+                        creator_user_id TEXT NOT NULL,
+                        filename TEXT NOT NULL,
+                        media_type TEXT NOT NULL,
+                        size INTEGER NOT NULL CHECK (size >= 0),
+                        sha256 TEXT NOT NULL,
+                        storage_name TEXT NOT NULL UNIQUE,
+                        created_at TEXT NOT NULL,
+                        expires_at TEXT,
+                        bound_task_id TEXT UNIQUE,
+                        FOREIGN KEY (creator_user_id) REFERENCES users(id),
+                        FOREIGN KEY (bound_task_id)
+                            REFERENCES module_tasks(id) ON DELETE CASCADE
+                    )
+                    """
+                )
+                connection.execute(
+                    """
+                    INSERT INTO module_task_input_resources
+                    SELECT * FROM module_task_input_resources_v13_test
+                    """
+                )
+                connection.execute(
+                    "DROP TABLE module_task_input_resources_v13_test"
+                )
+                connection.execute(
+                    "CREATE INDEX idx_module_task_input_resources_expiry "
+                    "ON module_task_input_resources(expires_at)"
+                )
+                connection.execute(
+                    "DELETE FROM schema_migrations WHERE version = 13"
+                )
+                connection.commit()
+                connection.execute("PRAGMA foreign_keys = ON")
+
+                connection.execute(
+                    """
+                    INSERT INTO users (
+                        id, username, password_hash, role, enabled,
+                        created_at, updated_at, password_changed_at
+                    ) VALUES (
+                        'resource-user', 'resource-user', 'hash', 'member', 1,
+                        '2026-07-27T00:00:00Z',
+                        '2026-07-27T00:00:00Z',
+                        '2026-07-27T00:00:00Z'
+                    )
+                    """
+                )
+                connection.execute(
+                    """
+                    INSERT INTO module_tasks (
+                        id, registration_id, module_id, module_version,
+                        action_id, action_version, action_contract_json,
+                        config_revision, creator_user_id, idempotency_key,
+                        request_digest, state, created_at, updated_at
+                    ) VALUES (
+                        'resource-task', 'registration', 'example.module',
+                        '1.0.0', 'example.run', '1.0.0', '{}', '1',
+                        'resource-user', 'resource-idempotency', 'digest',
+                        'queued', '2026-07-27T00:00:00Z',
+                        '2026-07-27T00:00:00Z'
+                    )
+                    """
+                )
+                resource_rows = [
+                    (
+                        "resource-1",
+                        "resource-user",
+                        "first.txt",
+                        "text/plain",
+                        5,
+                        "sha-1",
+                        "storage-1",
+                        "2026-07-27T00:00:00Z",
+                        None,
+                        "resource-task",
+                    ),
+                    (
+                        "resource-2",
+                        "resource-user",
+                        "second.txt",
+                        "text/plain",
+                        6,
+                        "sha-2",
+                        "storage-2",
+                        "2026-07-27T00:00:00Z",
+                        None,
+                        "resource-task",
+                    ),
+                ]
+                connection.execute(
+                    """
+                    INSERT INTO module_task_input_resources (
+                        resource_id, creator_user_id, filename, media_type,
+                        size, sha256, storage_name, created_at, expires_at,
+                        bound_task_id
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    resource_rows[0],
+                )
+                connection.commit()
+                with self.assertRaises(sqlite3.IntegrityError):
+                    connection.execute(
+                        """
+                        INSERT INTO module_task_input_resources (
+                            resource_id, creator_user_id, filename, media_type,
+                            size, sha256, storage_name, created_at, expires_at,
+                            bound_task_id
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        """,
+                        resource_rows[1],
+                    )
+                connection.rollback()
+
+                self.assertEqual(
+                    db_migrations.apply_migrations(connection),
+                    13,
+                )
+                connection.execute(
+                    """
+                    INSERT INTO module_task_input_resources (
+                        resource_id, creator_user_id, filename, media_type,
+                        size, sha256, storage_name, created_at, expires_at,
+                        bound_task_id
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    resource_rows[1],
+                )
+                connection.commit()
+
+                resources = [
+                    tuple(row)
+                    for row in connection.execute(
+                        """
+                        SELECT resource_id, filename, bound_task_id
+                        FROM module_task_input_resources
+                        ORDER BY resource_id
+                        """
+                    )
+                ]
+                self.assertEqual(
+                    resources,
+                    [
+                        ("resource-1", "first.txt", "resource-task"),
+                        ("resource-2", "second.txt", "resource-task"),
+                    ],
+                )
+                self.assertEqual(
+                    connection.execute(
+                        """
+                        SELECT name FROM schema_migrations
+                        WHERE version = 13
+                        """
+                    ).fetchone()["name"],
+                    "multiple_task_input_resources",
+                )
+                self.assertEqual(
+                    connection.execute("PRAGMA foreign_key_check").fetchall(),
+                    [],
+                )
+                self.assertEqual(
+                    db_migrations.apply_migrations(connection),
+                    13,
+                )
             finally:
                 connection.close()
 
@@ -365,13 +573,13 @@ class MigrationTests(unittest.TestCase):
                 connection.execute("DROP TABLE agent_skills")
                 connection.execute(
                     "DELETE FROM schema_migrations "
-                    "WHERE version IN (8, 9, 10, 11, 12)"
+                    "WHERE version >= 8"
                 )
                 connection.commit()
 
                 self.assertEqual(
                     db_migrations.apply_migrations(connection),
-                    12,
+                    db_migrations.LATEST_SCHEMA_VERSION,
                 )
                 row = connection.execute(
                     """
@@ -502,13 +710,13 @@ class MigrationTests(unittest.TestCase):
                     )
                 connection.execute(
                     "DELETE FROM schema_migrations "
-                    "WHERE version IN (9, 10, 11, 12)"
+                    "WHERE version >= 9"
                 )
                 connection.commit()
 
                 self.assertEqual(
                     db_migrations.apply_migrations(connection),
-                    12,
+                    db_migrations.LATEST_SCHEMA_VERSION,
                 )
                 migrated_rows = [
                     tuple(row)

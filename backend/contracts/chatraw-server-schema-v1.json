@@ -1,5 +1,5 @@
 {
-  "latest_schema_version": 12,
+  "latest_schema_version": 13,
   "migrations": [
     {
       "version": 1,
@@ -48,6 +48,10 @@
     {
       "version": 12,
       "name": "agent_compiled_rules"
+    },
+    {
+      "version": 13,
+      "name": "multiple_task_input_resources"
     }
   ],
   "new_tables": {
@@ -328,6 +332,10 @@
       "rowid"
     ],
     "classic_tables_and_columns_are_preserved": true
+  },
+  "module_task_input_resources": {
+    "one_task_per_resource": true,
+    "multiple_resources_per_task": true
   },
   "chat_listing": {
     "legacy_endpoint": "/api/chats",

@@ -4,7 +4,7 @@ import struct
 from datetime import datetime, timezone
 
 
-LATEST_SCHEMA_VERSION = 12
+LATEST_SCHEMA_VERSION = 13
 
 
 class UnsupportedSchemaVersion(RuntimeError):
@@ -950,6 +950,52 @@ def _migration_12_agent_compiled_rules(
     )
 
 
+def _migration_13_multiple_task_input_resources(
+    connection: sqlite3.Connection,
+) -> None:
+    connection.execute(
+        "ALTER TABLE module_task_input_resources "
+        "RENAME TO module_task_input_resources_v12"
+    )
+    connection.execute(
+        """
+        CREATE TABLE module_task_input_resources (
+            resource_id TEXT PRIMARY KEY,
+            creator_user_id TEXT NOT NULL,
+            filename TEXT NOT NULL,
+            media_type TEXT NOT NULL,
+            size INTEGER NOT NULL CHECK (size >= 0),
+            sha256 TEXT NOT NULL,
+            storage_name TEXT NOT NULL UNIQUE,
+            created_at TEXT NOT NULL,
+            expires_at TEXT,
+            bound_task_id TEXT,
+            FOREIGN KEY (creator_user_id) REFERENCES users(id),
+            FOREIGN KEY (bound_task_id)
+                REFERENCES module_tasks(id) ON DELETE CASCADE
+        )
+        """
+    )
+    connection.execute(
+        """
+        INSERT INTO module_task_input_resources (
+            resource_id, creator_user_id, filename, media_type,
+            size, sha256, storage_name, created_at, expires_at,
+            bound_task_id
+        )
+        SELECT resource_id, creator_user_id, filename, media_type,
+               size, sha256, storage_name, created_at, expires_at,
+               bound_task_id
+        FROM module_task_input_resources_v12
+        """
+    )
+    connection.execute("DROP TABLE module_task_input_resources_v12")
+    connection.execute(
+        "CREATE INDEX idx_module_task_input_resources_expiry "
+        "ON module_task_input_resources(expires_at)"
+    )
+
+
 MIGRATIONS = (
     (1, "server_shared_data", _migration_1_server_shared_data),
     (2, "auth_and_audit", _migration_2_auth_and_audit),
@@ -990,6 +1036,11 @@ MIGRATIONS = (
         12,
         "agent_compiled_rules",
         _migration_12_agent_compiled_rules,
+    ),
+    (
+        13,
+        "multiple_task_input_resources",
+        _migration_13_multiple_task_input_resources,
     ),
 )
 

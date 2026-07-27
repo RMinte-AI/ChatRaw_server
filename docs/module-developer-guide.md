@@ -526,8 +526,9 @@ Rule 只返回经过 Compiler Specification 编译、Pydantic 校验且由用户
 每个 task 最多 10 个。模块必须再次按自己的 Compiled Rule schema 校验，不能执行任意文本。
 
 需要原始文件的插件先通过 Module SDK 上传临时资源，再把返回的 `resource_id` 放入创建任务请求的
-`resource_ids`。临时资源不进入 ChatRaw 文档表、解析器或索引，只能绑定一个任务。Action 必须声明
-`supports_resources: true` 才能接收临时输入或返回输出资源。
+`resource_ids`。同一个任务可以包含多份临时资源，但每份资源只能绑定一个任务。临时资源不进入
+ChatRaw 文档表、解析器或索引。Action 必须声明 `supports_resources: true` 才能接收临时输入或
+返回输出资源。
 
 模块返回的输出资源使用：
 
@@ -736,8 +737,10 @@ Use the committed manifest, management, task, and Resident JSON Schemas; the Mod
   `{"include_usage": true}`. Disconnects before upstream headers or during
   the stream cancel the upstream request. Post-header failures terminate with
   one OpenAI-style `error` data event and no `[DONE]`.
-- Temporary task inputs through `resource.stream`, and module-owned output resources through the
-  authenticated task resource proxy, only for actions that declare `supports_resources`.
+- Multiple temporary task inputs through `resource.stream`, with each input
+  bound to only one task, and module-owned output resources through the
+  authenticated task resource proxy, only for actions that declare
+  `supports_resources`.
 - Source and Compose deployment, persistent data, health checks, and no default host port.
 
 ### Endpoints

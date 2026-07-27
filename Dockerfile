@@ -23,6 +23,7 @@ COPY backend/db_runtime.py .
 COPY backend/frontend_assets.py .
 COPY backend/module_protocol.py .
 COPY backend/module_registry.py .
+COPY backend/module_model_stream.py .
 COPY backend/module_task_protocol.py .
 COPY backend/module_tasks.py .
 COPY backend/resident_integrations.py .

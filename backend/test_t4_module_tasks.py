@@ -3,6 +3,7 @@ import copy
 import hashlib
 import importlib.util
 import json
+import logging
 import os
 import stat
 import tempfile
@@ -15,6 +16,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
+import aiohttp
 from aiohttp import web
 from fastapi.testclient import TestClient
 from jsonschema import Draft202012Validator
@@ -410,6 +412,52 @@ class FakeUpload:
         return chunk
 
     async def close(self):
+        self.closed = True
+
+
+class FakeModelStreamContent:
+    def __init__(
+        self,
+        chunks,
+        *,
+        block_after_chunks=False,
+        error_after_chunks=None,
+    ):
+        self.chunks = chunks
+        self.block_after_chunks = block_after_chunks
+        self.error_after_chunks = error_after_chunks
+        self.cancelled = asyncio.Event()
+
+    async def iter_any(self):
+        try:
+            for chunk in self.chunks:
+                yield chunk
+            if self.error_after_chunks is not None:
+                raise self.error_after_chunks
+            if self.block_after_chunks:
+                await asyncio.Event().wait()
+        finally:
+            self.cancelled.set()
+
+
+class FakeModelStreamResponse:
+    def __init__(
+        self,
+        chunks,
+        *,
+        block_after_chunks=False,
+        error_after_chunks=None,
+    ):
+        self.content = FakeModelStreamContent(
+            chunks,
+            block_after_chunks=block_after_chunks,
+            error_after_chunks=error_after_chunks,
+        )
+        self.status = 200
+        self.headers = {"Content-Type": "text/event-stream"}
+        self.closed = False
+
+    def close(self):
         self.closed = True
 
 
@@ -1713,6 +1761,11 @@ class ModuleTaskServiceTests(unittest.IsolatedAsyncioTestCase):
                 "openai"
             ),
         )
+        self.assertTrue(
+            capabilities["model.chat.completions"]["scope"][
+                "supports_stream"
+            ]
+        )
         raw_tokens = [item["token"] for item in capabilities.values()]
         with self.database.connection() as connection:
             rows = connection.execute(
@@ -1843,6 +1896,70 @@ class ModuleTaskServiceTests(unittest.IsolatedAsyncioTestCase):
             await self.service.capability_chat_read(
                 capabilities["chat.read"]["token"]
             )
+
+    async def test_stream_preparation_consumes_capability_once(self):
+        task, _ = await self._create()
+        capability = next(
+            item
+            for item in self.client.tasks[task["task_id"]][
+                "host_capabilities"
+            ]
+            if item["capability"] == "model.chat.completions"
+        )
+        prepared = (
+            await self.service.prepare_openai_chat_completion_stream(
+                capability["token"],
+                {
+                    "model": "agent-runtime",
+                    "messages": [
+                        {"role": "user", "content": "stream safely"}
+                    ],
+                    "stream": True,
+                    "stream_options": {"include_usage": True},
+                },
+            )
+        )
+        self.assertEqual(prepared["task_id"], task["task_id"])
+        self.assertEqual(
+            prepared["request"]["profile"],
+            "agent-runtime",
+        )
+        self.assertEqual(prepared["request"]["timeout_seconds"], 900)
+        self.assertEqual(
+            prepared["request"]["stream_options"],
+            {"include_usage": True},
+        )
+        with self.database.connection() as connection:
+            row = connection.execute(
+                """
+                SELECT use_count
+                FROM module_capability_tokens
+                WHERE task_id = ?
+                  AND capability = 'model.chat.completions'
+                """,
+                (task["task_id"],),
+            ).fetchone()
+        self.assertEqual(row["use_count"], 1)
+
+        with self.assertRaises(ModuleTaskError) as private_extension:
+            await self.service.prepare_openai_chat_completion_stream(
+                capability["token"],
+                {
+                    "model": "agent-runtime",
+                    "messages": [
+                        {"role": "user", "content": "stream safely"}
+                    ],
+                    "stream": True,
+                    "stream_options": {
+                        "include_usage": True,
+                        "continuous_usage_stats": True,
+                    },
+                },
+            )
+        self.assertEqual(
+            private_extension.exception.code,
+            "invalid_model_request",
+        )
 
     async def test_capability_ttl_uses_action_deadline_default(self):
         input_schema = self.registry.target["manifest"]["actions"][0][
@@ -2631,6 +2748,15 @@ class ModuleTaskApiTests(unittest.TestCase):
             json=self._payload(),
         )
 
+    def _model_capability(self, task):
+        return next(
+            item
+            for item in self.client_backend.tasks[task["task_id"]][
+                "host_capabilities"
+            ]
+            if item["capability"] == "model.chat.completions"
+        )
+
     def test_auth_shared_read_control_and_browser_redaction(self):
         self.assertEqual(
             self.client.get("/api/module-tasks").status_code,
@@ -3015,6 +3141,7 @@ class ModuleTaskApiTests(unittest.TestCase):
                     }
                 ],
                 "max_completion_tokens": 256,
+                "stream": False,
             },
         )
         self.assertEqual(
@@ -3077,6 +3204,555 @@ class ModuleTaskApiTests(unittest.TestCase):
         self.assertEqual(download.content, b"download")
         self.assertIn("attachment", download.headers["content-disposition"])
         self.assertEqual(download.headers["content-security-policy"], "sandbox")
+
+    def test_openai_stream_is_sanitized_and_consumed_once(self):
+        task = self._create(key="api-stream-safe").json()
+        capability = self._model_capability(task)
+        private_prompt = "PRIVATE_PROMPT_SENTINEL"
+        private_answer = "PRIVATE_ANSWER_SENTINEL"
+        private_reasoning = "PRIVATE_REASONING_SENTINEL"
+        chunks = [
+            b": upstream-heartbeat\n\n",
+            (
+                "data: "
+                + json.dumps(
+                    {
+                        "id": "chatcmpl-stream",
+                        "object": "chat.completion.chunk",
+                        "created": 1785000000,
+                        "model": "fixture-model",
+                        "choices": [
+                            {
+                                "index": 0,
+                                "delta": {
+                                    "content": private_answer,
+                                    "reasoning_content": private_reasoning,
+                                },
+                                "finish_reason": None,
+                            }
+                        ],
+                        "vendor_trace": "PRIVATE_TRACE_SENTINEL",
+                    },
+                    ensure_ascii=False,
+                )
+                + "\n\n"
+            ).encode("utf-8"),
+            b"data: [DONE]\n\n",
+        ]
+        upstream = FakeModelStreamResponse(chunks)
+
+        class FakeSession:
+            def __init__(self):
+                self.url = None
+                self.payload = None
+                self.headers = None
+
+            async def post(
+                inner_self,
+                url,
+                *,
+                json,
+                headers,
+                timeout,
+            ):
+                inner_self.url = url
+                inner_self.payload = json
+                inner_self.headers = headers
+                return upstream
+
+        session = FakeSession()
+
+        async def get_session():
+            return session
+
+        model_config = SimpleNamespace(
+            api_url="http://private-upstream.invalid",
+            model_id="fixture-model",
+            max_output=4096,
+            api_key="PRIVATE_API_KEY_SENTINEL",
+            capability=SimpleNamespace(tools=True),
+        )
+        settings = SimpleNamespace(
+            chat_settings=SimpleNamespace(top_p=0.9)
+        )
+
+        records = []
+
+        class CaptureHandler(logging.Handler):
+            def emit(inner_self, record):
+                records.append(record)
+
+        capture = CaptureHandler(level=logging.DEBUG)
+        observed_loggers = [
+            logging.getLogger(),
+            main.logger,
+            logging.getLogger("uvicorn.access"),
+            logging.getLogger("uvicorn.error"),
+            logging.getLogger("aiohttp.client"),
+        ]
+        for observed in observed_loggers:
+            observed.addHandler(capture)
+        try:
+            with patch.object(
+                main.db,
+                "get_model_by_type",
+                return_value=model_config,
+            ), patch.object(
+                main.db,
+                "get_settings",
+                return_value=settings,
+            ), patch.object(
+                main,
+                "get_http_session",
+                new=get_session,
+            ):
+                response = self.client.post(
+                    "/api/module-capabilities/v1/openai/chat/completions",
+                    headers={
+                        "Authorization": f"Bearer {capability['token']}"
+                    },
+                    json={
+                        "model": "agent-runtime",
+                        "messages": [
+                            {"role": "user", "content": private_prompt}
+                        ],
+                        "stream": True,
+                        "stream_options": {"include_usage": True},
+                    },
+                )
+        finally:
+            for observed in observed_loggers:
+                observed.removeHandler(capture)
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertTrue(
+            response.headers["content-type"].startswith(
+                "text/event-stream"
+            )
+        )
+        self.assertIn(": heartbeat\n\n", response.text)
+        self.assertIn(private_answer, response.text)
+        self.assertNotIn(private_reasoning, response.text)
+        self.assertNotIn("PRIVATE_TRACE_SENTINEL", response.text)
+        self.assertIn("data: [DONE]\n\n", response.text)
+        self.assertTrue(upstream.closed)
+        self.assertEqual(
+            session.payload["stream_options"],
+            {"include_usage": True},
+        )
+        self.assertEqual(
+            session.url,
+            "http://private-upstream.invalid/chat/completions",
+        )
+        self.assertEqual(
+            session.headers["Authorization"],
+            "Bearer PRIVATE_API_KEY_SENTINEL",
+        )
+        rendered_logs = "\n".join(
+            record.getMessage()
+            for record in records
+        )
+        for private_value in (
+            private_prompt,
+            private_answer,
+            private_reasoning,
+            "PRIVATE_TRACE_SENTINEL",
+            "PRIVATE_API_KEY_SENTINEL",
+            "http://private-upstream.invalid",
+        ):
+            self.assertNotIn(private_value, rendered_logs)
+        with main.db.connection() as connection:
+            row = connection.execute(
+                """
+                SELECT use_count
+                FROM module_capability_tokens
+                WHERE task_id = ?
+                  AND capability = 'model.chat.completions'
+                """,
+                (task["task_id"],),
+            ).fetchone()
+        self.assertEqual(row["use_count"], 1)
+
+    def test_openai_stream_openapi_contract_is_machine_validatable(self):
+        operation = main.app.openapi()["paths"][
+            "/api/module-capabilities/v1/openai/chat/completions"
+        ]["post"]
+        schema = operation["requestBody"]["content"][
+            "application/json"
+        ]["schema"]
+        Draft202012Validator.check_schema(schema)
+        validator = Draft202012Validator(schema)
+        validator.validate(
+            {
+                "model": "agent-runtime",
+                "messages": [{"role": "user", "content": "safe"}],
+                "stream": True,
+                "stream_options": {"include_usage": True},
+            }
+        )
+        for invalid in (
+            {
+                "model": "agent-runtime",
+                "messages": [{"role": "user", "content": "safe"}],
+                "stream": True,
+                "stream_options": {"include_usage": False},
+            },
+            {
+                "model": "agent-runtime",
+                "messages": [{"role": "user", "content": "safe"}],
+                "stream": False,
+                "stream_options": {"include_usage": True},
+            },
+            {
+                "model": "agent-runtime",
+                "messages": [{"role": "user", "content": "safe"}],
+                "max_tokens": 128,
+                "max_completion_tokens": 128,
+            },
+        ):
+            with self.subTest(invalid=invalid):
+                self.assertFalse(validator.is_valid(invalid))
+        self.assertEqual(
+            operation["responses"]["200"]["content"][
+                "text/event-stream"
+            ]["schema"]["type"],
+            "string",
+        )
+
+    def test_openai_stream_errors_before_and_after_headers(self):
+        before_task = self._create(key="api-stream-before-error").json()
+        before_capability = self._model_capability(before_task)
+
+        async def fail_before_headers(_request):
+            raise ModuleTaskError(
+                "model_request_failed",
+                "Model request failed",
+                status_code=502,
+            )
+
+        with patch.object(
+            main,
+            "_open_module_host_model_chat_stream",
+            new=fail_before_headers,
+        ):
+            before = self.client.post(
+                "/api/module-capabilities/v1/openai/chat/completions",
+                headers={
+                    "Authorization": (
+                        f"Bearer {before_capability['token']}"
+                    )
+                },
+                json={
+                    "model": "agent-runtime",
+                    "messages": [{"role": "user", "content": "safe"}],
+                    "stream": True,
+                },
+            )
+        self.assertEqual(before.status_code, 502, before.text)
+        self.assertEqual(
+            before.json(),
+            {
+                "detail": "Model request failed",
+                "code": "model_request_failed",
+            },
+        )
+
+        upstream = FakeModelStreamResponse(
+            [b"data: {malformed}\n\n"]
+        )
+
+        async def fail_after_headers(_request):
+            return upstream
+
+        with patch.object(
+            main,
+            "_open_module_host_model_chat_stream",
+            new=fail_after_headers,
+        ):
+            after = self.client.post(
+                "/api/module-capabilities/v1/openai/chat/completions",
+                headers={
+                    "Authorization": (
+                        f"Bearer {before_capability['token']}"
+                    )
+                },
+                json={
+                    "model": "agent-runtime",
+                    "messages": [{"role": "user", "content": "safe"}],
+                    "stream": True,
+                },
+            )
+        self.assertEqual(after.status_code, 200, after.text)
+        self.assertEqual(
+            [
+                json.loads(line[6:])
+                for line in after.text.splitlines()
+                if line.startswith("data: {")
+            ],
+            [
+                {
+                    "error": {
+                        "code": "invalid_model_stream",
+                        "message": "Model returned an invalid stream",
+                    }
+                }
+            ],
+        )
+        self.assertNotIn("[DONE]", after.text)
+        self.assertTrue(upstream.closed)
+
+        transport_upstream = FakeModelStreamResponse(
+            [
+                (
+                    "data: "
+                    + json.dumps(
+                        {
+                            "id": "chatcmpl-midstream",
+                            "object": "chat.completion.chunk",
+                            "created": 1785000000,
+                            "model": "fixture-model",
+                            "choices": [
+                                {
+                                    "index": 0,
+                                    "delta": {"content": "first"},
+                                    "finish_reason": None,
+                                }
+                            ],
+                        },
+                        separators=(",", ":"),
+                    )
+                    + "\n\n"
+                ).encode("utf-8")
+            ],
+            error_after_chunks=aiohttp.ClientPayloadError(
+                "PRIVATE_TRANSPORT_FAILURE"
+            ),
+        )
+
+        async def transport_failure(_request):
+            return transport_upstream
+
+        with patch.object(
+            main,
+            "_open_module_host_model_chat_stream",
+            new=transport_failure,
+        ):
+            transport = self.client.post(
+                "/api/module-capabilities/v1/openai/chat/completions",
+                headers={
+                    "Authorization": (
+                        f"Bearer {before_capability['token']}"
+                    )
+                },
+                json={
+                    "model": "agent-runtime",
+                    "messages": [{"role": "user", "content": "safe"}],
+                    "stream": True,
+                },
+            )
+        self.assertEqual(transport.status_code, 200, transport.text)
+        self.assertIn('"content":"first"', transport.text)
+        self.assertIn('"code":"model_stream_failed"', transport.text)
+        self.assertNotIn("PRIVATE_TRANSPORT_FAILURE", transport.text)
+        self.assertNotIn("[DONE]", transport.text)
+        self.assertTrue(transport_upstream.closed)
+
+    def test_openai_stream_disconnect_closes_upstream(self):
+        task = self._create(key="api-stream-disconnect").json()
+        capability = self._model_capability(task)
+        first_chunk = (
+            "data: "
+            + json.dumps(
+                {
+                    "id": "chatcmpl-disconnect",
+                    "object": "chat.completion.chunk",
+                    "created": 1785000000,
+                    "model": "fixture-model",
+                    "choices": [
+                        {
+                            "index": 0,
+                            "delta": {"content": "first"},
+                            "finish_reason": None,
+                        }
+                    ],
+                },
+                separators=(",", ":"),
+            )
+            + "\n\n"
+        ).encode("utf-8")
+        upstream = FakeModelStreamResponse(
+            [first_chunk],
+            block_after_chunks=True,
+        )
+
+        async def exercise_disconnect():
+            async def open_stream(_request):
+                return upstream
+
+            body = json.dumps(
+                {
+                    "model": "agent-runtime",
+                    "messages": [{"role": "user", "content": "safe"}],
+                    "stream": True,
+                },
+                separators=(",", ":"),
+            ).encode("utf-8")
+            disconnect = asyncio.Event()
+            request_delivered = False
+
+            async def receive():
+                nonlocal request_delivered
+                if not request_delivered:
+                    request_delivered = True
+                    return {
+                        "type": "http.request",
+                        "body": body,
+                        "more_body": False,
+                    }
+                await disconnect.wait()
+                return {"type": "http.disconnect"}
+
+            async def send(message):
+                if (
+                    message["type"] == "http.response.body"
+                    and message.get("body")
+                ):
+                    disconnect.set()
+
+            scope = {
+                "type": "http",
+                "asgi": {"version": "3.0"},
+                "http_version": "1.1",
+                "method": "POST",
+                "scheme": "http",
+                "path": (
+                    "/api/module-capabilities/v1/openai/"
+                    "chat/completions"
+                ),
+                "raw_path": (
+                    b"/api/module-capabilities/v1/openai/"
+                    b"chat/completions"
+                ),
+                "query_string": b"",
+                "root_path": "",
+                "headers": [
+                    (b"host", b"testserver"),
+                    (b"content-type", b"application/json"),
+                    (b"content-length", str(len(body)).encode("ascii")),
+                    (
+                        b"authorization",
+                        f"Bearer {capability['token']}".encode("ascii"),
+                    ),
+                ],
+                "client": ("127.0.0.1", 50123),
+                "server": ("testserver", 80),
+            }
+            with patch.object(
+                main,
+                "_open_module_host_model_chat_stream",
+                new=open_stream,
+            ):
+                await asyncio.wait_for(
+                    main.app(scope, receive, send),
+                    timeout=2,
+                )
+            await asyncio.wait_for(
+                upstream.content.cancelled.wait(),
+                timeout=1,
+            )
+
+        asyncio.run(exercise_disconnect())
+        self.assertTrue(upstream.closed)
+
+    def test_openai_stream_disconnect_before_headers_cancels_open(self):
+        task = self._create(key="api-stream-preheader-disconnect").json()
+        capability = self._model_capability(task)
+        open_started = asyncio.Event()
+        open_cancelled = asyncio.Event()
+
+        async def exercise_disconnect():
+            async def open_stream(_request):
+                open_started.set()
+                try:
+                    await asyncio.Event().wait()
+                finally:
+                    open_cancelled.set()
+
+            body = json.dumps(
+                {
+                    "model": "agent-runtime",
+                    "messages": [{"role": "user", "content": "safe"}],
+                    "stream": True,
+                    "stream_options": {"include_usage": True},
+                },
+                separators=(",", ":"),
+            ).encode("utf-8")
+            request_delivered = False
+
+            async def receive():
+                nonlocal request_delivered
+                if not request_delivered:
+                    request_delivered = True
+                    return {
+                        "type": "http.request",
+                        "body": body,
+                        "more_body": False,
+                    }
+                await open_started.wait()
+                return {"type": "http.disconnect"}
+
+            async def send(_message):
+                sent.append(_message)
+
+            scope = {
+                "type": "http",
+                "asgi": {"version": "3.0"},
+                "http_version": "1.1",
+                "method": "POST",
+                "scheme": "http",
+                "path": (
+                    "/api/module-capabilities/v1/openai/"
+                    "chat/completions"
+                ),
+                "raw_path": (
+                    b"/api/module-capabilities/v1/openai/"
+                    b"chat/completions"
+                ),
+                "query_string": b"",
+                "root_path": "",
+                "headers": [
+                    (b"host", b"testserver"),
+                    (b"content-type", b"application/json"),
+                    (b"content-length", str(len(body)).encode("ascii")),
+                    (
+                        b"authorization",
+                        f"Bearer {capability['token']}".encode("ascii"),
+                    ),
+                ],
+                "client": ("127.0.0.1", 50123),
+                "server": ("testserver", 80),
+            }
+            sent = []
+            with patch.object(
+                main,
+                "_open_module_host_model_chat_stream",
+                new=open_stream,
+            ):
+                await asyncio.wait_for(
+                    main.app(scope, receive, send),
+                    timeout=2,
+                )
+            await asyncio.wait_for(
+                open_cancelled.wait(),
+                timeout=1,
+            )
+            starts = [
+                message
+                for message in sent
+                if message["type"] == "http.response.start"
+            ]
+            self.assertEqual(starts[-1]["status"], 499)
+
+        asyncio.run(exercise_disconnect())
 
     def test_disabling_user_revokes_capability_tokens(self):
         task = self._create().json()

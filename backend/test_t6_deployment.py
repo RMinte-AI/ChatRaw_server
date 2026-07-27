@@ -14,6 +14,7 @@ class T6DeploymentTests(unittest.TestCase):
     def test_server_image_contains_agent_rule_runtime_module(self):
         dockerfile = (ROOT / "Dockerfile").read_text(encoding="utf-8")
         self.assertIn("COPY backend/agent_rules.py .", dockerfile)
+        self.assertIn("COPY backend/module_model_stream.py .", dockerfile)
 
     def test_source_accepts_loopback_but_container_requires_service_name(self):
         source = ModuleAddressPolicy()

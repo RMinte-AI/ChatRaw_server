@@ -29,7 +29,16 @@ import hashlib
 from yarl import URL as YarlURL
 from datetime import datetime, timezone
 from pathlib import Path, PurePosixPath
-from typing import Optional, List, AsyncGenerator, Dict, Any, Tuple, Literal
+from typing import (
+    Annotated,
+    Optional,
+    List,
+    AsyncGenerator,
+    Dict,
+    Any,
+    Tuple,
+    Literal,
+)
 from contextlib import asynccontextmanager
 from urllib.parse import parse_qs, quote, urlparse
 
@@ -117,6 +126,7 @@ from starlette.middleware.gzip import GZipMiddleware
 from starlette.datastructures import UploadFile as StarletteUploadFile
 from starlette.formparsers import MultiPartException, MultiPartParser
 from pydantic import BaseModel, ConfigDict, Field
+from pydantic.json_schema import SkipJsonSchema
 import sqlite3
 import math
 from collections import defaultdict
@@ -156,6 +166,11 @@ try:
         ModuleRegistryError,
     )
     from .module_task_protocol import MAX_TASK_REQUEST_BYTES
+    from .module_model_stream import (
+        ModuleModelStreamError,
+        encode_openai_stream_error,
+        iter_sanitized_openai_sse,
+    )
     from .module_tasks import ModuleTaskError, ModuleTaskService
     from .resident_integrations import ResidentIntegrationCatalog
 except ImportError:
@@ -192,6 +207,11 @@ except ImportError:
         ModuleRegistryError,
     )
     from module_task_protocol import MAX_TASK_REQUEST_BYTES
+    from module_model_stream import (
+        ModuleModelStreamError,
+        encode_openai_stream_error,
+        iter_sanitized_openai_sse,
+    )
     from module_tasks import ModuleTaskError, ModuleTaskService
     from resident_integrations import ResidentIntegrationCatalog
 
@@ -383,6 +403,80 @@ class ModuleModelChatCompletionApiRequest(BaseModel):
     ]
     messages: List[Dict[str, Any]] = Field(min_length=1, max_length=256)
     timeout_seconds: int = Field(default=300, ge=180, le=900)
+
+
+def _module_openai_chat_completion_json_schema(
+    schema: dict[str, Any],
+) -> None:
+    schema["allOf"] = [
+        {
+            "not": {
+                "required": [
+                    "max_tokens",
+                    "max_completion_tokens",
+                ]
+            }
+        },
+        {
+            "if": {"required": ["stream_options"]},
+            "then": {
+                "required": ["stream"],
+                "properties": {"stream": {"const": True}},
+            },
+        },
+    ]
+    schema["properties"]["stream_options"] = {
+        "type": "object",
+        "additionalProperties": False,
+        "required": ["include_usage"],
+        "properties": {
+            "include_usage": {
+                "type": "boolean",
+                "const": True,
+            }
+        },
+    }
+
+
+class ModuleOpenAIChatCompletionApiRequest(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+        json_schema_extra=_module_openai_chat_completion_json_schema,
+    )
+
+    model: Literal[
+        "agent-runtime",
+        "agent-compiler",
+        "agent-polisher",
+    ]
+    messages: List[Dict[str, Any]] = Field(min_length=1, max_length=256)
+    tools: (
+        Annotated[List[Dict[str, Any]], Field(max_length=128)]
+        | SkipJsonSchema[None]
+    ) = None
+    tool_choice: (
+        str | Dict[str, Any] | SkipJsonSchema[None]
+    ) = None
+    response_format: Dict[str, Any] | SkipJsonSchema[None] = None
+    temperature: (
+        Annotated[float, Field(ge=0, le=2)]
+        | SkipJsonSchema[None]
+    ) = None
+    top_p: (
+        Annotated[float, Field(ge=0, le=1)]
+        | SkipJsonSchema[None]
+    ) = None
+    max_tokens: (
+        Annotated[int, Field(ge=1, le=65536)]
+        | SkipJsonSchema[None]
+    ) = None
+    max_completion_tokens: (
+        Annotated[int, Field(ge=1, le=65536)]
+        | SkipJsonSchema[None]
+    ) = None
+    parallel_tool_calls: bool | SkipJsonSchema[None] = None
+    stream: bool = False
+    stream_options: Dict[str, bool] | SkipJsonSchema[None] = None
 
 
 class ModuleArtifactApiView(BaseModel):
@@ -9076,6 +9170,166 @@ async def _module_host_model_chat_completion(
     }
 
 
+async def _open_module_host_model_chat_stream(
+    request: dict[str, Any],
+) -> aiohttp.ClientResponse:
+    profile = request["profile"]
+    config = (
+        db.get_model_by_type(profile)
+        or db.get_model_by_type("chat")
+    )
+    if config is None or not config.api_url or not config.model_id:
+        raise ModuleTaskError(
+            "model_unavailable",
+            "Requested model profile is not configured",
+            status_code=503,
+        )
+    if request.get("tools") and not config.capability.tools:
+        raise ModuleTaskError(
+            "model_tool_calling_unavailable",
+            "Requested model profile does not support native tool calling",
+            status_code=409,
+        )
+
+    settings = db.get_settings()
+    upstream = {
+        "model": config.model_id,
+        "messages": request["messages"],
+        "temperature": request.get("temperature", 0.2),
+        "top_p": request.get(
+            "top_p",
+            settings.chat_settings.top_p,
+        ),
+        "max_tokens": min(
+            request.get("max_tokens", config.max_output),
+            config.max_output,
+        ),
+        "stream": True,
+    }
+    for field in (
+        "tools",
+        "tool_choice",
+        "response_format",
+        "parallel_tool_calls",
+        "stream_options",
+    ):
+        if field in request:
+            upstream[field] = request[field]
+
+    headers = {"Content-Type": "application/json"}
+    if config.api_key:
+        headers["Authorization"] = f"Bearer {config.api_key}"
+    timeout_seconds = request.get("timeout_seconds", 300)
+    timeout = aiohttp.ClientTimeout(
+        total=timeout_seconds,
+        connect=min(30, timeout_seconds),
+        sock_read=None,
+    )
+    response: aiohttp.ClientResponse | None = None
+    try:
+        session = await get_http_session()
+        response = await session.post(
+            config.api_url.rstrip("/") + "/chat/completions",
+            json=upstream,
+            headers=headers,
+            timeout=timeout,
+        )
+        if response.status != 200:
+            response.close()
+            raise ModuleTaskError(
+                "model_request_failed",
+                "Model request failed",
+                status_code=502,
+            )
+        content_type = response.headers.get("Content-Type", "")
+        if content_type.split(";", 1)[0].strip().lower() != (
+            "text/event-stream"
+        ):
+            response.close()
+            raise ModuleTaskError(
+                "invalid_model_response",
+                "Model returned an invalid response",
+                status_code=502,
+            )
+        return response
+    except asyncio.TimeoutError:
+        if response is not None:
+            response.close()
+        raise ModuleTaskError(
+            "model_timeout",
+            "Model request timed out",
+            status_code=504,
+        ) from None
+    except aiohttp.ClientError:
+        if response is not None:
+            response.close()
+        raise ModuleTaskError(
+            "model_request_failed",
+            "Model request failed",
+            status_code=502,
+        ) from None
+
+
+async def _wait_for_module_stream_disconnect(request: Request) -> None:
+    while True:
+        message = await request.receive()
+        if message["type"] == "http.disconnect":
+            return
+
+
+async def _open_module_host_model_chat_stream_for_request(
+    downstream_request: Request,
+    model_request: dict[str, Any],
+) -> aiohttp.ClientResponse | None:
+    open_task = asyncio.create_task(
+        _open_module_host_model_chat_stream(model_request),
+        name="module-model-stream-open",
+    )
+    disconnect_task = asyncio.create_task(
+        _wait_for_module_stream_disconnect(downstream_request),
+        name="module-model-stream-preheader-disconnect",
+    )
+    completed = False
+    try:
+        done, _pending = await asyncio.wait(
+            {open_task, disconnect_task},
+            return_when=asyncio.FIRST_COMPLETED,
+        )
+        if disconnect_task in done:
+            open_task.cancel()
+            results = await asyncio.gather(
+                open_task,
+                return_exceptions=True,
+            )
+            response = results[0]
+            if isinstance(response, aiohttp.ClientResponse):
+                response.close()
+            completed = True
+            return None
+
+        disconnect_task.cancel()
+        await asyncio.gather(
+            disconnect_task,
+            return_exceptions=True,
+        )
+        response = open_task.result()
+        completed = True
+        return response
+    finally:
+        if not completed:
+            for task in (open_task, disconnect_task):
+                if not task.done():
+                    task.cancel()
+            results = await asyncio.gather(
+                open_task,
+                disconnect_task,
+                return_exceptions=True,
+            )
+            response = results[0]
+            if isinstance(response, aiohttp.ClientResponse):
+                response.close()
+
+
 agent_rule_service = AgentRuleService(
     db.connection,
     compile_model=_module_host_model_chat_completion,
@@ -10112,9 +10366,33 @@ async def module_capability_model_chat_completion(request: Request):
 
 @app.post(
     "/api/module-capabilities/v1/openai/chat/completions",
-    responses=MODULE_API_ERROR_RESPONSES,
+    responses={
+        200: {
+            "description": (
+                "OpenAI-compatible JSON completion or sanitized SSE stream"
+            ),
+            "content": {
+                "application/json": {},
+                "text/event-stream": {
+                    "schema": {
+                        "type": "string",
+                        "description": (
+                            "Sanitized OpenAI data events ending in "
+                            "data: [DONE], or one terminal data event with "
+                            'an {"error":{"code","message"}} object after '
+                            "response headers have been sent."
+                        ),
+                    }
+                },
+            },
+        },
+        **MODULE_API_ERROR_RESPONSES,
+    },
     openapi_extra={
         "security": [{"ModuleCapabilityBearer": []}],
+        "requestBody": _module_json_body(
+            ModuleOpenAIChatCompletionApiRequest
+        ),
     },
 )
 async def module_capability_openai_chat_completion(request: Request):
@@ -10124,6 +10402,59 @@ async def module_capability_openai_chat_completion(request: Request):
             request,
             max_bytes=1024 * 1024,
         )
+        if payload.get("stream") is True:
+            prepared = (
+                await module_task_service
+                .prepare_openai_chat_completion_stream(
+                    token,
+                    payload,
+                )
+            )
+            upstream_response = (
+                await _open_module_host_model_chat_stream_for_request(
+                    request,
+                    prepared["request"],
+                )
+            )
+            if upstream_response is None:
+                return Response(status_code=499)
+
+            async def generate():
+                try:
+                    async for chunk in iter_sanitized_openai_sse(
+                        upstream_response.content.iter_any()
+                    ):
+                        yield chunk
+                except asyncio.CancelledError:
+                    raise
+                except ModuleModelStreamError as error:
+                    yield encode_openai_stream_error(
+                        error.code,
+                        error.public_message,
+                    )
+                except asyncio.TimeoutError:
+                    yield encode_openai_stream_error(
+                        "model_timeout",
+                        "Model request timed out",
+                    )
+                except aiohttp.ClientError:
+                    yield encode_openai_stream_error(
+                        "model_stream_failed",
+                        "Model stream failed",
+                    )
+                finally:
+                    upstream_response.close()
+
+            return StreamingResponse(
+                generate(),
+                media_type="text/event-stream",
+                headers={
+                    "Cache-Control": "private, no-store",
+                    "X-Accel-Buffering": "no",
+                    "Content-Encoding": "identity",
+                    "X-Content-Type-Options": "nosniff",
+                },
+            )
         return await module_task_service.capability_openai_chat_completion(
             token,
             payload,

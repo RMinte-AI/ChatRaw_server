@@ -501,6 +501,24 @@ Host Capability 是 Server 为某个 task 签发的最小、短期、可撤销�
 `/chat/completions`。请求只能使用 scope 中的逻辑模型 profile，不能传 Server 模型地址或密钥。
 每个 task 最多 64 次、单请求最大 1 MiB。
 
+该 capability 的 `scope.supports_stream` 表示 Server 是否接受 `stream: true`。字段缺失时模块必须
+按不支持处理，不能通过失败请求试探。`stream` 缺失或为 `false` 时返回既有 JSON completion；
+`stream: true` 时返回经过 Server 解析、校验和重新编码的 OpenAI-compatible
+`text/event-stream`。正常流使用 `data: {...}\n\n` 并以 `data: [DONE]\n\n` 结束；heartbeat
+使用 SSE comment，合法空 chunk 仍是普通 `data` event。只有非空 `content` 或 tool
+`arguments` delta 表示真实模型生成进度。Server 不转发 reasoning/thinking、Prompt、凭证、私有
+URL、响应头、供应商 trace 或扩展字段，也不会因暂时只有 heartbeat 或空 chunk 而提前终止请求。
+需要流式 usage 的 OpenAI 客户端可发送唯一受支持的
+`stream_options: {"include_usage": true}`；Server 校验后将该选项转发给上游，其他
+`stream_options` 扩展会被拒绝。下游在上游响应头之前或流中关闭连接时，Server 都会立即取消并
+关闭对应上游请求。
+
+响应头发出后的解析、上游传输或总超时错误使用单个
+`data: {"error":{"code":"...","message":"..."}}\n\n` 事件终止连接，不再发送 `[DONE]`。
+稳定错误码包括 `invalid_model_stream`、`model_stream_limit_exceeded`、
+`model_stream_incomplete`、`model_timeout` 和 `model_stream_failed`；模块不得把错误事件当作
+模型内容或生成进度。
+
 `skill.read` 与 `rule.read` 都是不可变任务快照：创建任务后，用户更新或停用原对象不会改写
 已签发 task。Skill capability 注入 `SKILL.md` 并返回静态资源清单；它不返回或执行资源内容、
 不授予权限；每个 task 最多 5 个。
@@ -552,6 +570,9 @@ Rule 只返回经过 Compiler Specification 编译、Pydantic 校验且由用户
 | `model.invoke` | 每个 task 最多 8 次 |
 | `model.invoke` prompt | 64 KiB |
 | `model.chat.completions` | 每个 task 最多 64 次；单请求 1 MiB |
+| 单个模型 SSE event | 256 KiB |
+| 单次模型 SSE 累计 tool name/arguments | 2 MiB |
+| 单次模型 SSE 上游总流量 | 16 MiB |
 | `skill.read` | 每个 task 最多 5 个不可变版本 |
 | `rule.read` | 每个 task 最多 10 个不可变版本 |
 | `resource.read` 内容 | 2 MiB |
@@ -705,6 +726,16 @@ Use the committed manifest, management, task, and Resident JSON Schemas; the Mod
 - Durable task identity, idempotent creation, persisted ordered SSE, replay with `Last-Event-ID`, and restart recovery.
 - Optional cancellation, approval, artifacts, and chat projection exactly as declared.
 - Task-scoped, expiring Host Capability tokens; never trust browser-supplied identity.
+- `model.chat.completions` advertises streaming through
+  `scope.supports_stream`. With `stream: true`, the Server parses and
+  re-encodes bounded OpenAI-compatible SSE; only non-empty content or tool
+  arguments deltas are real generation progress. Heartbeats and empty chunks
+  do not trigger an idle failure. Reasoning, prompts, credentials, private
+  endpoints, upstream headers, traces, and vendor extensions are never
+  forwarded or logged. The only supported stream option is
+  `{"include_usage": true}`. Disconnects before upstream headers or during
+  the stream cancel the upstream request. Post-header failures terminate with
+  one OpenAI-style `error` data event and no `[DONE]`.
 - Temporary task inputs through `resource.stream`, and module-owned output resources through the
   authenticated task resource proxy, only for actions that declare `supports_resources`.
 - Source and Compose deployment, persistent data, health checks, and no default host port.

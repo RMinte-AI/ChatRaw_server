@@ -1031,7 +1031,8 @@ class ModuleTaskService:
                         "agent-runtime",
                         "agent-compiler",
                         "agent-polisher",
-                    ]
+                    ],
+                    "supports_stream": True,
                 },
                 MAX_MODEL_CHAT_REQUESTS,
             )
@@ -3367,4 +3368,86 @@ class ModuleTaskService:
                 "completion_tokens": usage.get("output_tokens", 0),
                 "total_tokens": usage.get("total_tokens", 0),
             },
+        }
+
+    async def prepare_openai_chat_completion_stream(
+        self,
+        token: str,
+        request: Any,
+    ) -> dict[str, Any]:
+        if not isinstance(request, dict):
+            raise ModuleTaskError(
+                "invalid_model_request",
+                "Model request must be an object",
+            )
+        allowed = {
+            "model",
+            "messages",
+            "tools",
+            "tool_choice",
+            "response_format",
+            "temperature",
+            "top_p",
+            "max_tokens",
+            "max_completion_tokens",
+            "parallel_tool_calls",
+            "stream",
+            "stream_options",
+        }
+        if set(request) - allowed or request.get("stream") is not True:
+            raise ModuleTaskError(
+                "invalid_model_request",
+                "Model request fields are invalid",
+            )
+        if (
+            "max_tokens" in request
+            and "max_completion_tokens" in request
+        ):
+            raise ModuleTaskError(
+                "invalid_model_request",
+                "Only one model token limit may be supplied",
+            )
+        stream_options = request.get("stream_options")
+        if stream_options is not None and (
+            not isinstance(stream_options, dict)
+            or set(stream_options) != {"include_usage"}
+            or stream_options.get("include_usage") is not True
+        ):
+            raise ModuleTaskError(
+                "invalid_model_request",
+                "Model stream options are invalid",
+            )
+        normalized = {
+            key: value
+            for key, value in request.items()
+            if key
+            not in {
+                "model",
+                "max_completion_tokens",
+                "stream",
+                "stream_options",
+            }
+        }
+        normalized["profile"] = request.get("model")
+        normalized["timeout_seconds"] = 900
+        if "max_completion_tokens" in request:
+            normalized["max_tokens"] = request["max_completion_tokens"]
+
+        await self._preflight_capability(
+            token,
+            "model.chat.completions",
+        )
+        row, scope = self._consume_capability(
+            token,
+            "model.chat.completions",
+        )
+        payload = self._validate_model_chat_request(
+            normalized,
+            scope.get("profiles", []),
+        )
+        if stream_options is not None:
+            payload["stream_options"] = {"include_usage": True}
+        return {
+            "task_id": row["task_id"],
+            "request": payload,
         }

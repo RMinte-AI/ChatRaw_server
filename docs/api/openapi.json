@@ -3297,14 +3297,156 @@
     "/api/module-capabilities/v1/openai/chat/completions": {
       "post": {
         "operationId": "module_capability_openai_chat_completion_api_module_capabilities_v1_openai_chat_completions_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": false,
+                "allOf": [
+                  {
+                    "not": {
+                      "required": [
+                        "max_tokens",
+                        "max_completion_tokens"
+                      ]
+                    }
+                  },
+                  {
+                    "if": {
+                      "required": [
+                        "stream_options"
+                      ]
+                    },
+                    "then": {
+                      "properties": {
+                        "stream": {
+                          "const": true
+                        }
+                      },
+                      "required": [
+                        "stream"
+                      ]
+                    }
+                  }
+                ],
+                "properties": {
+                  "max_completion_tokens": {
+                    "maximum": 65536.0,
+                    "minimum": 1.0,
+                    "title": "Max Completion Tokens",
+                    "type": "integer"
+                  },
+                  "max_tokens": {
+                    "maximum": 65536.0,
+                    "minimum": 1.0,
+                    "title": "Max Tokens",
+                    "type": "integer"
+                  },
+                  "messages": {
+                    "items": {
+                      "additionalProperties": true,
+                      "type": "object"
+                    },
+                    "maxItems": 256,
+                    "minItems": 1,
+                    "title": "Messages",
+                    "type": "array"
+                  },
+                  "model": {
+                    "enum": [
+                      "agent-runtime",
+                      "agent-compiler",
+                      "agent-polisher"
+                    ],
+                    "title": "Model",
+                    "type": "string"
+                  },
+                  "parallel_tool_calls": {
+                    "title": "Parallel Tool Calls",
+                    "type": "boolean"
+                  },
+                  "response_format": {
+                    "additionalProperties": true,
+                    "title": "Response Format",
+                    "type": "object"
+                  },
+                  "stream": {
+                    "default": false,
+                    "title": "Stream",
+                    "type": "boolean"
+                  },
+                  "stream_options": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "include_usage": {
+                        "const": true,
+                        "type": "boolean"
+                      }
+                    },
+                    "required": [
+                      "include_usage"
+                    ],
+                    "type": "object"
+                  },
+                  "temperature": {
+                    "maximum": 2.0,
+                    "minimum": 0.0,
+                    "title": "Temperature",
+                    "type": "number"
+                  },
+                  "tool_choice": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "additionalProperties": true,
+                        "type": "object"
+                      }
+                    ],
+                    "title": "Tool Choice"
+                  },
+                  "tools": {
+                    "items": {
+                      "additionalProperties": true,
+                      "type": "object"
+                    },
+                    "maxItems": 128,
+                    "title": "Tools",
+                    "type": "array"
+                  },
+                  "top_p": {
+                    "maximum": 1.0,
+                    "minimum": 0.0,
+                    "title": "Top P",
+                    "type": "number"
+                  }
+                },
+                "required": [
+                  "model",
+                  "messages"
+                ],
+                "title": "ModuleOpenAIChatCompletionApiRequest",
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
         "responses": {
           "200": {
             "content": {
               "application/json": {
                 "schema": {}
+              },
+              "text/event-stream": {
+                "schema": {
+                  "description": "Sanitized OpenAI data events ending in data: [DONE], or one terminal data event with an {\"error\":{\"code\",\"message\"}} object after response headers have been sent.",
+                  "type": "string"
+                }
               }
             },
-            "description": "Successful Response"
+            "description": "OpenAI-compatible JSON completion or sanitized SSE stream"
           },
           "400": {
             "content": {

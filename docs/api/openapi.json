@@ -832,6 +832,26 @@
         "title": "ModuleModelChatCapabilityApiResponse",
         "type": "object"
       },
+      "ModuleModelV2CapabilityApiResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "output": {
+            "additionalProperties": true,
+            "title": "Output",
+            "type": "object"
+          },
+          "task_id": {
+            "title": "Task Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "task_id",
+          "output"
+        ],
+        "title": "ModuleModelV2CapabilityApiResponse",
+        "type": "object"
+      },
       "ModulePrincipalCapabilityApiResponse": {
         "additionalProperties": false,
         "properties": {
@@ -3528,6 +3548,138 @@
           }
         ],
         "summary": "Module Capability Model"
+      }
+    },
+    "/api/module-capabilities/v1/model/invoke-v2": {
+      "post": {
+        "operationId": "module_capability_model_v2_api_module_capabilities_v1_model_invoke_v2_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": false,
+                "properties": {
+                  "output_schema": {
+                    "additionalProperties": true,
+                    "title": "Output Schema",
+                    "type": "object"
+                  },
+                  "prompt": {
+                    "maxLength": 65536,
+                    "minLength": 1,
+                    "title": "Prompt",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "prompt",
+                  "output_schema"
+                ],
+                "title": "ModuleModelInvokeV2ApiRequest",
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModuleModelV2CapabilityApiResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModuleErrorResponse"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModuleErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModuleErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModuleErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModuleErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModuleErrorResponse"
+                }
+              }
+            },
+            "description": "Content Too Large"
+          },
+          "502": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModuleErrorResponse"
+                }
+              }
+            },
+            "description": "Bad Gateway"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModuleErrorResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "security": [
+          {
+            "ModuleCapabilityBearer": []
+          }
+        ],
+        "summary": "Module Capability Model V2"
       }
     },
     "/api/module-capabilities/v1/openai/chat/completions": {

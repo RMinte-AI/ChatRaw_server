@@ -73,7 +73,8 @@
                 "chat.read",
                 "resource.read",
                 "resource.stream",
-                "model.invoke"
+                "model.invoke",
+                "model.invoke.v2"
               ]
             },
             "default": []

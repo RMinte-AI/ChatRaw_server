@@ -61,6 +61,46 @@ class ConformanceError(RuntimeError):
     pass
 
 
+def _sample_structured_output(schema: dict[str, Any]) -> Any:
+    if "const" in schema:
+        return schema["const"]
+    enum = schema.get("enum")
+    if isinstance(enum, list) and enum:
+        return enum[0]
+    for keyword in ("oneOf", "anyOf"):
+        variants = schema.get(keyword)
+        if isinstance(variants, list) and variants:
+            return _sample_structured_output(variants[0])
+    if "default" in schema:
+        return schema["default"]
+    schema_type = schema.get("type")
+    if schema_type == "object":
+        properties = schema.get("properties", {})
+        required = schema.get("required", [])
+        return {
+            key: _sample_structured_output(properties[key])
+            for key in required
+            if key in properties
+        }
+    if schema_type == "array":
+        count = max(0, int(schema.get("minItems", 0)))
+        return [
+            _sample_structured_output(schema.get("items", {}))
+            for _index in range(count)
+        ]
+    if schema_type == "string":
+        return "conformance"
+    if schema_type == "integer":
+        return int(schema.get("minimum", 0))
+    if schema_type == "number":
+        return float(schema.get("minimum", 0))
+    if schema_type == "boolean":
+        return False
+    if schema_type == "null":
+        return None
+    raise ConformanceError("unsupported structured output schema")
+
+
 class CapabilityStub:
     def __init__(self, requested_base_url: str):
         if requested_base_url == "auto":
@@ -207,41 +247,65 @@ class CapabilityStub:
 
             def do_POST(self) -> None:  # noqa: N802
                 registration = self._authorization()
-                if (
-                    registration is None
-                    or registration["capability"] != "model.invoke"
-                    or self.path
-                    != "/api/module-capabilities/v1/model/invoke"
-                ):
+                if registration is None:
+                    self._send_json(403, {"detail": "Capability denied"})
+                    return
+                capability = registration["capability"]
+                expected_path = {
+                    "model.invoke": (
+                        "/api/module-capabilities/v1/model/invoke"
+                    ),
+                    "model.invoke.v2": (
+                        "/api/module-capabilities/v1/model/invoke-v2"
+                    ),
+                }.get(capability)
+                if expected_path is None or self.path != expected_path:
                     self._send_json(403, {"detail": "Capability denied"})
                     return
                 try:
                     content_length = int(
                         self.headers.get("Content-Length", "0")
                     )
-                    if not 0 < content_length <= 64 * 1024:
+                    limit = (
+                        64 * 1024
+                        if capability == "model.invoke"
+                        else 256 * 1024
+                    )
+                    if not 0 < content_length <= limit:
                         raise ValueError
                     payload = json.loads(self.rfile.read(content_length))
                 except (ValueError, json.JSONDecodeError):
                     self._send_json(400, {"detail": "Invalid request"})
                     return
-                if (
-                    not isinstance(payload, dict)
-                    or set(payload) != {"prompt"}
-                    or not isinstance(payload["prompt"], str)
-                    or not payload["prompt"]
-                ):
+                expected_fields = (
+                    {"prompt"}
+                    if capability == "model.invoke"
+                    else {"prompt", "output_schema"}
+                )
+                if not isinstance(payload, dict) or set(payload) != expected_fields:
+                    self._send_json(400, {"detail": "Invalid request"})
+                    return
+                if not isinstance(payload["prompt"], str) or not payload["prompt"]:
                     self._send_json(400, {"detail": "Invalid request"})
                     return
                 task_id = registration["task_id"]
-                owner._record_call(task_id, "model.invoke")
-                self._send_json(
-                    200,
-                    {
+                owner._record_call(task_id, capability)
+                if capability == "model.invoke":
+                    response = {
                         "task_id": task_id,
                         "content": "conformance model response",
-                    },
-                )
+                    }
+                else:
+                    output_schema = payload["output_schema"]
+                    try:
+                        Draft202012Validator.check_schema(output_schema)
+                        output = _sample_structured_output(output_schema)
+                        Draft202012Validator(output_schema).validate(output)
+                    except Exception:
+                        self._send_json(400, {"detail": "Invalid schema"})
+                        return
+                    response = {"task_id": task_id, "output": output}
+                self._send_json(200, response)
 
         try:
             self._server = ThreadingHTTPServer((host, port), Handler)
@@ -289,6 +353,10 @@ class CapabilityStub:
                 "resource_ids": ["conformance-stream-resource"]
             },
             "model.invoke": {"model_type": "chat"},
+            "model.invoke.v2": {
+                "model_type": "chat",
+                "structured_output": "json_schema",
+            },
         }
         paths = {
             "chat.read": "/api/module-capabilities/v1/chat",
@@ -299,6 +367,9 @@ class CapabilityStub:
                 "/api/module-capabilities/v1/resource-stream/{resource_id}"
             ),
             "model.invoke": "/api/module-capabilities/v1/model/invoke",
+            "model.invoke.v2": (
+                "/api/module-capabilities/v1/model/invoke-v2"
+            ),
         }
         expires_at = (
             datetime.now(timezone.utc) + timedelta(minutes=5)

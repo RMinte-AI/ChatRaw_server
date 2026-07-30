@@ -47,6 +47,7 @@ HOST_CAPABILITIES = {
     "resource.read",
     "resource.stream",
     "model.invoke",
+    "model.invoke.v2",
     "model.chat.completions",
     "skill.read",
     "rule.read",

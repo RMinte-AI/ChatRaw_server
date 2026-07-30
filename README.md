@@ -50,6 +50,8 @@ Compiled Rule v1.2 以类型化 `deterministic_pagination` 表达单一工具的
 v1.0/v1.1 快照仍可读取。
 Agent 任务使用通用 `activity.updated` 事件把显式计划、工具调用和脱敏结果显示在同一条对话消息中；
 最终 Markdown 仍由 Server 的聊天投影唯一持久化，不展示模型隐藏思维链。
+需要稳定机器输出的模块可申请高风险、任务级的 `model.invoke.v2`，由 Server 将受限
+JSON Schema 作为约束解码契约交给模型，并在回传前再次校验。
 
 Agent 的规则、Skill 和 Tool 是三个不同层次：
 
@@ -261,6 +263,9 @@ private protocol is not part of the public Module Protocol.
 Generic `activity.updated` events show explicit plans, tool calls, and redacted
 results inside one conversation message. The persisted chat projection remains
 the only final Markdown answer; hidden model reasoning is never exposed.
+Modules that need stable machine output may request the high-risk, task-scoped
+`model.invoke.v2`; Server uses the bounded JSON Schema as a constrained-decoding
+contract and validates the returned object again.
 
 ## Roles
 

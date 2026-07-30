@@ -17,6 +17,9 @@ from pathlib import Path
 from typing import Any, Awaitable, Callable
 from urllib.parse import quote
 
+from jsonschema import Draft202012Validator
+from jsonschema.exceptions import SchemaError, ValidationError
+
 try:
     from .db_runtime import database_connection
     from .module_registry import (
@@ -97,6 +100,8 @@ SAFE_ARTIFACT_MEDIA_TYPES = {
 DEFAULT_TASK_INPUT_RESOURCE_BYTES = 100 * 1024 * 1024
 TASK_INPUT_RESOURCE_TTL_SECONDS = 24 * 60 * 60
 MAX_MODEL_CHAT_REQUEST_BYTES = 1024 * 1024
+MAX_MODEL_STRUCTURED_REQUEST_BYTES = 256 * 1024
+MAX_MODEL_STRUCTURED_SCHEMA_BYTES = 192 * 1024
 MAX_MODEL_CHAT_REQUESTS = 65
 MAX_CHAT_HISTORY_MESSAGES = 40
 MAX_CHAT_HISTORY_CHARACTERS = 200_000
@@ -143,6 +148,10 @@ class ModuleTaskService:
         audit: Callable[..., None],
         chat_generation_active: Callable[[str], bool] | None = None,
         model_invoke: Callable[[str], Awaitable[str]] | None = None,
+        model_invoke_v2: (
+            Callable[[str, dict[str, Any]], Awaitable[dict[str, Any]]]
+            | None
+        ) = None,
         model_chat_completion: (
             Callable[[dict[str, Any]], Awaitable[dict[str, Any]]] | None
         ) = None,
@@ -159,6 +168,7 @@ class ModuleTaskService:
         self.audit = audit
         self.chat_generation_active = chat_generation_active or (lambda _chat_id: False)
         self.model_invoke = model_invoke
+        self.model_invoke_v2 = model_invoke_v2
         self.model_chat_completion = model_chat_completion
         self.chat_auto_title = chat_auto_title
         self.capability_base_url = (
@@ -1039,6 +1049,14 @@ class ModuleTaskService:
                 {"model_type": "chat"},
                 8,
             )
+        if "model.invoke.v2" in allowed:
+            scopes["model.invoke.v2"] = (
+                {
+                    "model_type": "chat",
+                    "structured_output": "json_schema",
+                },
+                8,
+            )
         if "model.chat.completions" in allowed:
             scopes["model.chat.completions"] = (
                 {
@@ -1125,6 +1143,9 @@ class ModuleTaskService:
                 "/api/module-capabilities/v1/resource-stream/{resource_id}"
             ),
             "model.invoke": "/api/module-capabilities/v1/model/invoke",
+            "model.invoke.v2": (
+                "/api/module-capabilities/v1/model/invoke-v2"
+            ),
             "model.chat.completions": (
                 "/api/module-capabilities/v1/openai"
             ),
@@ -3421,6 +3442,137 @@ class ModuleTaskService:
             )
         result = await self.model_invoke(prompt)
         return {"task_id": row["task_id"], "content": result}
+
+    @staticmethod
+    def _validate_structured_output_schema(
+        output_schema: Any,
+    ) -> dict[str, Any]:
+        if (
+            not isinstance(output_schema, dict)
+            or output_schema.get("type") != "object"
+            or output_schema.get("additionalProperties") is not False
+        ):
+            raise ModuleTaskError(
+                "invalid_model_request",
+                "Structured output schema must be a closed object",
+            )
+        try:
+            encoded = json.dumps(
+                output_schema,
+                ensure_ascii=False,
+                separators=(",", ":"),
+                allow_nan=False,
+            ).encode("utf-8")
+        except (TypeError, ValueError):
+            raise ModuleTaskError(
+                "invalid_model_request",
+                "Structured output schema must be valid JSON",
+            ) from None
+        if len(encoded) > MAX_MODEL_STRUCTURED_SCHEMA_BYTES:
+            raise ModuleTaskError(
+                "model_request_too_large",
+                "Structured output schema exceeds the size limit",
+                status_code=413,
+            )
+        stack: list[tuple[Any, int]] = [(output_schema, 0)]
+        nodes = 0
+        while stack:
+            value, depth = stack.pop()
+            nodes += 1
+            if nodes > 6000 or depth > 24:
+                raise ModuleTaskError(
+                    "invalid_model_request",
+                    "Structured output schema is too complex",
+                )
+            if isinstance(value, dict):
+                if any(
+                    key in value
+                    for key in ("$ref", "$dynamicRef", "$recursiveRef")
+                ):
+                    raise ModuleTaskError(
+                        "invalid_model_request",
+                        "Structured output schema references are not allowed",
+                    )
+                stack.extend((item, depth + 1) for item in value.values())
+            elif isinstance(value, list):
+                stack.extend((item, depth + 1) for item in value)
+        try:
+            Draft202012Validator.check_schema(output_schema)
+        except SchemaError:
+            raise ModuleTaskError(
+                "invalid_model_request",
+                "Structured output schema is invalid",
+            ) from None
+        return output_schema
+
+    async def capability_model_invoke_v2(
+        self,
+        token: str,
+        prompt: Any,
+        output_schema: Any,
+    ) -> dict[str, Any]:
+        await self._preflight_capability(token, "model.invoke.v2")
+        row, _scope = self._consume_capability(token, "model.invoke.v2")
+        if (
+            not isinstance(prompt, str)
+            or not prompt
+            or len(prompt.encode("utf-8")) > 64 * 1024
+        ):
+            raise ModuleTaskError(
+                "invalid_model_request",
+                "Model prompt is invalid",
+            )
+        schema = self._validate_structured_output_schema(output_schema)
+        try:
+            request_size = len(
+                json.dumps(
+                    {"prompt": prompt, "output_schema": schema},
+                    ensure_ascii=False,
+                    separators=(",", ":"),
+                    allow_nan=False,
+                ).encode("utf-8")
+            )
+        except (TypeError, ValueError):
+            raise ModuleTaskError(
+                "invalid_model_request",
+                "Structured model request must be valid JSON",
+            ) from None
+        if request_size > MAX_MODEL_STRUCTURED_REQUEST_BYTES:
+            raise ModuleTaskError(
+                "model_request_too_large",
+                "Structured model request exceeds the size limit",
+                status_code=413,
+            )
+        if self.model_invoke_v2 is None:
+            raise ModuleTaskError(
+                "model_unavailable",
+                "Structured model capability is unavailable",
+                status_code=503,
+            )
+        result = await self.model_invoke_v2(prompt, schema)
+        if not isinstance(result, dict):
+            raise ModuleTaskError(
+                "model_response_invalid",
+                "Structured model response is invalid",
+                status_code=502,
+            )
+        try:
+            json.dumps(result, allow_nan=False)
+        except (TypeError, ValueError):
+            raise ModuleTaskError(
+                "model_response_invalid",
+                "Structured model response is not valid JSON",
+                status_code=502,
+            ) from None
+        try:
+            Draft202012Validator(schema).validate(result)
+        except ValidationError:
+            raise ModuleTaskError(
+                "model_response_schema_invalid",
+                "Structured model response does not match the schema",
+                status_code=502,
+            ) from None
+        return {"task_id": row["task_id"], "output": result}
 
     @staticmethod
     def _validate_model_chat_request(

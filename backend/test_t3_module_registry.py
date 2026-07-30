@@ -529,6 +529,19 @@ class ModuleRegistryTests(unittest.IsolatedAsyncioTestCase):
             self.fake.token,
         )
 
+    async def test_structured_model_capability_is_known_and_effective(self):
+        self.fake.manifest["requested_host_capabilities"].append(
+            "model.invoke.v2"
+        )
+        paired = await self._pair()
+        review = next(
+            item
+            for item in paired["capability_reviews"]
+            if item["capability"] == "model.invoke.v2"
+        )
+        self.assertEqual(review["risk"], "high")
+        self.assertTrue(review["effective_for_tasks"])
+
     async def test_optional_resource_support_defaults_to_false(self):
         self.fake.manifest["actions"][0].pop("supports_resources", None)
         paired = await self._pair()

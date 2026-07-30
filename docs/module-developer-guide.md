@@ -462,6 +462,7 @@ Host Capability 是 Server 为某个 task 签发的最小、短期、可撤销�
 | `resource.read` | `GET /api/module-capabilities/v1/resources/{id}` | 创建任务时选择的 resource IDs |
 | `resource.stream` | `GET /api/module-capabilities/v1/resource-stream/{id}` | 当前任务绑定的临时输入原始字节 |
 | `model.invoke` | `POST /api/module-capabilities/v1/model/invoke` | 当前 task 的模型调用 |
+| `model.invoke.v2` | `POST /api/module-capabilities/v1/model/invoke-v2` | 当前 task 的 JSON Schema 约束模型调用 |
 | `model.chat.completions` | `POST /api/module-capabilities/v1/openai/chat/completions` | 当前 task 的 OpenAI-compatible Chat Completions |
 | `skill.read` | `GET /api/module-capabilities/v1/skills/{skill_id}` | 创建任务时冻结的个人 Skill 版本 |
 | `rule.read` | `GET /api/module-capabilities/v1/rules/{document_id}` | 创建任务时冻结的已激活 Compiled Rule 版本 |
@@ -530,6 +531,10 @@ assistant；模块失败、取消分别为 `failed`、`cancelled`；其他无法
 envelope 中已校验的 `input` 作为执行输入，不得要求聊天展示文本与任务输入相等。
 
 模块必须使用 envelope 自带的完整 `endpoint`，不能根据模块地址猜测 ChatRaw 地址。
+`model.invoke.v2` 请求必须包含 `prompt` 和闭合对象形式的 `output_schema`。Server 将
+Schema 传给支持约束解码的模型后端，并在返回前再次校验；成功响应中的 `output` 是已经
+通过 Schema 的 JSON 对象。Schema 不允许任何引用，模块也不得把普通文本解析后
+伪装成结构化结果。
 `resource.read` 和 `resource.stream` 的 endpoint 包含 `{resource_id}` 占位符，只能替换为 scope
 中授权的资源 ID。`resource.stream` 返回原始字节流；模块必须检查 `Content-Type`、
 `Content-Length` 和 `X-Content-SHA256`，并将实际字节数和 SHA256 与响应头比对；不一致时
@@ -613,6 +618,7 @@ ChatRaw 文档表、解析器或索引。Action 必须声明 `supports_resources
 | Host Capability 有效期 | 15 分钟 |
 | `model.invoke` | 每个 task 最多 8 次 |
 | `model.invoke` prompt | 64 KiB |
+| `model.invoke.v2` | 每个 task 最多 8 次；单请求 256 KiB；Schema 192 KiB |
 | `model.chat.completions` | 每个 task 最多 64 次；单请求 1 MiB |
 | 单个模型 SSE event | 256 KiB |
 | 单次模型 SSE 累计 tool name/arguments | 2 MiB |
@@ -770,6 +776,10 @@ Use the committed manifest, management, task, and Resident JSON Schemas; the Mod
 - Durable task identity, idempotent creation, persisted ordered SSE, replay with `Last-Event-ID`, and restart recovery.
 - Optional cancellation, approval, artifacts, and chat projection exactly as declared.
 - Task-scoped, expiring Host Capability tokens; never trust browser-supplied identity.
+- `model.invoke.v2` accepts a bounded closed-object JSON Schema, uses it as the
+  configured model's constrained-output contract, and revalidates the returned
+  object. All Schema references are rejected; modules must not parse
+  ordinary text and present it as a validated structured result.
 - Public Module Task v1 `active_rules` remains scope-neutral. Agent-specific
   `rule.read` may add the task-frozen `personal` or `system_default` scope;
   consumers must not read mutable document state instead.

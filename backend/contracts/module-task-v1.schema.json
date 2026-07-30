@@ -121,6 +121,7 @@
             "resource.read",
             "resource.stream",
             "model.invoke",
+            "model.invoke.v2",
             "model.chat.completions",
             "skill.read",
             "rule.read"
@@ -249,7 +250,7 @@
         },
         "host_capabilities": {
           "type": "array",
-          "maxItems": 8,
+          "maxItems": 9,
           "items": {"$ref": "#/$defs/hostCapability"}
         }
       }

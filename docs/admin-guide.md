@@ -99,7 +99,7 @@ Compiled 内容并二次确认激活后，才会进入所有用户后续创建�
 或超限会在激活事务中失败，不会静默截断。
 
 规则变更只影响后续新任务。任务创建时已经冻结的作用域、版本和哈希不会漂移。升级到
-Schema 15 前必须停止写入并备份；旧 Server 不能直接打开迁移后的数据库，回滚代码时
+Schema 16 前必须停止写入并备份；旧 Server 不能直接打开迁移后的数据库，回滚代码时
 必须同时恢复匹配的迁移前快照。
 
 未激活规则可由个人所有者或系统规则管理员删除；激活规则必须先明确停用，Server 不会
@@ -127,6 +127,10 @@ Schema 15 前必须停止写入并备份；旧 Server 不能直接打开迁移�
 9. 启用模块。
 
 任何影响权限边界的 manifest 变化都会进入 `review required`，原 Capability Grant 被撤销；管理员必须重新检查和批准。权限边界包括模块主版本、Action 契约和能力、Host Capability、前端集成模式/ID/版本约束、数据清理能力，以及完整的 `config_schema`。因此新增秘密配置字段也一定会重新触发审核。
+
+`model.invoke.v2` 是高风险的任务级结构化模型能力。它允许模块提交受限 JSON Schema，
+但不允许模块读取模型密钥或绕过 Server 直连模型；Server 会使用约束解码并在回传前再次
+验证 Schema。只有确实需要稳定机器输出、且不能用确定性代码完成的模块才应获批。
 
 ### 6. 模块生命周期
 
@@ -387,7 +391,7 @@ take precedence over conflicting system defaults. The combined limit remains
 10 rules per task; conflicts and over-capacity activation fail transactionally
 without truncation. Existing task snapshots never drift.
 
-Back up the quiesced Server database before Schema 15. Inactive personal rules
+Back up the quiesced Server database before Schema 16. Inactive personal rules
 may be deleted by their owner and inactive system rules by an administrator.
 Server never deactivates a rule as a side effect of deletion. Deletion writes a
 tombstone: ordinary lists and future tasks omit it, frozen in-flight and
@@ -402,6 +406,10 @@ matching pre-migration data snapshot.
 Pair with a fresh one-time code, review the manifest, approve permissions, and configure values and secrets. For plugin mode, install the compatible companion plugin. For Resident mode, deploy a Server build containing the compatible source package; the WebUI does not install Resident code dynamically. After a configuration save, ChatRaw runs one automatic Check and the WebUI performs bounded follow-up checks for asynchronous dependencies. If a dependency is still not ready, run Check again. Confirm Health/Ready/Config/Frontend Integration, and then enable the module.
 
 Permission-relevant manifest changes revoke grants and require a new review.
+`model.invoke.v2` is a high-risk, task-scoped structured-model capability.
+Approve it only when a module genuinely needs stable machine output that
+deterministic code cannot produce. The module never receives model credentials
+or a direct upstream address; Server constrains and revalidates the JSON object.
 
 | Operation | Effect | Module data |
 |---|---|---|

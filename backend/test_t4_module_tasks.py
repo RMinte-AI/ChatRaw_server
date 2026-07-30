@@ -370,6 +370,7 @@ class FakeRegistry:
                 "resource.read",
                 "resource.stream",
                 "model.invoke",
+                "model.invoke.v2",
                 "model.chat.completions",
             ],
             "lifecycle_state": "enabled",
@@ -482,11 +483,18 @@ class ModuleTaskServiceTests(unittest.IsolatedAsyncioTestCase):
         self.registry = FakeRegistry(self.client)
         self.audits = []
         self.model_prompts = []
+        self.structured_model_requests = []
         self.model_chat_requests = []
 
         async def invoke(prompt):
             self.model_prompts.append(prompt)
             return "model result"
+
+        async def invoke_v2(prompt, output_schema):
+            self.structured_model_requests.append(
+                (prompt, copy.deepcopy(output_schema))
+            )
+            return {"status": "ok"}
 
         async def chat_completion(request):
             self.model_chat_requests.append(request)
@@ -515,6 +523,7 @@ class ModuleTaskServiceTests(unittest.IsolatedAsyncioTestCase):
             registry=self.registry,
             audit=lambda *args: self.audits.append(args),
             model_invoke=invoke,
+            model_invoke_v2=invoke_v2,
             model_chat_completion=chat_completion,
         )
 
@@ -1896,6 +1905,20 @@ class ModuleTaskServiceTests(unittest.IsolatedAsyncioTestCase):
             ),
         )
         self.assertEqual(
+            capabilities["model.invoke.v2"]["endpoint"],
+            (
+                "http://127.0.0.1:51111/api/module-capabilities/v1/"
+                "model/invoke-v2"
+            ),
+        )
+        self.assertEqual(
+            capabilities["model.invoke.v2"]["scope"],
+            {
+                "model_type": "chat",
+                "structured_output": "json_schema",
+            },
+        )
+        self.assertEqual(
             capabilities["principal.read"]["endpoint"],
             (
                 "http://127.0.0.1:51111/api/module-capabilities/v1/"
@@ -1973,6 +1996,27 @@ class ModuleTaskServiceTests(unittest.IsolatedAsyncioTestCase):
             "safe prompt",
         )
         self.assertEqual(model["content"], "model result")
+        structured_schema = {
+            "type": "object",
+            "additionalProperties": False,
+            "required": ["status"],
+            "properties": {
+                "status": {"type": "string", "enum": ["ok"]}
+            },
+        }
+        structured = await self.service.capability_model_invoke_v2(
+            capabilities["model.invoke.v2"]["token"],
+            "safe structured prompt",
+            structured_schema,
+        )
+        self.assertEqual(
+            structured,
+            {"task_id": task["task_id"], "output": {"status": "ok"}},
+        )
+        self.assertEqual(
+            self.structured_model_requests,
+            [("safe structured prompt", structured_schema)],
+        )
         completion = (
             await self.service.capability_model_chat_completion(
                 capabilities["model.chat.completions"]["token"],
@@ -2044,6 +2088,84 @@ class ModuleTaskServiceTests(unittest.IsolatedAsyncioTestCase):
             await self.service.capability_chat_read(
                 capabilities["chat.read"]["token"]
             )
+
+    async def test_structured_model_rejects_unsafe_schema_and_bad_output(self):
+        task, _ = await self._create(key="structured-negative")
+        capability = next(
+            item
+            for item in self.client.tasks[task["task_id"]][
+                "host_capabilities"
+            ]
+            if item["capability"] == "model.invoke.v2"
+        )
+        with self.assertRaises(ModuleTaskError) as reference_error:
+            await self.service.capability_model_invoke_v2(
+                capability["token"],
+                "unsafe schema",
+                {
+                    "type": "object",
+                    "additionalProperties": False,
+                    "$ref": "https://example.invalid/schema.json",
+                },
+            )
+        self.assertEqual(
+            reference_error.exception.code,
+            "invalid_model_request",
+        )
+        with self.assertRaises(ModuleTaskError) as non_json_schema_error:
+            await self.service.capability_model_invoke_v2(
+                capability["token"],
+                "non-standard schema number",
+                {
+                    "type": "object",
+                    "additionalProperties": False,
+                    "properties": {
+                        "value": {
+                            "type": "number",
+                            "enum": [float("nan")],
+                        }
+                    },
+                },
+            )
+        self.assertEqual(
+            non_json_schema_error.exception.code,
+            "invalid_model_request",
+        )
+        with self.assertRaises(ModuleTaskError) as output_error:
+            await self.service.capability_model_invoke_v2(
+                capability["token"],
+                "schema mismatch",
+                {
+                    "type": "object",
+                    "additionalProperties": False,
+                    "required": ["count"],
+                    "properties": {"count": {"type": "integer"}},
+                },
+            )
+        self.assertEqual(
+            output_error.exception.code,
+            "model_response_schema_invalid",
+        )
+
+        async def non_json_number(_prompt, _schema):
+            return {"count": float("nan")}
+
+        self.service.model_invoke_v2 = non_json_number
+        with self.assertRaises(ModuleTaskError) as json_error:
+            await self.service.capability_model_invoke_v2(
+                capability["token"],
+                "non-standard JSON number",
+                {
+                    "type": "object",
+                    "additionalProperties": False,
+                    "required": ["count"],
+                    "properties": {"count": {"type": "number"}},
+                },
+            )
+        self.assertEqual(
+            json_error.exception.code,
+            "model_response_invalid",
+        )
 
     async def test_stream_preparation_consumes_capability_once(self):
         task, _ = await self._create()
@@ -3003,6 +3125,105 @@ class ModuleArtifactTransportTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(await response.read(), b"slow")
 
 
+class StructuredModelBridgeTests(unittest.IsolatedAsyncioTestCase):
+    async def test_v2_uses_strict_json_schema_and_parses_one_object(self):
+        captured = {}
+
+        async def invoke(
+            config,
+            messages,
+            max_tokens,
+            temperature=0.2,
+            response_format=None,
+        ):
+            captured.update(
+                {
+                    "config": config,
+                    "messages": messages,
+                    "max_tokens": max_tokens,
+                    "temperature": temperature,
+                    "response_format": response_format,
+                }
+            )
+            return '{"status":"ok"}'
+
+        config = SimpleNamespace(
+            api_url="http://model.test/v1",
+            model_id="fixture-model",
+            max_output=4096,
+        )
+        schema = {
+            "type": "object",
+            "additionalProperties": False,
+            "required": ["status"],
+            "properties": {
+                "status": {"type": "string", "enum": ["ok"]}
+            },
+        }
+        with (
+            patch.object(main.db, "get_model_by_type", return_value=config),
+            patch.object(
+                main.llm_service,
+                "_call_chat_completion_raw",
+                new=invoke,
+            ),
+        ):
+            output = await main._module_host_model_invoke_v2(
+                "structured prompt",
+                schema,
+            )
+
+        self.assertEqual(output, {"status": "ok"})
+        self.assertEqual(captured["temperature"], 0)
+        self.assertEqual(captured["messages"][0]["content"], "structured prompt")
+        self.assertEqual(
+            captured["response_format"],
+            {
+                "type": "json_schema",
+                "json_schema": {
+                    "name": "module_output",
+                    "strict": True,
+                    "schema": schema,
+                },
+            },
+        )
+
+    async def test_v2_rejects_non_standard_json_numbers(self):
+        async def invoke(
+            _config,
+            _messages,
+            max_tokens,
+            temperature=0.2,
+            response_format=None,
+        ):
+            return '{"count":NaN}'
+
+        config = SimpleNamespace(
+            api_url="http://model.test/v1",
+            model_id="fixture-model",
+            max_output=4096,
+        )
+        with (
+            patch.object(main.db, "get_model_by_type", return_value=config),
+            patch.object(
+                main.llm_service,
+                "_call_chat_completion_raw",
+                new=invoke,
+            ),
+        ):
+            with self.assertRaises(ModuleTaskError) as error:
+                await main._module_host_model_invoke_v2(
+                    "structured prompt",
+                    {
+                        "type": "object",
+                        "additionalProperties": False,
+                        "required": ["count"],
+                        "properties": {"count": {"type": "number"}},
+                    },
+                )
+        self.assertEqual(error.exception.code, "model_response_invalid")
+
+
 def _load_reference_module(data_dir, pairing_code, ttl_seconds=600):
     module_name = f"chatraw_reference_t4_{uuid.uuid4().hex}"
     module_path = REFERENCE_DIR / "app.py"
@@ -3043,6 +3264,9 @@ class ModuleTaskApiTests(unittest.TestCase):
         async def invoke(_prompt):
             return "host model output"
 
+        async def invoke_v2(_prompt, _output_schema):
+            return {"status": "ok"}
+
         async def chat_completion(request):
             return {
                 "profile": request["profile"],
@@ -3073,6 +3297,7 @@ class ModuleTaskApiTests(unittest.TestCase):
             audit=main.auth_service.audit,
             chat_generation_active=main._chat_generation_active,
             model_invoke=invoke,
+            model_invoke_v2=invoke_v2,
             model_chat_completion=chat_completion,
             resource_dir=self.resource_temp.name,
         )
@@ -3503,6 +3728,78 @@ class ModuleTaskApiTests(unittest.TestCase):
         )
         self.assertEqual(model.status_code, 200, model.text)
         self.assertNotIn("api_key", model.text.lower())
+        structured = self.client.post(
+            "/api/module-capabilities/v1/model/invoke-v2",
+            headers={
+                "Authorization": (
+                    f"Bearer {capabilities['model.invoke.v2']}"
+                )
+            },
+            json={
+                "prompt": "return one closed object",
+                "output_schema": {
+                    "type": "object",
+                    "additionalProperties": False,
+                    "required": ["status"],
+                    "properties": {
+                        "status": {
+                            "type": "string",
+                            "enum": ["ok"],
+                        }
+                    },
+                },
+            },
+        )
+        self.assertEqual(structured.status_code, 200, structured.text)
+        self.assertEqual(structured.json()["output"], {"status": "ok"})
+        self.assertNotIn("api_key", structured.text.lower())
+        unsafe_schema = self.client.post(
+            "/api/module-capabilities/v1/model/invoke-v2",
+            headers={
+                "Authorization": (
+                    f"Bearer {capabilities['model.invoke.v2']}"
+                )
+            },
+            json={
+                "prompt": "follow a remote schema",
+                "output_schema": {
+                    "type": "object",
+                    "additionalProperties": False,
+                    "$ref": "https://example.invalid/schema.json",
+                },
+            },
+        )
+        self.assertEqual(unsafe_schema.status_code, 400, unsafe_schema.text)
+        self.assertEqual(
+            unsafe_schema.json()["code"],
+            "invalid_model_request",
+        )
+        schema_mismatch = self.client.post(
+            "/api/module-capabilities/v1/model/invoke-v2",
+            headers={
+                "Authorization": (
+                    f"Bearer {capabilities['model.invoke.v2']}"
+                )
+            },
+            json={
+                "prompt": "return a count",
+                "output_schema": {
+                    "type": "object",
+                    "additionalProperties": False,
+                    "required": ["count"],
+                    "properties": {"count": {"type": "integer"}},
+                },
+            },
+        )
+        self.assertEqual(
+            schema_mismatch.status_code,
+            502,
+            schema_mismatch.text,
+        )
+        self.assertEqual(
+            schema_mismatch.json()["code"],
+            "model_response_schema_invalid",
+        )
         principal = self.client.get(
             "/api/module-capabilities/v1/principal",
             headers={

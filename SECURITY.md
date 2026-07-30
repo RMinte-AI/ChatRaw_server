@@ -130,6 +130,20 @@ metadata or range behavior fails closed and is not redirected to another upload 
 任务创建者或管理员。`GET`、`HEAD` 和单段 Range 响应必须与声明的媒体类型和长度一致；元数据或
 Range 行为不符合契约时直接失败，不回退到其他上传或文档路径。
 
+## Structured Model Capability / 结构化模型能力
+
+`model.invoke.v2` uses a task-scoped, expiring capability token. The module
+supplies a bounded, closed-object JSON Schema; ChatRaw forwards it only to the
+configured model backend as a constrained output contract and validates the
+returned object again. All Schema references are rejected.
+Model credentials, upstream addresses, raw failures, and capability tokens are
+never returned to the module or browser.
+
+`model.invoke.v2` 使用任务级短期 Capability Token。模块只能提交有大小限制的闭合对象
+JSON Schema；ChatRaw 仅将其作为约束输出契约交给已配置模型，并再次校验返回对象。系统
+拒绝所有 Schema 引用，不向模块或浏览器返回模型凭据、上游地址、原始错误或
+Capability Token。
+
 ## Local Data / 本地数据
 
 ChatRaw stores settings, chats, plugins, skills, and indexes under the configured `DATA_DIR`. Protect this

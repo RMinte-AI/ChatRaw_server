@@ -516,6 +516,7 @@ class ModuleHttpClient:
         try:
             headers = {
                 "Accept": "*/*",
+                "Accept-Encoding": "identity",
                 "Authorization": f"Bearer {token}",
                 "User-Agent": "ChatRaw-Module-Registry/1",
             }
@@ -991,6 +992,7 @@ class ModuleRegistry:
                 "resource.read": "medium",
                 "resource.stream": "medium",
                 "model.invoke": "high",
+                "model.invoke.v2": "high",
                 "model.chat.completions": "high",
                 "skill.read": "medium",
                 "rule.read": "medium",
@@ -1007,6 +1009,7 @@ class ModuleRegistry:
                         "resource.read",
                         "resource.stream",
                         "model.invoke",
+                        "model.invoke.v2",
                         "model.chat.completions",
                         "skill.read",
                         "rule.read",

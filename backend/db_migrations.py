@@ -4,7 +4,7 @@ import struct
 from datetime import datetime, timezone
 
 
-LATEST_SCHEMA_VERSION = 15
+LATEST_SCHEMA_VERSION = 16
 
 
 class UnsupportedSchemaVersion(RuntimeError):
@@ -1228,6 +1228,64 @@ def _migration_15_soft_delete_agent_rules(
     )
 
 
+def _migration_16_structured_model_capability(
+    connection: sqlite3.Connection,
+) -> None:
+    connection.execute(
+        "ALTER TABLE module_capability_tokens "
+        "RENAME TO module_capability_tokens_v15"
+    )
+    connection.execute(
+        """
+        CREATE TABLE module_capability_tokens (
+            token_digest TEXT PRIMARY KEY,
+            task_id TEXT NOT NULL,
+            registration_id TEXT NOT NULL,
+            capability TEXT NOT NULL
+                CHECK (
+                    capability IN (
+                        'chat.read',
+                        'principal.read',
+                        'resource.read',
+                        'resource.stream',
+                        'model.invoke',
+                        'model.invoke.v2',
+                        'model.chat.completions',
+                        'skill.read',
+                        'rule.read'
+                    )
+                ),
+            scope_json TEXT NOT NULL,
+            use_count INTEGER NOT NULL DEFAULT 0 CHECK (use_count >= 0),
+            max_uses INTEGER,
+            created_at TEXT NOT NULL,
+            expires_at TEXT NOT NULL,
+            revoked_at TEXT,
+            FOREIGN KEY (task_id)
+                REFERENCES module_tasks(id) ON DELETE CASCADE
+        )
+        """
+    )
+    connection.execute(
+        """
+        INSERT INTO module_capability_tokens (
+            token_digest, task_id, registration_id, capability,
+            scope_json, use_count, max_uses, created_at, expires_at,
+            revoked_at
+        )
+        SELECT token_digest, task_id, registration_id, capability,
+               scope_json, use_count, max_uses, created_at, expires_at,
+               revoked_at
+        FROM module_capability_tokens_v15
+        """
+    )
+    connection.execute("DROP TABLE module_capability_tokens_v15")
+    connection.execute(
+        "CREATE INDEX idx_module_capability_task "
+        "ON module_capability_tokens(task_id, capability)"
+    )
+
+
 MIGRATIONS = (
     (1, "server_shared_data", _migration_1_server_shared_data),
     (2, "auth_and_audit", _migration_2_auth_and_audit),
@@ -1283,6 +1341,11 @@ MIGRATIONS = (
         15,
         "soft_delete_agent_rules",
         _migration_15_soft_delete_agent_rules,
+    ),
+    (
+        16,
+        "structured_model_capability",
+        _migration_16_structured_model_capability,
     ),
 )
 

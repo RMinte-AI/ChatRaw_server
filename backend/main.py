@@ -393,6 +393,13 @@ class ModuleModelInvokeApiRequest(BaseModel):
     prompt: str = Field(min_length=1, max_length=65536)
 
 
+class ModuleModelInvokeV2ApiRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    prompt: str = Field(min_length=1, max_length=65536)
+    output_schema: Dict[str, Any]
+
+
 class ModuleModelChatCompletionApiRequest(BaseModel):
     model_config = ConfigDict(extra="allow")
 
@@ -665,6 +672,13 @@ class ModuleModelCapabilityApiResponse(BaseModel):
 
     task_id: str
     content: str
+
+
+class ModuleModelV2CapabilityApiResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    task_id: str
+    output: Dict[str, Any]
 
 
 class ModuleModelChatCapabilityApiResponse(BaseModel):
@@ -1794,6 +1808,7 @@ class LLMService:
         messages: List[dict],
         max_tokens: int,
         temperature: float = 0.2,
+        response_format: Dict[str, Any] | None = None,
     ) -> str:
         url = config.api_url.rstrip("/") + "/chat/completions"
         headers = {"Content-Type": "application/json"}
@@ -1809,6 +1824,8 @@ class LLMService:
             "max_tokens": max_tokens,
             "stream": False
         }
+        if response_format is not None:
+            payload["response_format"] = response_format
 
         session = await get_http_session()
         async with session.post(url, json=payload, headers=headers) as resp:
@@ -9090,6 +9107,67 @@ async def _module_host_model_invoke(prompt: str) -> str:
     )
 
 
+async def _module_host_model_invoke_v2(
+    prompt: str,
+    output_schema: dict[str, Any],
+) -> dict[str, Any]:
+    config = db.get_model_by_type("chat")
+    if config is None or not config.api_url or not config.model_id:
+        raise ModuleTaskError(
+            "model_unavailable",
+            "Chat model is not configured",
+            status_code=503,
+        )
+    try:
+        content = await llm_service._call_chat_completion_raw(
+            config,
+            [{"role": "user", "content": prompt}],
+            max_tokens=min(config.max_output, 4096),
+            temperature=0,
+            response_format={
+                "type": "json_schema",
+                "json_schema": {
+                    "name": "module_output",
+                    "strict": True,
+                    "schema": output_schema,
+                },
+            },
+        )
+    except ModuleTaskError:
+        raise
+    except Exception as error:
+        logger.warning(
+            "Structured module model invocation failed: %s",
+            type(error).__name__,
+        )
+        raise ModuleTaskError(
+            "model_unavailable",
+            "Structured model request failed",
+            status_code=502,
+        ) from None
+    def reject_non_json_constant(_value: str) -> None:
+        raise ValueError
+
+    try:
+        output = json.loads(
+            content,
+            parse_constant=reject_non_json_constant,
+        )
+    except (TypeError, ValueError):
+        raise ModuleTaskError(
+            "model_response_invalid",
+            "Structured model response is not valid JSON",
+            status_code=502,
+        ) from None
+    if not isinstance(output, dict):
+        raise ModuleTaskError(
+            "model_response_invalid",
+            "Structured model response is not an object",
+            status_code=502,
+        )
+    return output
+
+
 async def _module_host_model_chat_completion(
     request: dict[str, Any],
 ) -> dict[str, Any]:
@@ -9427,6 +9505,7 @@ module_task_service = ModuleTaskService(
     audit=auth_service.audit,
     chat_generation_active=_chat_generation_active,
     model_invoke=_module_host_model_invoke,
+    model_invoke_v2=_module_host_model_invoke_v2,
     model_chat_completion=_module_host_model_chat_completion,
     chat_auto_title=llm_service.chat_title_service.maybe_title_chat,
     capability_base_url=MODULE_CAPABILITY_BASE_URL,
@@ -10208,6 +10287,7 @@ async def _proxy_module_task_resource(
     )
     headers = {
         "Cache-Control": "private, no-store",
+        "Content-Encoding": "identity",
         "Content-Disposition": (
             f'{effective_disposition}; filename="{ascii_filename}"; '
             f"filename*=UTF-8''{encoded_filename}"
@@ -10416,6 +10496,38 @@ async def module_capability_model(request: Request):
         return await module_task_service.capability_model_invoke(
             token,
             payload["prompt"],
+        )
+    except ModuleTaskError as error:
+        return _module_task_error_response(error)
+
+
+@app.post(
+    "/api/module-capabilities/v1/model/invoke-v2",
+    response_model=ModuleModelV2CapabilityApiResponse,
+    responses=MODULE_API_ERROR_RESPONSES,
+    openapi_extra={
+        "security": [{"ModuleCapabilityBearer": []}],
+        "requestBody": _module_json_body(
+            ModuleModelInvokeV2ApiRequest
+        ),
+    },
+)
+async def module_capability_model_v2(request: Request):
+    try:
+        token = _module_capability_bearer(request)
+        payload = await _module_admin_body(
+            request,
+            max_bytes=256 * 1024,
+        )
+        if set(payload) != {"prompt", "output_schema"}:
+            raise ModuleTaskError(
+                "invalid_model_request",
+                "Structured model request fields are invalid",
+            )
+        return await module_task_service.capability_model_invoke_v2(
+            token,
+            payload["prompt"],
+            payload["output_schema"],
         )
     except ModuleTaskError as error:
         return _module_task_error_response(error)

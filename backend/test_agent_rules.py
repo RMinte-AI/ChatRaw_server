@@ -5,6 +5,8 @@ import tempfile
 import unittest
 import uuid
 
+from pydantic import ValidationError
+
 
 TEST_DATA_DIR = tempfile.mkdtemp(prefix="chatraw-agent-rules-test-")
 os.environ.setdefault("DATA_DIR", TEST_DATA_DIR)
@@ -371,6 +373,21 @@ class AgentRuleServiceTests(unittest.IsolatedAsyncioTestCase):
         }
         with self.assertRaises(Exception):
             CompiledRule.model_validate(bad_iteration)
+
+    async def test_deterministic_pagination_accepts_1024_page_hard_limit(
+        self,
+    ):
+        rule = deterministic_pagination_rule()
+        rule["deterministic_pagination"]["max_pages"] = 1024
+        parsed = CompiledRule.model_validate(rule)
+        self.assertEqual(
+            parsed.deterministic_pagination.max_pages,
+            1024,
+        )
+
+        rule["deterministic_pagination"]["max_pages"] = 1025
+        with self.assertRaises(ValidationError):
+            CompiledRule.model_validate(rule)
 
     async def test_scope_defaults_personal_and_member_cannot_create_system(self):
         personal = self.service.create_document(

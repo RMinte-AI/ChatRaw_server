@@ -165,7 +165,7 @@ class DeterministicPaginationPolicy(BaseModel):
     page_size_argument: str = Field(min_length=1, max_length=128)
     page_size: int = Field(ge=1, le=1000000)
     stop_when: Literal["empty_result"]
-    max_pages: int = Field(default=100, ge=1, le=256)
+    max_pages: int = Field(default=100, ge=1, le=1024)
 
 
 class CompiledRule(BaseModel):

@@ -63,6 +63,15 @@
             "title": "Name",
             "type": "string"
           },
+          "scope": {
+            "default": "personal",
+            "enum": [
+              "personal",
+              "system_default"
+            ],
+            "title": "Scope",
+            "type": "string"
+          },
           "source_document": {
             "minLength": 1,
             "title": "Source Document",
@@ -423,6 +432,9 @@
             "title": "Chat Id",
             "type": "string"
           },
+          "conversation_context": {
+            "$ref": "#/components/schemas/ModuleConversationContextApiView"
+          },
           "conversation_ref": {
             "title": "Conversation Ref",
             "type": "string"
@@ -445,9 +457,198 @@
           "chat_id",
           "conversation_ref",
           "actor_ref",
-          "messages"
+          "messages",
+          "conversation_context"
         ],
         "title": "ModuleChatCapabilityApiResponse",
+        "type": "object"
+      },
+      "ModuleConversationContextApiView": {
+        "additionalProperties": false,
+        "properties": {
+          "current_task": {
+            "$ref": "#/components/schemas/ModuleConversationCurrentTaskApiView"
+          },
+          "schema_version": {
+            "const": "1",
+            "title": "Schema Version",
+            "type": "string"
+          },
+          "turns": {
+            "items": {
+              "$ref": "#/components/schemas/ModuleConversationTurnApiView"
+            },
+            "title": "Turns",
+            "type": "array"
+          }
+        },
+        "required": [
+          "schema_version",
+          "turns",
+          "current_task"
+        ],
+        "title": "ModuleConversationContextApiView",
+        "type": "object"
+      },
+      "ModuleConversationCurrentTaskApiView": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "title": "Action Id",
+            "type": "string"
+          },
+          "module_id": {
+            "title": "Module Id",
+            "type": "string"
+          },
+          "state": {
+            "enum": [
+              "queued",
+              "running",
+              "waiting_approval",
+              "cancel_requested"
+            ],
+            "title": "State",
+            "type": "string"
+          },
+          "task_id": {
+            "title": "Task Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "task_id",
+          "module_id",
+          "action_id",
+          "state"
+        ],
+        "title": "ModuleConversationCurrentTaskApiView",
+        "type": "object"
+      },
+      "ModuleConversationMessageApiView": {
+        "additionalProperties": false,
+        "properties": {
+          "content": {
+            "title": "Content",
+            "type": "string"
+          }
+        },
+        "required": [
+          "content"
+        ],
+        "title": "ModuleConversationMessageApiView",
+        "type": "object"
+      },
+      "ModuleConversationTaskApiView": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "title": "Action Id",
+            "type": "string"
+          },
+          "module_id": {
+            "title": "Module Id",
+            "type": "string"
+          },
+          "outcome_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Outcome Code"
+          },
+          "state": {
+            "enum": [
+              "queued",
+              "running",
+              "waiting_approval",
+              "cancel_requested",
+              "succeeded",
+              "failed",
+              "cancelled"
+            ],
+            "title": "State",
+            "type": "string"
+          },
+          "task_id": {
+            "title": "Task Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "task_id",
+          "module_id",
+          "action_id",
+          "state",
+          "outcome_code"
+        ],
+        "title": "ModuleConversationTaskApiView",
+        "type": "object"
+      },
+      "ModuleConversationTurnApiView": {
+        "additionalProperties": false,
+        "properties": {
+          "assistant": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ModuleConversationMessageApiView"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "source": {
+            "enum": [
+              "module",
+              "chat"
+            ],
+            "title": "Source",
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "complete",
+              "failed",
+              "cancelled",
+              "incomplete"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "task": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ModuleConversationTaskApiView"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "user": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ModuleConversationMessageApiView"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "source",
+          "status",
+          "task",
+          "user",
+          "assistant"
+        ],
+        "title": "ModuleConversationTurnApiView",
         "type": "object"
       },
       "ModuleErrorResponse": {
@@ -2072,6 +2273,41 @@
       }
     },
     "/api/agent-rules/{document_id}": {
+      "delete": {
+        "operationId": "delete_agent_rule_api_agent_rules__document_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "document_id",
+            "required": true,
+            "schema": {
+              "title": "Document Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Delete Agent Rule"
+      },
       "get": {
         "operationId": "get_agent_rule_api_agent_rules__document_id__get",
         "parameters": [

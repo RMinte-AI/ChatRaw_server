@@ -718,20 +718,34 @@ class ModuleTaskService:
                        versions.id AS compiled_version_id,
                        versions.source_version_id,
                        versions.specification_version,
-                       versions.content_sha256
+                       versions.content_sha256,
+                       documents.scope AS scope_snapshot
                 FROM agent_rule_documents AS documents
                 JOIN agent_compiled_rule_versions AS versions
                   ON versions.id =
                      documents.active_compiled_version_id
-                WHERE documents.owner_user_id = ?
-                  AND documents.target_module_id = ?
+                WHERE documents.target_module_id = ?
+                  AND documents.deleted_at IS NULL
+                  AND (
+                    documents.scope = 'system_default'
+                    OR (
+                      documents.scope = 'personal'
+                      AND documents.owner_user_id = ?
+                    )
+                  )
                   AND versions.status = 'valid'
-                ORDER BY documents.updated_at, documents.id
+                ORDER BY
+                  CASE documents.scope
+                    WHEN 'system_default' THEN 0
+                    ELSE 1
+                  END,
+                  documents.updated_at,
+                  documents.id
                 LIMIT ?
                 """,
                 (
-                    principal_user_id,
                     module_id,
+                    principal_user_id,
                     MAX_ACTIVE_RULES_PER_TASK + 1,
                 ),
             ).fetchall()
@@ -908,8 +922,8 @@ class ModuleTaskService:
                 """
                 INSERT INTO module_task_rule_activations (
                     task_id, ordinal, document_id,
-                    compiled_version_id, created_at
-                ) VALUES (?, ?, ?, ?, ?)
+                    compiled_version_id, scope_snapshot, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?)
                 """,
                 [
                     (
@@ -917,6 +931,7 @@ class ModuleTaskService:
                         ordinal,
                         snapshot["document_id"],
                         snapshot["compiled_version_id"],
+                        snapshot["scope_snapshot"],
                         now,
                     )
                     for ordinal, snapshot in enumerate(rule_snapshots)
@@ -1405,7 +1420,23 @@ class ModuleTaskService:
             "config_revision": target["config_revision"],
             "input": task_input,
             "active_skills": skill_snapshots,
-            "active_rules": rule_snapshots,
+            "active_rules": [
+                {
+                    "document_id": snapshot["document_id"],
+                    "compiled_version_id": snapshot[
+                        "compiled_version_id"
+                    ],
+                    "source_version_id": snapshot[
+                        "source_version_id"
+                    ],
+                    "name": snapshot["name"],
+                    "specification_version": snapshot[
+                        "specification_version"
+                    ],
+                    "content_sha256": snapshot["content_sha256"],
+                }
+                for snapshot in rule_snapshots
+            ],
             "host_capabilities": capabilities,
         }
         try:
@@ -2818,6 +2849,273 @@ class ModuleTaskService:
             )
         await self.reconcile(row["task_id"])
 
+    @staticmethod
+    def _conversation_context(
+        connection: sqlite3.Connection,
+        *,
+        chat_id: str,
+        current_task_id: str,
+    ) -> dict[str, Any]:
+        current_task = connection.execute(
+            """
+            SELECT id, module_id, action_id, state, user_message_id
+            FROM module_tasks
+            WHERE id = ? AND chat_id = ? AND visible = 1
+            """,
+            (current_task_id, chat_id),
+        ).fetchone()
+        if current_task is None:
+            raise ModuleTaskError(
+                "chat_history_unavailable",
+                "Current chat task is unavailable",
+                status_code=502,
+            )
+
+        recent_messages = connection.execute(
+            """
+            SELECT id, role, content, sequence, rowid
+            FROM (
+                SELECT id, role, content, sequence, rowid
+                FROM messages
+                WHERE chat_id = ?
+                ORDER BY sequence DESC, rowid DESC
+                LIMIT ?
+            )
+            ORDER BY sequence, rowid
+            """,
+            (chat_id, MAX_CHAT_HISTORY_MESSAGES + 2),
+        ).fetchall()
+        message_by_id = {
+            message["id"]: message
+            for message in recent_messages
+        }
+        recent_ids = list(message_by_id)
+        placeholders = ",".join("?" for _value in recent_ids)
+        task_rows = connection.execute(
+            f"""
+            SELECT id, module_id, action_id, state, outcome_code,
+                   user_message_id, assistant_message_id
+            FROM module_tasks
+            WHERE chat_id = ? AND visible = 1
+              AND (
+                  id = ?
+                  OR user_message_id IN ({placeholders})
+                  OR assistant_message_id IN ({placeholders})
+              )
+            """,
+            (
+                chat_id,
+                current_task_id,
+                *recent_ids,
+                *recent_ids,
+            ),
+        ).fetchall()
+
+        linked_ids = {
+            message_id
+            for task in task_rows
+            for message_id in (
+                task["user_message_id"],
+                task["assistant_message_id"],
+            )
+            if message_id is not None
+        }
+        missing_ids = sorted(linked_ids - set(message_by_id))
+        if missing_ids:
+            missing_placeholders = ",".join("?" for _value in missing_ids)
+            partner_messages = connection.execute(
+                f"""
+                SELECT id, role, content, sequence, rowid
+                FROM messages
+                WHERE chat_id = ? AND id IN ({missing_placeholders})
+                """,
+                (chat_id, *missing_ids),
+            ).fetchall()
+            message_by_id.update(
+                {
+                    message["id"]: message
+                    for message in partner_messages
+                }
+            )
+
+        task_by_message_id = {
+            message_id: task
+            for task in task_rows
+            for message_id in (
+                task["user_message_id"],
+                task["assistant_message_id"],
+            )
+            if message_id is not None
+        }
+        ordered_messages = sorted(
+            message_by_id.values(),
+            key=lambda message: (
+                message["sequence"],
+                message["rowid"],
+            ),
+        )
+        units: list[tuple[tuple[int, int], dict[str, Any]]] = []
+        seen_tasks: set[str] = set()
+        consumed_ordinary: set[str] = set()
+
+        for index, message in enumerate(ordered_messages):
+            task = task_by_message_id.get(message["id"])
+            if task is not None:
+                if (
+                    task["id"] == current_task_id
+                    or task["id"] in seen_tasks
+                ):
+                    continue
+                seen_tasks.add(task["id"])
+                user_message = message_by_id.get(task["user_message_id"])
+                assistant_message = message_by_id.get(
+                    task["assistant_message_id"]
+                )
+                valid_user = (
+                    user_message
+                    if user_message is not None
+                    and user_message["role"] == "user"
+                    else None
+                )
+                valid_assistant = (
+                    assistant_message
+                    if assistant_message is not None
+                    and assistant_message["role"] == "assistant"
+                    else None
+                )
+                if task["state"] == "failed":
+                    status = "failed"
+                elif task["state"] == "cancelled":
+                    status = "cancelled"
+                elif (
+                    task["state"] == "succeeded"
+                    and valid_user is not None
+                    and valid_assistant is not None
+                ):
+                    status = "complete"
+                else:
+                    status = "incomplete"
+                task_messages = [
+                    item
+                    for item in (valid_user, valid_assistant)
+                    if item is not None
+                ]
+                if not task_messages:
+                    continue
+                first = min(
+                    task_messages,
+                    key=lambda item: (item["sequence"], item["rowid"]),
+                )
+                units.append(
+                    (
+                        (first["sequence"], first["rowid"]),
+                        {
+                            "source": "module",
+                            "status": status,
+                            "task": {
+                                "task_id": task["id"],
+                                "module_id": task["module_id"],
+                                "action_id": task["action_id"],
+                                "state": task["state"],
+                                "outcome_code": task["outcome_code"],
+                            },
+                            "user": (
+                                {"content": valid_user["content"]}
+                                if valid_user is not None
+                                else None
+                            ),
+                            "assistant": (
+                                {"content": valid_assistant["content"]}
+                                if valid_assistant is not None
+                                else None
+                            ),
+                        },
+                    )
+                )
+                continue
+
+            if (
+                message["id"] == current_task["user_message_id"]
+                or message["id"] in consumed_ordinary
+            ):
+                continue
+            user_message = message if message["role"] == "user" else None
+            assistant_message = (
+                message if message["role"] == "assistant" else None
+            )
+            if user_message is not None and index + 1 < len(ordered_messages):
+                following = ordered_messages[index + 1]
+                if (
+                    following["role"] == "assistant"
+                    and following["id"] not in task_by_message_id
+                    and following["id"]
+                    != current_task["user_message_id"]
+                ):
+                    assistant_message = following
+                    consumed_ordinary.add(following["id"])
+            units.append(
+                (
+                    (message["sequence"], message["rowid"]),
+                    {
+                        "source": "chat",
+                        "status": (
+                            "complete"
+                            if (
+                                user_message is not None
+                                and assistant_message is not None
+                            )
+                            else "incomplete"
+                        ),
+                        "task": None,
+                        "user": (
+                            {"content": user_message["content"]}
+                            if user_message is not None
+                            else None
+                        ),
+                        "assistant": (
+                            {"content": assistant_message["content"]}
+                            if assistant_message is not None
+                            else None
+                        ),
+                    },
+                )
+            )
+
+        selected_turns = []
+        selected_messages = 0
+        selected_characters = 0
+        for _sort_key, turn in reversed(sorted(units, key=lambda item: item[0])):
+            turn_messages = [
+                message
+                for message in (turn["user"], turn["assistant"])
+                if message is not None
+            ]
+            next_messages = selected_messages + len(turn_messages)
+            next_characters = selected_characters + sum(
+                len(message["content"])
+                for message in turn_messages
+            )
+            if (
+                next_messages > MAX_CHAT_HISTORY_MESSAGES
+                or next_characters > MAX_CHAT_HISTORY_CHARACTERS
+            ):
+                break
+            selected_turns.append(turn)
+            selected_messages = next_messages
+            selected_characters = next_characters
+        selected_turns.reverse()
+
+        return {
+            "schema_version": "1",
+            "turns": selected_turns,
+            "current_task": {
+                "task_id": current_task["id"],
+                "module_id": current_task["module_id"],
+                "action_id": current_task["action_id"],
+                "state": current_task["state"],
+            },
+        }
+
     async def capability_chat_read(self, token: str) -> dict[str, Any]:
         await self._preflight_capability(token, "chat.read")
         row, scope = self._consume_capability(token, "chat.read")
@@ -2837,6 +3135,11 @@ class ModuleTaskService:
                 """,
                 (chat_id, MAX_CHAT_HISTORY_MESSAGES),
             ).fetchall()
+            conversation_context = self._conversation_context(
+                connection,
+                chat_id=chat_id,
+                current_task_id=row["task_id"],
+            )
         bounded_messages = []
         character_count = 0
         for message in reversed(messages):
@@ -2855,6 +3158,7 @@ class ModuleTaskService:
             "conversation_ref": f"chatraw-chat:{chat_id}",
             "actor_ref": f"chatraw-user:{row['creator_user_id']}",
             "messages": bounded_messages,
+            "conversation_context": conversation_context,
         }
 
     async def capability_principal_read(
@@ -2998,7 +3302,8 @@ class ModuleTaskService:
                        versions.source_version_id,
                        versions.specification_version,
                        versions.content_sha256,
-                       versions.compiled_json
+                       versions.compiled_json,
+                       activations.scope_snapshot
                 FROM module_task_rule_activations AS activations
                 JOIN agent_rule_documents AS documents
                   ON documents.id = activations.document_id
@@ -3027,6 +3332,7 @@ class ModuleTaskService:
                     "specification_version"
                 ],
                 "content_sha256": rule["content_sha256"],
+                "scope": rule["scope_snapshot"],
                 "compiled_rule": json.loads(rule["compiled_json"]),
             },
         }

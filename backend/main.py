@@ -578,6 +578,62 @@ class ResidentIntegrationCatalogApiResponse(BaseModel):
     integrations: List[Dict[str, Any]]
 
 
+class ModuleConversationMessageApiView(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    content: str
+
+
+class ModuleConversationTaskApiView(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    task_id: str
+    module_id: str
+    action_id: str
+    state: Literal[
+        "queued",
+        "running",
+        "waiting_approval",
+        "cancel_requested",
+        "succeeded",
+        "failed",
+        "cancelled",
+    ]
+    outcome_code: Optional[str]
+
+
+class ModuleConversationTurnApiView(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    source: Literal["module", "chat"]
+    status: Literal["complete", "failed", "cancelled", "incomplete"]
+    task: Optional[ModuleConversationTaskApiView]
+    user: Optional[ModuleConversationMessageApiView]
+    assistant: Optional[ModuleConversationMessageApiView]
+
+
+class ModuleConversationCurrentTaskApiView(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    task_id: str
+    module_id: str
+    action_id: str
+    state: Literal[
+        "queued",
+        "running",
+        "waiting_approval",
+        "cancel_requested",
+    ]
+
+
+class ModuleConversationContextApiView(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    schema_version: Literal["1"]
+    turns: List[ModuleConversationTurnApiView]
+    current_task: ModuleConversationCurrentTaskApiView
+
+
 class ModuleChatCapabilityApiResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -586,6 +642,7 @@ class ModuleChatCapabilityApiResponse(BaseModel):
     conversation_ref: str
     actor_ref: str
     messages: List[Dict[str, Any]]
+    conversation_context: ModuleConversationContextApiView
 
 
 class ModulePrincipalCapabilityApiResponse(BaseModel):
@@ -5200,6 +5257,7 @@ class AgentRuleCreateRequest(BaseModel):
 
     name: str = Field(min_length=1, max_length=200)
     source_document: str = Field(min_length=1)
+    scope: Literal["personal", "system_default"] = "personal"
 
 
 class AgentRuleSourceUpdateRequest(BaseModel):
@@ -5730,7 +5788,11 @@ async def get_agent_rules(request: Request):
     return {
         "target_module_id": AGENT_RULE_TARGET_MODULE_ID,
         "max_active_per_task": MAX_ACTIVE_RULES_PER_TASK,
-        "rules": agent_rule_service.list_documents(principal.id),
+        "can_manage_system_defaults": principal.is_admin,
+        "rules": agent_rule_service.list_documents(
+            principal.id,
+            is_admin=principal.is_admin,
+        ),
     }
 
 
@@ -5745,6 +5807,8 @@ async def create_agent_rule(
             principal.id,
             name=payload.name,
             source_document=payload.source_document,
+            scope=payload.scope,
+            is_admin=principal.is_admin,
         )
         return {"success": True, "rule": rule}
     except AgentRuleError as error:
@@ -5759,8 +5823,23 @@ async def get_agent_rule(document_id: str, request: Request):
             "rule": agent_rule_service.get_document(
                 principal.id,
                 document_id,
+                is_admin=principal.is_admin,
             )
         }
+    except AgentRuleError as error:
+        return _agent_rule_error(error)
+
+
+@app.delete("/api/agent-rules/{document_id}")
+async def delete_agent_rule(document_id: str, request: Request):
+    principal = current_principal(request)
+    try:
+        agent_rule_service.delete_document(
+            principal.id,
+            document_id,
+            is_admin=principal.is_admin,
+        )
+        return {"success": True}
     except AgentRuleError as error:
         return _agent_rule_error(error)
 
@@ -5780,6 +5859,7 @@ async def update_agent_rule_source(
                 payload.expected_source_version_id
             ),
             source_document=payload.source_document,
+            is_admin=principal.is_admin,
         )
         return {"success": True, "rule": rule}
     except AgentRuleError as error:
@@ -5798,6 +5878,7 @@ async def compile_agent_rule(
             principal.id,
             document_id,
             source_version_id=payload.source_version_id,
+            is_admin=principal.is_admin,
         )
         return {"success": True, "rule": rule}
     except AgentRuleError as error:
@@ -5818,6 +5899,7 @@ async def activate_agent_rule(
             principal.id,
             document_id,
             compiled_version_id=payload.compiled_version_id,
+            is_admin=principal.is_admin,
         )
         return {"success": True, "rule": rule}
     except AgentRuleError as error:
@@ -9334,6 +9416,7 @@ agent_rule_service = AgentRuleService(
     db.connection,
     compile_model=_module_host_model_chat_completion,
     audit=auth_service.audit,
+    audit_in_transaction=auth_service.audit_in_transaction,
 )
 
 

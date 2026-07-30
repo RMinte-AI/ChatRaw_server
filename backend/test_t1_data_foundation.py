@@ -343,6 +343,202 @@ class MigrationTests(unittest.TestCase):
             finally:
                 connection.close()
 
+    def test_v15_rule_tombstones_preserve_frozen_task_references(self):
+        with tempfile.TemporaryDirectory(prefix="chatraw-t1-v14-") as temp:
+            path = create_classic_data_dir(Path(temp)) / "chatraw.db"
+            connection = sqlite3.connect(path)
+            connection.row_factory = sqlite3.Row
+            connection.execute("PRAGMA foreign_keys = ON")
+            connection.execute(
+                """
+                CREATE TABLE schema_migrations (
+                    version INTEGER PRIMARY KEY,
+                    name TEXT NOT NULL,
+                    applied_at TEXT NOT NULL
+                )
+                """
+            )
+            connection.execute("BEGIN IMMEDIATE")
+            try:
+                for version, name, migrate in db_migrations.MIGRATIONS:
+                    if version > 14:
+                        break
+                    migrate(connection)
+                    connection.execute(
+                        """
+                        INSERT INTO schema_migrations (
+                            version, name, applied_at
+                        ) VALUES (?, ?, '2026-07-29T00:00:00Z')
+                        """,
+                        (version, name),
+                    )
+                connection.commit()
+            except BaseException:
+                connection.rollback()
+                connection.close()
+                raise
+
+            try:
+                now = "2026-07-29T00:00:00Z"
+                connection.execute(
+                    """
+                    INSERT INTO users (
+                        id, username, password_hash, role, enabled,
+                        created_at, updated_at, password_changed_at
+                    ) VALUES (
+                        'rule-owner', 'rule-owner', 'hash', 'member', 1,
+                        ?, ?, ?
+                    )
+                    """,
+                    (now, now, now),
+                )
+                connection.execute(
+                    """
+                    INSERT INTO module_tasks (
+                        id, registration_id, module_id, module_version,
+                        action_id, action_version, action_contract_json,
+                        config_revision, creator_user_id, idempotency_key,
+                        request_digest, state, created_at, updated_at
+                    ) VALUES (
+                        'frozen-task', 'registration', 'chatraw.agent',
+                        '1.0.0', 'chat', '1.0.0', '{}', '1',
+                        'rule-owner', 'rule-task', 'digest', 'queued', ?, ?
+                    )
+                    """,
+                    (now, now),
+                )
+                connection.execute(
+                    """
+                    INSERT INTO agent_rule_documents (
+                        id, owner_user_id, target_module_id, name, scope,
+                        current_source_version_id,
+                        active_compiled_version_id, created_at, updated_at
+                    ) VALUES (
+                        'rule-document', 'rule-owner', 'chatraw.agent',
+                        'Reusable name', 'personal', 'rule-source',
+                        'rule-compiled', ?, ?
+                    )
+                    """,
+                    (now, now),
+                )
+                connection.execute(
+                    """
+                    INSERT INTO agent_rule_source_versions (
+                        id, document_id, version_number, source_document,
+                        content_sha256, created_at
+                    ) VALUES (
+                        'rule-source', 'rule-document', 1, 'source',
+                        'source-hash', ?
+                    )
+                    """,
+                    (now,),
+                )
+                connection.execute(
+                    """
+                    INSERT INTO agent_compiled_rule_versions (
+                        id, document_id, source_version_id,
+                        specification_version, status, content_sha256,
+                        compiled_json, model_output,
+                        validation_errors_json, created_at
+                    ) VALUES (
+                        'rule-compiled', 'rule-document', 'rule-source',
+                        'chatraw-agent-rule-1.1', 'valid', 'compiled-hash',
+                        '{}', '{}', '[]', ?
+                    )
+                    """,
+                    (now,),
+                )
+                connection.execute(
+                    """
+                    INSERT INTO module_task_rule_activations (
+                        task_id, ordinal, document_id,
+                        compiled_version_id, scope_snapshot, created_at
+                    ) VALUES (
+                        'frozen-task', 0, 'rule-document',
+                        'rule-compiled', 'personal', ?
+                    )
+                    """,
+                    (now,),
+                )
+                connection.commit()
+
+                self.assertEqual(
+                    db_migrations.apply_migrations(connection),
+                    15,
+                )
+                self.assertEqual(
+                    connection.execute(
+                        """
+                        SELECT deleted_at FROM agent_rule_documents
+                        WHERE id = 'rule-document'
+                        """
+                    ).fetchone()["deleted_at"],
+                    None,
+                )
+                frozen = connection.execute(
+                    """
+                    SELECT activations.document_id,
+                           activations.compiled_version_id,
+                           activations.scope_snapshot,
+                           versions.content_sha256
+                    FROM module_task_rule_activations AS activations
+                    JOIN agent_compiled_rule_versions AS versions
+                      ON versions.id = activations.compiled_version_id
+                    WHERE activations.task_id = 'frozen-task'
+                    """
+                ).fetchone()
+                self.assertEqual(
+                    tuple(frozen),
+                    (
+                        "rule-document",
+                        "rule-compiled",
+                        "personal",
+                        "compiled-hash",
+                    ),
+                )
+                connection.execute(
+                    """
+                    UPDATE agent_rule_documents
+                    SET active_compiled_version_id = NULL,
+                        deleted_at = '2026-07-29T01:00:00Z'
+                    WHERE id = 'rule-document'
+                    """
+                )
+                connection.execute(
+                    """
+                    INSERT INTO agent_rule_documents (
+                        id, owner_user_id, target_module_id, name, scope,
+                        current_source_version_id,
+                        active_compiled_version_id, created_at, updated_at
+                    ) VALUES (
+                        'replacement-document', 'rule-owner',
+                        'chatraw.agent', 'Reusable name', 'personal',
+                        'replacement-source', NULL, ?, ?
+                    )
+                    """,
+                    (now, now),
+                )
+                connection.execute(
+                    """
+                    INSERT INTO agent_rule_source_versions (
+                        id, document_id, version_number, source_document,
+                        content_sha256, created_at
+                    ) VALUES (
+                        'replacement-source', 'replacement-document', 1,
+                        'replacement source', 'replacement-source-hash', ?
+                    )
+                    """,
+                    (now,),
+                )
+                self.assertEqual(
+                    connection.execute(
+                        "PRAGMA foreign_key_check"
+                    ).fetchall(),
+                    [],
+                )
+            finally:
+                connection.close()
+
     def test_v13_allows_multiple_input_resources_per_task(self):
         with tempfile.TemporaryDirectory(prefix="chatraw-t1-v12-") as temp:
             database = main.Database(str(Path(temp) / "chatraw.db"))
@@ -387,7 +583,7 @@ class MigrationTests(unittest.TestCase):
                     "ON module_task_input_resources(expires_at)"
                 )
                 connection.execute(
-                    "DELETE FROM schema_migrations WHERE version = 13"
+                    "DELETE FROM schema_migrations WHERE version >= 13"
                 )
                 connection.commit()
                 connection.execute("PRAGMA foreign_keys = ON")
@@ -473,7 +669,7 @@ class MigrationTests(unittest.TestCase):
 
                 self.assertEqual(
                     db_migrations.apply_migrations(connection),
-                    13,
+                    db_migrations.LATEST_SCHEMA_VERSION,
                 )
                 connection.execute(
                     """
@@ -519,7 +715,7 @@ class MigrationTests(unittest.TestCase):
                 )
                 self.assertEqual(
                     db_migrations.apply_migrations(connection),
-                    13,
+                    db_migrations.LATEST_SCHEMA_VERSION,
                 )
             finally:
                 connection.close()

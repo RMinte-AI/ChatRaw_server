@@ -13,10 +13,13 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 TARGET_MODULE_ID = "chatraw.agent"
-SPECIFICATION_VERSION = "chatraw-agent-rule-1.0"
+SPECIFICATION_VERSION = "chatraw-agent-rule-1.2"
 MAX_SOURCE_DOCUMENT_BYTES = 128 * 1024
 MAX_COMPILED_RULE_BYTES = 64 * 1024
 MAX_ACTIVE_RULES_PER_TASK = 10
+PERSONAL_SCOPE = "personal"
+SYSTEM_DEFAULT_SCOPE = "system_default"
+RULE_SCOPES = frozenset({PERSONAL_SCOPE, SYSTEM_DEFAULT_SCOPE})
 _RULE_ID = re.compile(r"^[a-z][a-z0-9_-]{0,63}$")
 
 
@@ -50,6 +53,8 @@ class RuleTrigger(BaseModel):
 
 
 class RuleIteration(BaseModel):
+    """Legacy v1.0 model-guidance iteration contract."""
+
     model_config = ConfigDict(extra="forbid")
 
     cursor_argument: str = Field(min_length=1, max_length=128)
@@ -61,7 +66,11 @@ class RuleIteration(BaseModel):
         max_length=128,
     )
     page_size: int | None = Field(default=None, ge=1, le=1000000)
-    stop_when: Literal["empty_result", "short_page", "described_condition"]
+    stop_when: Literal[
+        "empty_result",
+        "short_page",
+        "described_condition",
+    ]
     stop_description: str = Field(default="", max_length=1000)
     max_calls: int = Field(default=100, ge=1, le=256)
 
@@ -122,23 +131,127 @@ class ExecutionRule(BaseModel):
         return self
 
 
+class RecordPresentationPolicy(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    applies_to: Literal["structured_business_records"]
+    default_mode: Literal["summary", "records"]
+    identifier_fields: list[str] = Field(
+        default_factory=list,
+        max_length=100,
+    )
+
+    @model_validator(mode="after")
+    def validate_identifier_fields(self):
+        normalized = [value.strip() for value in self.identifier_fields]
+        if (
+            any(not value or len(value) > 128 for value in normalized)
+            or len(normalized) != len(set(normalized))
+        ):
+            raise ValueError(
+                "identifier_fields must contain unique non-empty field names"
+            )
+        self.identifier_fields = normalized
+        return self
+
+
+class DeterministicPaginationPolicy(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    tool_name: str = Field(min_length=1, max_length=128)
+    cursor_argument: str = Field(min_length=1, max_length=128)
+    start: int
+    step: int = Field(ge=1, le=1000000)
+    page_size_argument: str = Field(min_length=1, max_length=128)
+    page_size: int = Field(ge=1, le=1000000)
+    stop_when: Literal["empty_result"]
+    max_pages: int = Field(default=100, ge=1, le=256)
+
+
 class CompiledRule(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    schema_version: Literal["1.0"]
+    schema_version: Literal["1.0", "1.1", "1.2"]
+    kind: Literal[
+        "execution",
+        "record_presentation",
+        "deterministic_pagination",
+    ] | None = None
     title: str = Field(min_length=1, max_length=200)
     summary: str = Field(min_length=1, max_length=2000)
     execution_rules: list[ExecutionRule] = Field(
-        min_length=1,
+        default_factory=list,
         max_length=50,
     )
+    record_presentation: RecordPresentationPolicy | None = None
+    deterministic_pagination: (
+        DeterministicPaginationPolicy | None
+    ) = None
     clarification_rules: list[str] = Field(
         default_factory=list,
         max_length=20,
     )
 
     @model_validator(mode="after")
-    def validate_unique_ids(self):
+    def validate_contract(self):
+        has_legacy_iteration = any(
+            tool.iteration is not None
+            for rule in self.execution_rules
+            for tool in rule.tools
+        )
+        if self.schema_version == "1.0":
+            if (
+                self.kind is not None
+                or self.record_presentation is not None
+                or self.deterministic_pagination is not None
+                or not self.execution_rules
+            ):
+                raise ValueError(
+                    "schema 1.0 requires execution_rules and forbids "
+                    "kind and record_presentation"
+                )
+        elif self.kind == "execution":
+            if (
+                self.record_presentation is not None
+                or self.deterministic_pagination is not None
+                or not self.execution_rules
+                or has_legacy_iteration
+            ):
+                raise ValueError(
+                    "execution rules require execution_rules and forbid "
+                    "record_presentation, deterministic_pagination, and "
+                    "legacy iteration"
+                )
+        elif self.kind == "record_presentation":
+            if (
+                self.record_presentation is None
+                or self.deterministic_pagination is not None
+                or self.execution_rules
+                or (
+                    self.schema_version == "1.1"
+                    and self.record_presentation.identifier_fields
+                )
+            ):
+                raise ValueError(
+                    "record_presentation rules require the typed policy "
+                    "and forbid incompatible fields"
+                )
+        elif self.kind == "deterministic_pagination":
+            if (
+                self.schema_version != "1.2"
+                or self.deterministic_pagination is None
+                or self.record_presentation is not None
+                or self.execution_rules
+            ):
+                raise ValueError(
+                    "deterministic_pagination requires schema 1.2 and its "
+                    "typed policy, and forbids other rule payloads"
+                )
+        else:
+            raise ValueError(
+                "schema 1.1 and 1.2 require a supported kind"
+            )
+
         identifiers = [rule.id for rule in self.execution_rules]
         if len(identifiers) != len(set(identifiers)):
             raise ValueError("execution rule ids must be unique")
@@ -155,24 +268,40 @@ The JSON must conform exactly to this schema:
 {json.dumps(COMPILED_RULE_JSON_SCHEMA, ensure_ascii=False, separators=(",", ":"))}
 
 Compilation rules:
-1. Preserve only requirements stated by the Source Document. Do not invent
+1. Emit schema_version "1.2" and exactly one explicit kind. Use
+   kind "execution" for operational guidance. Use
+   kind "record_presentation" only for a presentation-default policy over
+   structured business records. Use kind "deterministic_pagination" only
+   for a Source Document dedicated to one exact pagination contract.
+2. Preserve only requirements stated by the Source Document. Do not invent
    business facts, tool names, field names, dates, permissions, or defaults.
-2. Convert operational instructions into ordered execution_rules. A rule's
+3. Convert operational instructions into ordered execution_rules. A rule's
    when fields describe when it applies; instructions describe required work.
-3. Use tools[].selector for a semantic tool description. Add tools[].names
+4. Use tools[].selector for a semantic tool description. Add tools[].names
    only when the Source Document states exact tool names.
-4. Put fixed arguments in argument_constants and fallback values in
+5. Put fixed arguments in argument_constants and fallback values in
    argument_defaults.
-5. Represent pagination or repeated calls with iteration. For page=1,
-   size=20, incrementing page until an empty result, use cursor_argument
-   "page", start 1, step 1, page_size_argument "size", page_size 20,
-   stop_when "empty_result".
-6. If the Source Document is ambiguous or missing required runtime input,
+6. For deterministic pagination, copy the exact tool name, cursor argument,
+   start, step, page-size argument, page size, empty-result termination and
+   maximum page count into deterministic_pagination. Do not infer any of
+   them. If any field is missing or ambiguous, use kind "execution" and
+   preserve the uncertainty in clarification_rules.
+7. If the Source Document is ambiguous or missing required runtime input,
    preserve that uncertainty in clarification_rules. Never guess.
-7. Never create rules that grant tool permissions, bypass confirmations,
+8. Never create rules that grant tool permissions, bypass confirmations,
    change security policy, expose secrets, or override execution budgets.
-8. The compiled rule is guidance for a general Agent. It must not contain
+9. The compiled rule is guidance for a general Agent. It must not contain
    executable code, shell commands, templates, or model-control instructions.
+10. A record_presentation rule must contain only record_presentation and
+    clarification_rules. It must not duplicate the policy into
+    execution_rules and must never change query scope, tool choice, pagination,
+    calculation, file generation, or non-business conversation behavior.
+11. identifier_fields may list exact record identifier field names only when
+    the Source Document states them. Do not invent identifier fields.
+12. A deterministic_pagination rule must contain only
+    deterministic_pagination and clarification_rules. It never changes date
+    or other query arguments supplied for the original tool call, it stops
+    only on an empty result, and it cannot change runtime budgets.
 """.strip()
 
 
@@ -185,10 +314,12 @@ class AgentRuleService:
             [dict[str, Any]], Awaitable[dict[str, Any]]
         ],
         audit: Callable[..., None],
+        audit_in_transaction: Callable[..., None],
     ):
         self.connection = connection
         self.compile_model = compile_model
         self.audit = audit
+        self.audit_in_transaction = audit_in_transaction
 
     @staticmethod
     def _validate_source(value: str) -> str:
@@ -206,32 +337,80 @@ class AgentRuleService:
         return value
 
     @staticmethod
-    def _document_summary(row: Any) -> dict[str, Any]:
+    def _document_summary(
+        row: Any,
+        *,
+        editable: bool,
+    ) -> dict[str, Any]:
+        keys = set(row.keys())
         return {
             "id": row["id"],
             "name": row["name"],
             "target_module_id": row["target_module_id"],
+            "scope": row["scope"],
+            "editable": editable,
+            "active": row["active_compiled_version_id"] is not None,
             "current_source_version_id": row[
                 "current_source_version_id"
             ],
             "active_compiled_version_id": row[
                 "active_compiled_version_id"
             ],
+            "active_source_version_id": (
+                row["active_source_version_id"]
+                if "active_source_version_id" in keys
+                else None
+            ),
+            "active_specification_version": (
+                row["active_specification_version"]
+                if "active_specification_version" in keys
+                else None
+            ),
+            "active_content_sha256": (
+                row["active_content_sha256"]
+                if "active_content_sha256" in keys
+                else None
+            ),
             "created_at": row["created_at"],
             "updated_at": row["updated_at"],
         }
 
-    def _owned_document(self, owner_user_id: str, document_id: str):
-        with self.connection() as connection:
-            row = connection.execute(
-                """
-                SELECT * FROM agent_rule_documents
-                WHERE id = ? AND owner_user_id = ?
-                  AND target_module_id = ?
-                """,
-                (document_id, owner_user_id, TARGET_MODULE_ID),
-            ).fetchone()
+    @staticmethod
+    def _require_scope(scope: str, *, is_admin: bool) -> str:
+        if scope not in RULE_SCOPES:
+            raise AgentRuleError(
+                "invalid_rule_scope",
+                "Rule scope is invalid",
+            )
+        if scope == SYSTEM_DEFAULT_SCOPE and not is_admin:
+            raise AgentRuleError(
+                "administrator_required",
+                "Administrator permission required",
+                403,
+            )
+        return scope
+
+    @staticmethod
+    def _authorize_document(
+        row: Any,
+        actor_user_id: str,
+        *,
+        is_admin: bool,
+    ) -> Any:
         if row is None:
+            raise AgentRuleError(
+                "rule_document_not_found",
+                "Rule document was not found",
+                404,
+            )
+        if row["scope"] == SYSTEM_DEFAULT_SCOPE:
+            if not is_admin:
+                raise AgentRuleError(
+                    "administrator_required",
+                    "Administrator permission required",
+                    403,
+                )
+        elif row["owner_user_id"] != actor_user_id:
             raise AgentRuleError(
                 "rule_document_not_found",
                 "Rule document was not found",
@@ -239,24 +418,108 @@ class AgentRuleService:
             )
         return row
 
-    def list_documents(self, owner_user_id: str) -> list[dict[str, Any]]:
+    def _authorized_document(
+        self,
+        actor_user_id: str,
+        document_id: str,
+        *,
+        is_admin: bool,
+    ):
+        with self.connection() as connection:
+            row = connection.execute(
+                """
+                SELECT * FROM agent_rule_documents
+                WHERE id = ? AND target_module_id = ?
+                  AND deleted_at IS NULL
+                """,
+                (document_id, TARGET_MODULE_ID),
+            ).fetchone()
+        return self._authorize_document(
+            row,
+            actor_user_id,
+            is_admin=is_admin,
+        )
+
+    def list_documents(
+        self,
+        actor_user_id: str,
+        *,
+        is_admin: bool = False,
+    ) -> list[dict[str, Any]]:
         with self.connection() as connection:
             rows = connection.execute(
                 """
-                SELECT * FROM agent_rule_documents
-                WHERE owner_user_id = ? AND target_module_id = ?
-                ORDER BY updated_at DESC, name
+                SELECT documents.*,
+                       versions.source_version_id
+                         AS active_source_version_id,
+                       versions.specification_version
+                         AS active_specification_version,
+                       versions.content_sha256
+                         AS active_content_sha256
+                FROM agent_rule_documents AS documents
+                LEFT JOIN agent_compiled_rule_versions AS versions
+                  ON versions.id = documents.active_compiled_version_id
+                WHERE documents.target_module_id = ?
+                  AND documents.deleted_at IS NULL
+                  AND (
+                    documents.scope = 'system_default'
+                    OR (
+                      documents.scope = 'personal'
+                      AND documents.owner_user_id = ?
+                    )
+                  )
+                ORDER BY
+                  CASE documents.scope
+                    WHEN 'system_default' THEN 0
+                    ELSE 1
+                  END,
+                  documents.updated_at DESC,
+                  documents.name,
+                  documents.id
                 """,
-                (owner_user_id, TARGET_MODULE_ID),
+                (TARGET_MODULE_ID, actor_user_id),
             ).fetchall()
-        return [self._document_summary(row) for row in rows]
+        summaries = []
+        for row in rows:
+            summary = self._document_summary(
+                row,
+                editable=(
+                    is_admin
+                    if row["scope"] == SYSTEM_DEFAULT_SCOPE
+                    else row["owner_user_id"] == actor_user_id
+                ),
+            )
+            if (
+                row["scope"] == SYSTEM_DEFAULT_SCOPE
+                and not is_admin
+            ):
+                summary = {
+                    key: summary[key]
+                    for key in (
+                        "name",
+                        "scope",
+                        "editable",
+                        "active",
+                        "active_compiled_version_id",
+                        "active_specification_version",
+                        "active_content_sha256",
+                    )
+                }
+            summaries.append(summary)
+        return summaries
 
     def get_document(
         self,
-        owner_user_id: str,
+        actor_user_id: str,
         document_id: str,
+        *,
+        is_admin: bool = False,
     ) -> dict[str, Any]:
-        document = self._owned_document(owner_user_id, document_id)
+        document = self._authorized_document(
+            actor_user_id,
+            document_id,
+            is_admin=is_admin,
+        )
         with self.connection() as connection:
             sources = connection.execute(
                 """
@@ -279,7 +542,7 @@ class AgentRuleService:
                 """,
                 (document_id,),
             ).fetchall()
-        result = self._document_summary(document)
+        result = self._document_summary(document, editable=True)
         result["source_versions"] = [dict(row) for row in sources]
         result["compiled_candidates"] = [
             {
@@ -302,10 +565,12 @@ class AgentRuleService:
 
     def create_document(
         self,
-        owner_user_id: str,
+        actor_user_id: str,
         *,
         name: str,
         source_document: str,
+        scope: str = PERSONAL_SCOPE,
+        is_admin: bool = False,
     ) -> dict[str, Any]:
         name = name.strip() if isinstance(name, str) else ""
         if not name or len(name) > 200:
@@ -314,6 +579,7 @@ class AgentRuleService:
                 "Rule document name is invalid",
             )
         source_document = self._validate_source(source_document)
+        scope = self._require_scope(scope, is_admin=is_admin)
         document_id = str(uuid.uuid4())
         source_version_id = str(uuid.uuid4())
         now = _utc_now()
@@ -323,15 +589,17 @@ class AgentRuleService:
                     """
                     INSERT INTO agent_rule_documents (
                         id, owner_user_id, target_module_id, name,
+                        scope,
                         current_source_version_id,
                         active_compiled_version_id, created_at, updated_at
-                    ) VALUES (?, ?, ?, ?, ?, NULL, ?, ?)
+                    ) VALUES (?, ?, ?, ?, ?, ?, NULL, ?, ?)
                     """,
                     (
                         document_id,
-                        owner_user_id,
+                        actor_user_id,
                         TARGET_MODULE_ID,
                         name,
+                        scope,
                         source_version_id,
                         now,
                         now,
@@ -361,22 +629,31 @@ class AgentRuleService:
                 ) from None
             raise
         self.audit(
-            owner_user_id,
+            actor_user_id,
             "agent_rule.create",
             "agent_rule_document",
             document_id,
             "success",
-            {"source_version_id": source_version_id},
+            {
+                "scope": scope,
+                "source_version_id": source_version_id,
+                "source_content_sha256": _sha256(source_document),
+            },
         )
-        return self.get_document(owner_user_id, document_id)
+        return self.get_document(
+            actor_user_id,
+            document_id,
+            is_admin=is_admin,
+        )
 
     def update_source(
         self,
-        owner_user_id: str,
+        actor_user_id: str,
         document_id: str,
         *,
         expected_source_version_id: str,
         source_document: str,
+        is_admin: bool = False,
     ) -> dict[str, Any]:
         source_document = self._validate_source(source_document)
         source_version_id = str(uuid.uuid4())
@@ -385,17 +662,16 @@ class AgentRuleService:
             document = connection.execute(
                 """
                 SELECT * FROM agent_rule_documents
-                WHERE id = ? AND owner_user_id = ?
-                  AND target_module_id = ?
+                WHERE id = ? AND target_module_id = ?
+                  AND deleted_at IS NULL
                 """,
-                (document_id, owner_user_id, TARGET_MODULE_ID),
+                (document_id, TARGET_MODULE_ID),
             ).fetchone()
-            if document is None:
-                raise AgentRuleError(
-                    "rule_document_not_found",
-                    "Rule document was not found",
-                    404,
-                )
+            document = self._authorize_document(
+                document,
+                actor_user_id,
+                is_admin=is_admin,
+            )
             if (
                 document["current_source_version_id"]
                 != expected_source_version_id
@@ -438,14 +714,22 @@ class AgentRuleService:
                 (source_version_id, now, document_id),
             )
         self.audit(
-            owner_user_id,
+            actor_user_id,
             "agent_rule.source.update",
             "agent_rule_document",
             document_id,
             "success",
-            {"source_version_id": source_version_id},
+            {
+                "scope": document["scope"],
+                "source_version_id": source_version_id,
+                "source_content_sha256": _sha256(source_document),
+            },
         )
-        return self.get_document(owner_user_id, document_id)
+        return self.get_document(
+            actor_user_id,
+            document_id,
+            is_admin=is_admin,
+        )
 
     @staticmethod
     def _validated_candidate(
@@ -469,7 +753,16 @@ class AgentRuleService:
                 else [{"type": "validation_error", "message": str(error)}]
             )
             return None, details
-        normalized = compiled.model_dump(mode="json")
+        if compiled.schema_version != "1.2":
+            return None, [
+                {
+                    "type": "outdated_compiled_rule_schema",
+                    "message": (
+                        "New compiler output must use schema_version 1.2"
+                    ),
+                }
+            ]
+        normalized = compiled.model_dump(mode="json", exclude_none=True)
         encoded = json.dumps(
             normalized,
             ensure_ascii=False,
@@ -487,12 +780,17 @@ class AgentRuleService:
 
     async def compile_document(
         self,
-        owner_user_id: str,
+        actor_user_id: str,
         document_id: str,
         *,
         source_version_id: str,
+        is_admin: bool = False,
     ) -> dict[str, Any]:
-        document = self._owned_document(owner_user_id, document_id)
+        document = self._authorized_document(
+            actor_user_id,
+            document_id,
+            is_admin=is_admin,
+        )
         with self.connection() as connection:
             source = connection.execute(
                 """
@@ -559,7 +857,20 @@ class AgentRuleService:
             else None
         )
         content_digest = _sha256(normalized_json or model_output)
-        with self.connection(write=True) as connection:
+        with self.connection(write=True, immediate=True) as connection:
+            current_document = connection.execute(
+                """
+                SELECT * FROM agent_rule_documents
+                WHERE id = ? AND target_module_id = ?
+                  AND deleted_at IS NULL
+                """,
+                (document_id, TARGET_MODULE_ID),
+            ).fetchone()
+            self._authorize_document(
+                current_document,
+                actor_user_id,
+                is_admin=is_admin,
+            )
             connection.execute(
                 """
                 INSERT INTO agent_compiled_rule_versions (
@@ -587,7 +898,7 @@ class AgentRuleService:
                 ),
             )
         self.audit(
-            owner_user_id,
+            actor_user_id,
             "agent_rule.compile",
             "agent_rule_document",
             document_id,
@@ -596,32 +907,236 @@ class AgentRuleService:
                 "source_version_id": source_version_id,
                 "candidate_id": candidate_id,
                 "specification_version": SPECIFICATION_VERSION,
+                "scope": document["scope"],
+                "content_sha256": content_digest,
             },
         )
-        return self.get_document(owner_user_id, document["id"])
+        return self.get_document(
+            actor_user_id,
+            document["id"],
+            is_admin=is_admin,
+        )
+
+    @staticmethod
+    def _is_record_presentation(compiled_json: str | None) -> bool:
+        if not compiled_json:
+            return False
+        try:
+            compiled = json.loads(compiled_json)
+        except json.JSONDecodeError:
+            return False
+        return (
+            isinstance(compiled, dict)
+            and compiled.get("schema_version") in {"1.1", "1.2"}
+            and compiled.get("kind") == "record_presentation"
+            and isinstance(compiled.get("record_presentation"), dict)
+        )
+
+    @staticmethod
+    def _pagination_tool_name(
+        compiled_json: str | None,
+    ) -> str | None:
+        if not compiled_json:
+            return None
+        try:
+            compiled = json.loads(compiled_json)
+        except json.JSONDecodeError:
+            return None
+        pagination = (
+            compiled.get("deterministic_pagination")
+            if isinstance(compiled, dict)
+            else None
+        )
+        if (
+            compiled.get("schema_version") != "1.2"
+            or compiled.get("kind") != "deterministic_pagination"
+            or not isinstance(pagination, dict)
+        ):
+            return None
+        tool_name = pagination.get("tool_name")
+        return tool_name if isinstance(tool_name, str) else None
+
+    @classmethod
+    def _validate_active_policy_conflicts(
+        cls,
+        connection: Any,
+        document: Any,
+    ) -> None:
+        if document["scope"] == SYSTEM_DEFAULT_SCOPE:
+            rows = connection.execute(
+                """
+                SELECT versions.compiled_json
+                FROM agent_rule_documents AS documents
+                JOIN agent_compiled_rule_versions AS versions
+                  ON versions.id = documents.active_compiled_version_id
+                WHERE documents.target_module_id = ?
+                  AND documents.scope = 'system_default'
+                  AND documents.deleted_at IS NULL
+                  AND versions.status = 'valid'
+                """,
+                (TARGET_MODULE_ID,),
+            ).fetchall()
+        else:
+            rows = connection.execute(
+                """
+                SELECT versions.compiled_json
+                FROM agent_rule_documents AS documents
+                JOIN agent_compiled_rule_versions AS versions
+                  ON versions.id = documents.active_compiled_version_id
+                WHERE documents.target_module_id = ?
+                  AND documents.scope = 'personal'
+                  AND documents.owner_user_id = ?
+                  AND documents.deleted_at IS NULL
+                  AND versions.status = 'valid'
+                """,
+                (TARGET_MODULE_ID, document["owner_user_id"]),
+            ).fetchall()
+        if (
+            sum(
+                cls._is_record_presentation(row["compiled_json"])
+                for row in rows
+            )
+            > 1
+        ):
+            raise AgentRuleError(
+                "record_presentation_rule_conflict",
+                (
+                    "Only one active record-presentation rule is allowed "
+                    "for this scope"
+                ),
+                409,
+            )
+        pagination_tools = [
+            tool_name
+            for row in rows
+            if (
+                tool_name := cls._pagination_tool_name(
+                    row["compiled_json"]
+                )
+            )
+        ]
+        if len(pagination_tools) != len(set(pagination_tools)):
+            raise AgentRuleError(
+                "deterministic_pagination_rule_conflict",
+                (
+                    "Only one active deterministic-pagination rule per "
+                    "tool is allowed for this scope"
+                ),
+                409,
+            )
+
+    @staticmethod
+    def _active_scope_count(
+        connection: Any,
+        scope: str,
+        *,
+        owner_user_id: str | None = None,
+    ) -> int:
+        owner_filter = ""
+        parameters: list[Any] = [TARGET_MODULE_ID, scope]
+        if owner_user_id is not None:
+            owner_filter = " AND documents.owner_user_id = ?"
+            parameters.append(owner_user_id)
+        row = connection.execute(
+            f"""
+            SELECT COUNT(*) AS count
+            FROM agent_rule_documents AS documents
+            JOIN agent_compiled_rule_versions AS versions
+              ON versions.id = documents.active_compiled_version_id
+            WHERE documents.target_module_id = ?
+              AND documents.scope = ?
+              AND documents.deleted_at IS NULL
+              AND versions.status = 'valid'
+              {owner_filter}
+            """,
+            parameters,
+        ).fetchone()
+        return int(row["count"])
+
+    @classmethod
+    def _validate_active_capacity(
+        cls,
+        connection: Any,
+        document: Any,
+    ) -> None:
+        system_count = cls._active_scope_count(
+            connection,
+            SYSTEM_DEFAULT_SCOPE,
+        )
+        if system_count > MAX_ACTIVE_RULES_PER_TASK:
+            raise AgentRuleError(
+                "too_many_active_rules",
+                "Too many active Agent rules",
+                409,
+            )
+        if document["scope"] == PERSONAL_SCOPE:
+            personal_count = cls._active_scope_count(
+                connection,
+                PERSONAL_SCOPE,
+                owner_user_id=document["owner_user_id"],
+            )
+            if (
+                system_count + personal_count
+                > MAX_ACTIVE_RULES_PER_TASK
+            ):
+                raise AgentRuleError(
+                    "too_many_active_rules",
+                    "Too many active Agent rules",
+                    409,
+                )
+            return
+
+        rows = connection.execute(
+            """
+            SELECT documents.owner_user_id, COUNT(*) AS count
+            FROM agent_rule_documents AS documents
+            JOIN agent_compiled_rule_versions AS versions
+              ON versions.id = documents.active_compiled_version_id
+            WHERE documents.target_module_id = ?
+              AND documents.scope = 'personal'
+              AND documents.deleted_at IS NULL
+              AND versions.status = 'valid'
+            GROUP BY documents.owner_user_id
+            """,
+            (TARGET_MODULE_ID,),
+        ).fetchall()
+        if any(
+            system_count + int(row["count"])
+            > MAX_ACTIVE_RULES_PER_TASK
+            for row in rows
+        ):
+            raise AgentRuleError(
+                "too_many_active_rules",
+                (
+                    "Activating this system default would exceed the "
+                    "per-task Agent rule limit for at least one user"
+                ),
+                409,
+            )
 
     def activate(
         self,
-        owner_user_id: str,
+        actor_user_id: str,
         document_id: str,
         *,
         compiled_version_id: str | None,
+        is_admin: bool = False,
     ) -> dict[str, Any]:
         with self.connection(write=True, immediate=True) as connection:
             document = connection.execute(
                 """
                 SELECT * FROM agent_rule_documents
-                WHERE id = ? AND owner_user_id = ?
-                  AND target_module_id = ?
+                WHERE id = ? AND target_module_id = ?
+                  AND deleted_at IS NULL
                 """,
-                (document_id, owner_user_id, TARGET_MODULE_ID),
+                (document_id, TARGET_MODULE_ID),
             ).fetchone()
-            if document is None:
-                raise AgentRuleError(
-                    "rule_document_not_found",
-                    "Rule document was not found",
-                    404,
-                )
+            document = self._authorize_document(
+                document,
+                actor_user_id,
+                is_admin=is_admin,
+            )
+            candidate = None
             if compiled_version_id is not None:
                 candidate = connection.execute(
                     """
@@ -645,6 +1160,19 @@ class AgentRuleService:
                         "Only a valid Compiled Rule can be activated",
                         409,
                     )
+                if (
+                    document["scope"] == SYSTEM_DEFAULT_SCOPE
+                    and candidate["source_version_id"]
+                    != document["current_source_version_id"]
+                ):
+                    raise AgentRuleError(
+                        "system_rule_candidate_stale",
+                        (
+                            "A system-default candidate must be compiled "
+                            "from the current Source Document version"
+                        ),
+                        409,
+                    )
             connection.execute(
                 """
                 UPDATE agent_rule_documents
@@ -653,8 +1181,14 @@ class AgentRuleService:
                 """,
                 (compiled_version_id, _utc_now(), document_id),
             )
+            if compiled_version_id is not None:
+                self._validate_active_policy_conflicts(
+                    connection,
+                    document,
+                )
+                self._validate_active_capacity(connection, document)
         self.audit(
-            owner_user_id,
+            actor_user_id,
             (
                 "agent_rule.activate"
                 if compiled_version_id is not None
@@ -663,13 +1197,30 @@ class AgentRuleService:
             "agent_rule_document",
             document_id,
             "success",
-            {"compiled_version_id": compiled_version_id},
+            {
+                "scope": document["scope"],
+                "compiled_version_id": compiled_version_id,
+                "source_version_id": (
+                    candidate["source_version_id"]
+                    if candidate is not None
+                    else None
+                ),
+                "content_sha256": (
+                    candidate["content_sha256"]
+                    if candidate is not None
+                    else None
+                ),
+            },
         )
-        return self.get_document(owner_user_id, document_id)
+        return self.get_document(
+            actor_user_id,
+            document_id,
+            is_admin=is_admin,
+        )
 
     def active_snapshots(
         self,
-        owner_user_id: str,
+        actor_user_id: str,
     ) -> list[dict[str, Any]]:
         with self.connection() as connection:
             rows = connection.execute(
@@ -679,20 +1230,34 @@ class AgentRuleService:
                        versions.id AS compiled_version_id,
                        versions.source_version_id,
                        versions.specification_version,
-                       versions.content_sha256
+                       versions.content_sha256,
+                       documents.scope
                 FROM agent_rule_documents AS documents
                 JOIN agent_compiled_rule_versions AS versions
                   ON versions.id =
                      documents.active_compiled_version_id
-                WHERE documents.owner_user_id = ?
-                  AND documents.target_module_id = ?
+                WHERE documents.target_module_id = ?
+                  AND documents.deleted_at IS NULL
+                  AND (
+                    documents.scope = 'system_default'
+                    OR (
+                      documents.scope = 'personal'
+                      AND documents.owner_user_id = ?
+                    )
+                  )
                   AND versions.status = 'valid'
-                ORDER BY documents.updated_at, documents.id
+                ORDER BY
+                  CASE documents.scope
+                    WHEN 'system_default' THEN 0
+                    ELSE 1
+                  END,
+                  documents.updated_at,
+                  documents.id
                 LIMIT ?
                 """,
                 (
-                    owner_user_id,
                     TARGET_MODULE_ID,
+                    actor_user_id,
                     MAX_ACTIVE_RULES_PER_TASK + 1,
                 ),
             ).fetchall()
@@ -703,3 +1268,92 @@ class AgentRuleService:
                 409,
             )
         return [dict(row) for row in rows]
+
+    def delete_document(
+        self,
+        actor_user_id: str,
+        document_id: str,
+        *,
+        is_admin: bool = False,
+    ) -> None:
+        now = _utc_now()
+        with self.connection(write=True, immediate=True) as connection:
+            document = connection.execute(
+                """
+                SELECT documents.*,
+                       sources.version_number AS source_version_number,
+                       sources.content_sha256 AS source_content_sha256,
+                       versions.id AS last_compiled_version_id,
+                       versions.source_version_id
+                         AS last_compiled_source_version_id,
+                       versions.specification_version,
+                       versions.content_sha256
+                         AS last_compiled_content_sha256
+                FROM agent_rule_documents AS documents
+                JOIN agent_rule_source_versions AS sources
+                  ON sources.id = documents.current_source_version_id
+                LEFT JOIN agent_compiled_rule_versions AS versions
+                  ON versions.id = (
+                    SELECT candidate.id
+                    FROM agent_compiled_rule_versions AS candidate
+                    WHERE candidate.document_id = documents.id
+                    ORDER BY candidate.created_at DESC, candidate.id DESC
+                    LIMIT 1
+                  )
+                WHERE documents.id = ?
+                  AND documents.target_module_id = ?
+                  AND documents.deleted_at IS NULL
+                """,
+                (document_id, TARGET_MODULE_ID),
+            ).fetchone()
+            document = self._authorize_document(
+                document,
+                actor_user_id,
+                is_admin=is_admin,
+            )
+            if document["active_compiled_version_id"] is not None:
+                raise AgentRuleError(
+                    "active_rule_delete_forbidden",
+                    "Deactivate the Agent rule before deleting it",
+                    409,
+                )
+            connection.execute(
+                """
+                UPDATE agent_rule_documents
+                SET deleted_at = ?, updated_at = ?
+                WHERE id = ? AND deleted_at IS NULL
+                """,
+                (now, now, document_id),
+            )
+            self.audit_in_transaction(
+                connection,
+                actor_user_id,
+                "agent_rule.delete",
+                "agent_rule_document",
+                document_id,
+                "success",
+                {
+                    "scope": document["scope"],
+                    "source_version_id": document[
+                        "current_source_version_id"
+                    ],
+                    "source_version_number": document[
+                        "source_version_number"
+                    ],
+                    "source_content_sha256": document[
+                        "source_content_sha256"
+                    ],
+                    "compiled_version_id": document[
+                        "last_compiled_version_id"
+                    ],
+                    "compiled_source_version_id": document[
+                        "last_compiled_source_version_id"
+                    ],
+                    "specification_version": document[
+                        "specification_version"
+                    ],
+                    "compiled_content_sha256": document[
+                        "last_compiled_content_sha256"
+                    ],
+                },
+            )

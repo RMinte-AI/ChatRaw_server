@@ -66,7 +66,8 @@ class FakeTaskClient:
             payload["outcome_code"] = task["outcome_code"]
         if task["state"] == "succeeded":
             payload["result"] = copy.deepcopy(task["result"])
-            payload["chat_projection"] = task["chat_projection"]
+            if task["chat_projection"] is not None:
+                payload["chat_projection"] = task["chat_projection"]
         if task.get("artifacts"):
             payload["artifacts"] = [
                 {
@@ -555,6 +556,33 @@ class ModuleTaskServiceTests(unittest.IsolatedAsyncioTestCase):
             principal_role="member",
         )
 
+    def _chat_read_token(self, task_id):
+        return next(
+            item["token"]
+            for item in self.client.tasks[task_id]["host_capabilities"]
+            if item["capability"] == "chat.read"
+        )
+
+    async def _finish_task(
+        self,
+        task_id,
+        state,
+        *,
+        outcome_code=None,
+        text="finished",
+    ):
+        self.client.set_state(
+            task_id,
+            state,
+            outcome_code=outcome_code,
+            text=text,
+        )
+        return await self.service.get(
+            task_id,
+            principal_user_id=self.creator,
+            principal_role="member",
+        )
+
     def _personal_skill(self):
         skill_id = str(uuid.uuid4())
         version_id = str(uuid.uuid4())
@@ -612,7 +640,13 @@ class ModuleTaskServiceTests(unittest.IsolatedAsyncioTestCase):
             )
         return skill_id, version_id, markdown, digest
 
-    def _active_rule(self):
+    def _active_rule(
+        self,
+        *,
+        scope="personal",
+        owner_user_id=None,
+        name="Pagination rule",
+    ):
         document_id = str(uuid.uuid4())
         source_version_id = str(uuid.uuid4())
         compiled_version_id = str(uuid.uuid4())
@@ -645,14 +679,17 @@ class ModuleTaskServiceTests(unittest.IsolatedAsyncioTestCase):
                 """
                 INSERT INTO agent_rule_documents (
                     id, owner_user_id, target_module_id, name,
+                    scope,
                     current_source_version_id,
                     active_compiled_version_id, created_at, updated_at
-                ) VALUES (?, ?, ?, 'Pagination rule', ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     document_id,
-                    self.creator,
+                    owner_user_id or self.creator,
                     REFERENCE_MANIFEST["module_id"],
+                    name,
+                    scope,
                     source_version_id,
                     compiled_version_id,
                     now,
@@ -802,12 +839,14 @@ class ModuleTaskServiceTests(unittest.IsolatedAsyncioTestCase):
             compiled_version_id,
         )
         self.assertEqual(snapshot["rule"]["compiled_rule"], compiled)
+        self.assertEqual(snapshot["rule"]["scope"], "personal")
 
         with self.database.connection(write=True) as connection:
             connection.execute(
                 """
                 UPDATE agent_rule_documents
-                SET active_compiled_version_id = NULL
+                SET active_compiled_version_id = NULL,
+                    deleted_at = '2026-07-26T01:00:00Z'
                 WHERE id = ?
                 """,
                 (document_id,),
@@ -819,6 +858,115 @@ class ModuleTaskServiceTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(
             frozen["rule"]["compiled_version_id"],
             compiled_version_id,
+        )
+        self.assertEqual(frozen["rule"]["scope"], "personal")
+
+        self.client.set_state(task["task_id"], "succeeded")
+        await self.service.get(
+            task["task_id"],
+            principal_user_id=self.creator,
+            principal_role="member",
+        )
+        next_task, next_created = await self._create(
+            key="after-rule-deactivation",
+        )
+        self.assertTrue(next_created)
+        self.assertEqual(
+            self.client.tasks[next_task["task_id"]]["active_rules"],
+            [],
+        )
+
+    async def test_system_and_personal_rules_merge_without_public_scope_change(
+        self,
+    ):
+        (
+            system_document_id,
+            _system_source_id,
+            system_compiled_id,
+            system_compiled,
+            _system_digest,
+        ) = self._active_rule(
+            scope="system_default",
+            owner_user_id=self.admin,
+            name="System rule",
+        )
+        (
+            personal_document_id,
+            _personal_source_id,
+            personal_compiled_id,
+            personal_compiled,
+            _personal_digest,
+        ) = self._active_rule(name="Personal rule")
+        self.registry.target["manifest"]["actions"][0][
+            "supports_rules"
+        ] = True
+        self.registry.target["granted_capabilities"].append("rule.read")
+
+        task, created = await self._create(key="merged-rules")
+
+        self.assertTrue(created)
+        remote = self.client.tasks[task["task_id"]]
+        self.assertEqual(
+            [
+                item["document_id"]
+                for item in remote["active_rules"]
+            ],
+            [system_document_id, personal_document_id],
+        )
+        self.assertTrue(
+            all("scope" not in item for item in remote["active_rules"])
+        )
+        capability = next(
+            item
+            for item in remote["host_capabilities"]
+            if item["capability"] == "rule.read"
+        )
+        system_snapshot = await self.service.capability_rule_read(
+            capability["token"],
+            system_document_id,
+        )
+        personal_snapshot = await self.service.capability_rule_read(
+            capability["token"],
+            personal_document_id,
+        )
+        self.assertEqual(
+            system_snapshot["rule"]["compiled_version_id"],
+            system_compiled_id,
+        )
+        self.assertEqual(
+            system_snapshot["rule"]["compiled_rule"],
+            system_compiled,
+        )
+        self.assertEqual(
+            system_snapshot["rule"]["scope"],
+            "system_default",
+        )
+        self.assertEqual(
+            personal_snapshot["rule"]["compiled_version_id"],
+            personal_compiled_id,
+        )
+        self.assertEqual(
+            personal_snapshot["rule"]["compiled_rule"],
+            personal_compiled,
+        )
+        self.assertEqual(personal_snapshot["rule"]["scope"], "personal")
+
+        with self.database.connection(write=True) as connection:
+            connection.execute(
+                """
+                UPDATE agent_rule_documents
+                SET scope = 'personal'
+                WHERE id = ?
+                """,
+                (system_document_id,),
+            )
+        still_frozen = await self.service.capability_rule_read(
+            capability["token"],
+            system_document_id,
+        )
+        self.assertEqual(
+            still_frozen["rule"]["scope"],
+            "system_default",
         )
 
     async def test_uploaded_resource_is_private_single_bind_and_streamed(self):
@@ -2081,6 +2229,29 @@ class ModuleTaskServiceTests(unittest.IsolatedAsyncioTestCase):
             chat["messages"][-1]["content"],
             "Run durable task",
         )
+        context = chat["conversation_context"]
+        self.assertEqual(context["schema_version"], "1")
+        flattened = [
+            message["content"]
+            for turn in context["turns"]
+            for message in (turn["user"], turn["assistant"])
+            if message is not None
+        ]
+        self.assertEqual(len(flattened), 40)
+        self.assertEqual(flattened[0], "history-10")
+        self.assertEqual(flattened[-1], "history-49")
+        self.assertTrue(
+            all(turn["status"] == "complete" for turn in context["turns"])
+        )
+        self.assertEqual(
+            context["current_task"],
+            {
+                "task_id": task["task_id"],
+                "module_id": REFERENCE_MANIFEST["module_id"],
+                "action_id": "echo.task",
+                "state": "queued",
+            },
+        )
 
     async def test_chat_capability_bounds_history_characters(self):
         now = "2026-07-26T00:00:00Z"
@@ -2124,6 +2295,265 @@ class ModuleTaskServiceTests(unittest.IsolatedAsyncioTestCase):
             chat["messages"][-1]["content"],
             "Run durable task",
         )
+        context = chat["conversation_context"]
+        context_characters = sum(
+            len(message["content"])
+            for turn in context["turns"]
+            for message in (turn["user"], turn["assistant"])
+            if message is not None
+        )
+        self.assertLessEqual(context_characters, 200_000)
+        self.assertFalse(
+            any(
+                turn["status"] == "complete"
+                and (
+                    turn["user"] is None
+                    or turn["assistant"] is None
+                )
+                for turn in context["turns"]
+            )
+        )
+
+    async def test_chat_capability_returns_structured_task_and_chat_turns(self):
+        self.database.add_message(
+            self.chat.id,
+            "user",
+            "ordinary question",
+            author_user_id=self.creator,
+        )
+        self.database.add_message(
+            self.chat.id,
+            "assistant",
+            "ordinary answer",
+        )
+
+        succeeded, _ = await self._create(
+            key="history-succeeded",
+            input={"text": "successful input"},
+            user_message="successful request",
+        )
+        await self._finish_task(
+            succeeded["task_id"],
+            "succeeded",
+            text="successful answer",
+        )
+
+        failed, _ = await self._create(
+            key="history-failed",
+            input={"text": "failed input"},
+            user_message="failed request",
+        )
+        await self._finish_task(
+            failed["task_id"],
+            "failed",
+            outcome_code="agent_execution_failed",
+        )
+
+        cancelled, _ = await self._create(
+            key="history-cancelled",
+            input={"text": "cancelled input"},
+            user_message="cancelled request",
+        )
+        await self._finish_task(
+            cancelled["task_id"],
+            "cancelled",
+            outcome_code="user_cancelled",
+        )
+
+        no_projection, _ = await self._create(
+            key="history-no-projection",
+            input={"text": "no projection input"},
+            user_message="no projection request",
+        )
+        remote = self.client.tasks[no_projection["task_id"]]
+        remote["state"] = "succeeded"
+        remote["last_event_id"] += 1
+        remote["result"] = {"text": "not projected"}
+        remote["chat_projection"] = None
+        remote["events"].append(
+            {
+                "id": remote["last_event_id"],
+                "event": "task.terminal",
+                "data": {"state": "succeeded"},
+            }
+        )
+        await self.service.get(
+            no_projection["task_id"],
+            principal_user_id=self.creator,
+            principal_role="member",
+        )
+        self.database.add_message(
+            self.chat.id,
+            "assistant",
+            "orphan assistant",
+        )
+        self.database.add_message(
+            self.chat.id,
+            "user",
+            "orphan user",
+            author_user_id=self.creator,
+        )
+
+        current, _ = await self._create(
+            key="history-current",
+            input={"text": "authoritative current input"},
+            user_message="visible current message",
+        )
+        chat = await self.service.capability_chat_read(
+            self._chat_read_token(current["task_id"])
+        )
+
+        self.assertEqual(
+            [message["content"] for message in chat["messages"]],
+            [
+                "ordinary question",
+                "ordinary answer",
+                "successful request",
+                "successful answer",
+                "failed request",
+                "cancelled request",
+                "no projection request",
+                "orphan assistant",
+                "orphan user",
+                "visible current message",
+            ],
+        )
+        self.assertEqual(
+            chat["conversation_context"],
+            {
+                "schema_version": "1",
+                "turns": [
+                    {
+                        "source": "chat",
+                        "status": "complete",
+                        "task": None,
+                        "user": {"content": "ordinary question"},
+                        "assistant": {"content": "ordinary answer"},
+                    },
+                    {
+                        "source": "module",
+                        "status": "complete",
+                        "task": {
+                            "task_id": succeeded["task_id"],
+                            "module_id": REFERENCE_MANIFEST["module_id"],
+                            "action_id": "echo.task",
+                            "state": "succeeded",
+                            "outcome_code": None,
+                        },
+                        "user": {"content": "successful request"},
+                        "assistant": {"content": "successful answer"},
+                    },
+                    {
+                        "source": "module",
+                        "status": "failed",
+                        "task": {
+                            "task_id": failed["task_id"],
+                            "module_id": REFERENCE_MANIFEST["module_id"],
+                            "action_id": "echo.task",
+                            "state": "failed",
+                            "outcome_code": "agent_execution_failed",
+                        },
+                        "user": {"content": "failed request"},
+                        "assistant": None,
+                    },
+                    {
+                        "source": "module",
+                        "status": "cancelled",
+                        "task": {
+                            "task_id": cancelled["task_id"],
+                            "module_id": REFERENCE_MANIFEST["module_id"],
+                            "action_id": "echo.task",
+                            "state": "cancelled",
+                            "outcome_code": "user_cancelled",
+                        },
+                        "user": {"content": "cancelled request"},
+                        "assistant": None,
+                    },
+                    {
+                        "source": "module",
+                        "status": "incomplete",
+                        "task": {
+                            "task_id": no_projection["task_id"],
+                            "module_id": REFERENCE_MANIFEST["module_id"],
+                            "action_id": "echo.task",
+                            "state": "succeeded",
+                            "outcome_code": None,
+                        },
+                        "user": {"content": "no projection request"},
+                        "assistant": None,
+                    },
+                    {
+                        "source": "chat",
+                        "status": "incomplete",
+                        "task": None,
+                        "user": None,
+                        "assistant": {"content": "orphan assistant"},
+                    },
+                    {
+                        "source": "chat",
+                        "status": "incomplete",
+                        "task": None,
+                        "user": {"content": "orphan user"},
+                        "assistant": None,
+                    },
+                ],
+                "current_task": {
+                    "task_id": current["task_id"],
+                    "module_id": REFERENCE_MANIFEST["module_id"],
+                    "action_id": "echo.task",
+                    "state": "queued",
+                },
+            },
+        )
+
+    async def test_chat_capability_context_is_scoped_to_its_chat(self):
+        foreign_chat = self.database.create_chat(
+            "Foreign chat",
+            owner_user_id=self.viewer,
+        )
+        self.database.add_message(
+            foreign_chat.id,
+            "user",
+            "foreign private question",
+            author_user_id=self.viewer,
+        )
+        self.database.add_message(
+            foreign_chat.id,
+            "assistant",
+            "foreign private answer",
+        )
+        self.database.add_message(
+            self.chat.id,
+            "user",
+            "local question",
+            author_user_id=self.creator,
+        )
+        self.database.add_message(
+            self.chat.id,
+            "assistant",
+            "local answer",
+        )
+        current, _ = await self._create(key="history-chat-scope")
+
+        chat = await self.service.capability_chat_read(
+            self._chat_read_token(current["task_id"])
+        )
+
+        self.assertEqual(
+            chat["conversation_context"]["turns"],
+            [
+                {
+                    "source": "chat",
+                    "status": "complete",
+                    "task": None,
+                    "user": {"content": "local question"},
+                    "assistant": {"content": "local answer"},
+                }
+            ],
+        )
+        serialized = json.dumps(chat, ensure_ascii=False)
+        self.assertNotIn("foreign private question", serialized)
+        self.assertNotIn("foreign private answer", serialized)
 
     async def test_unapproved_and_expired_capabilities_cannot_read_data(self):
         self.registry.target["granted_capabilities"] = []
@@ -3042,6 +3472,17 @@ class ModuleTaskApiTests(unittest.TestCase):
             },
         )
         self.assertEqual(chat.status_code, 200, chat.text)
+        chat_payload = chat.json()
+        self.assertEqual(
+            chat_payload["conversation_context"]["schema_version"],
+            "1",
+        )
+        self.assertEqual(
+            chat_payload["conversation_context"]["current_task"][
+                "task_id"
+            ],
+            task["task_id"],
+        )
         resource = self.client.get(
             f"/api/module-capabilities/v1/resources/{self.resource_id}",
             headers={

@@ -89,6 +89,21 @@ Magic Mouse 的横向手势，或按住 Shift 使用鼠标滚轮。ChatRaw 会�
 
 插件不会直接连接 Agent，也拿不到 Agent、LinkDB 或其他模块的地址和凭证。
 
+#### Agent 规则作用域
+
+每位用户可以创建和管理自己的个人规则。管理员还可以发布系统默认规则；激活后，
+它会进入所有用户后续新建的 Agent 任务。普通用户能看到系统规则的名称、激活状态、
+版本和哈希，但不能打开 Source、编译原文、错误详情或历史候选。
+
+创建 Source、保存新版本或编译候选都不会自动生效，必须明确激活。每个任务在创建时
+冻结当时有效的规则作用域、Compiled 版本和哈希，因此修改或停用规则不会改变在途或
+历史任务；同一聊天中的下一次发送会创建新任务并读取最新规则。个人规则与系统默认
+规则冲突时，个人规则优先，但不能覆盖平台安全限制。
+
+未激活的个人规则可以删除；激活规则必须先停用。删除后规则会从列表消失并允许同名
+新建，但不会影响已经冻结该版本的在途或历史任务。管理员对系统规则遵循同样的
+“先停用、再删除”要求；普通成员没有系统规则删除权限。
+
 ### 5. 任务状态
 
 模块任务可能出现：
@@ -231,6 +246,26 @@ For Agent, the plugin uses the ChatRaw Module SDK. It never connects directly to
 Agent execution appears inside one assistant message: explicit plans, tool calls,
 redacted results, and one final Markdown answer. Successful timelines collapse by
 default and can be expanded again.
+
+#### Agent rule scopes
+
+Each user can manage personal rules. Administrators may also publish a
+system-default rule that applies to every user's future new Agent tasks.
+Members can see its name, activation state, version, and hash, but cannot open
+its Source, compiler output, validation details, or candidate history.
+
+Creating a Source version or compiling a candidate never activates it.
+Each task freezes the effective scope, Compiled version, and hash at creation,
+so later activation changes do not alter in-flight or historical tasks. The
+next send in the same chat is a new task and reads the latest active rules.
+Personal rules take precedence over conflicting system defaults, while platform
+security controls remain non-overridable.
+
+An inactive personal rule may be deleted; an active rule must first be
+deactivated. It disappears from ordinary lists and its name may be reused, but
+in-flight and historical tasks that froze the version remain readable. The
+same explicit deactivate-then-delete rule applies to administrator-managed
+system defaults; members cannot delete system rules.
 
 ### 5. Task states
 

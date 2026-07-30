@@ -1,5 +1,5 @@
 {
-  "latest_schema_version": 13,
+  "latest_schema_version": 15,
   "migrations": [
     {
       "version": 1,
@@ -52,6 +52,14 @@
     {
       "version": 13,
       "name": "multiple_task_input_resources"
+    },
+    {
+      "version": 14,
+      "name": "system_default_agent_rules"
+    },
+    {
+      "version": 15,
+      "name": "soft_delete_agent_rules"
     }
   ],
   "new_tables": {
@@ -251,10 +259,12 @@
       "owner_user_id",
       "target_module_id",
       "name",
+      "scope",
       "current_source_version_id",
       "active_compiled_version_id",
       "created_at",
-      "updated_at"
+      "updated_at",
+      "deleted_at"
     ],
     "agent_rule_source_versions": [
       "id",
@@ -281,6 +291,7 @@
       "ordinal",
       "document_id",
       "compiled_version_id",
+      "scope_snapshot",
       "created_at"
     ]
   },
@@ -320,9 +331,13 @@
     "idx_agent_skill_versions_skill",
     "idx_module_task_skill_activations_task",
     "idx_agent_rule_documents_owner",
+    "idx_agent_rule_documents_personal_name",
+    "idx_agent_rule_documents_system_name",
+    "idx_agent_rule_documents_effective",
     "idx_agent_rule_sources_document",
     "idx_agent_compiled_rules_document",
-    "idx_module_task_rule_activations_task"
+    "idx_module_task_rule_activations_task",
+    "idx_module_task_rule_scope"
   ],
   "legacy_invariants": {
     "ownership_fields_remain_null": true,

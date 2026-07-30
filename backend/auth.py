@@ -746,6 +746,26 @@ class AuthService:
                 details,
             )
 
+    def audit_in_transaction(
+        self,
+        connection,
+        actor_user_id: Optional[str],
+        action: str,
+        target_type: str,
+        target_id: Optional[str],
+        outcome: str,
+        details: dict[str, Any],
+    ) -> None:
+        self._audit(
+            connection,
+            actor_user_id,
+            action,
+            target_type,
+            target_id,
+            outcome,
+            details,
+        )
+
     def list_audit(self, limit: int = 200) -> list[dict[str, Any]]:
         with self.connection() as connection:
             rows = connection.execute(

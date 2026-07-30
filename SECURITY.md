@@ -50,6 +50,36 @@ ChatRaw 只有 `admin` 和 `member` 两种账户角色，不提供公开的用�
 撤销其未过期的任务型 Host Capability。管理员不能自降级、自停用，也不能通过管理入口重置自己的
 密码；自助修改密码应使用“设置 → Account”。系统必须始终保留至少一个已启用的管理员。
 
+System-default Agent rules are Server-authorized configuration, not trusted
+frontend state. Only a current administrator may create, read full details,
+update, compile, activate, or deactivate a `system_default` document. Any
+current administrator may manage it; the creator ID is audit metadata, not an
+authorization owner. Members receive only system-rule activation metadata.
+Personal documents remain owner-scoped.
+
+Activation is explicit and transactional. Server rejects invalid or stale
+system candidates, duplicate record-presentation policies in the same scope,
+duplicate deterministic-pagination policies for the same exact tool and scope,
+and any activation that would make a user's effective task rule set exceed 10.
+Deletion is a Server-enforced tombstone operation: an active rule returns a
+stable conflict and is never implicitly deactivated; only the personal owner or
+a current administrator for a system rule may delete it. Task snapshots store
+scope and Compiled version independently of later document changes or deletion.
+Neither personal nor system rules grant tools, permissions, budget increases,
+or a way around platform safety controls.
+
+系统默认 Agent 规则是由 Server 授权的配置，不能信任前端隐藏或浏览器提交。只有当前管理员
+可以创建、读取完整详情、更新、编译、激活或停用 `system_default` 文档；任意当前管理员都
+可以管理，最初创建者只作为审计信息，不是权限所有者。普通用户只能取得系统规则的激活元数据，
+个人文档仍只归本人管理。
+
+激活必须明确且在写事务中完成。Server 会拒绝无效或基于旧 Source 的系统候选、同一作用域
+重复的 record-presentation 策略、同一作用域对同一准确工具重复的确定性分页策略，以及任何
+会让某位用户有效规则超过 10 条的激活。删除由 Server 写入墓碑：激活规则稳定返回冲突且不会
+隐式停用；个人规则只能由所有者删除，系统规则只能由当前管理员删除。任务快照独立保存作用域
+和 Compiled 版本，后续文档变化或删除都不会改写。任何规则都不能授予工具、权限、扩大预算或
+绕过平台安全限制。
+
 ## Plugins and Skills / 插件与 Skills
 
 Plugins and Agent Skills are user-enabled local extensions. Treat third-party plugin code and skill

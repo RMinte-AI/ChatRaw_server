@@ -83,6 +83,31 @@ API 会同时返回稳定的错误 `code` 与英文诊断 `detail`；前端按 `
 
 普通用户能使用已启用插件，但不能安装、停用或删除。禁用或删除插件会移除前端入口，不会自动删除模块数据。
 
+### 4.1 系统默认 Agent 规则
+
+管理员可以在 Agent 配套插件中把新规则作用域选为“系统默认”或“个人”；新版插件对
+管理员默认选中“系统默认”。系统规则只有在候选结构校验通过、管理员核对实际
+Compiled 内容并二次确认激活后，才会进入所有用户后续创建的新任务。
+
+激活前必须核对 Source 版本、Compiled 版本、哈希、`kind` 和策略字段。“结构校验通过”
+只说明 JSON 契约有效，不代表模型已经验证业务正确性。系统规则只能激活当前 Source
+版本生成的候选；旧 Source 候选不会显示激活操作，Server 也会拒绝越过检查。
+
+任意当前管理员都能管理系统规则。普通用户只能看到名称、激活状态、版本和哈希，不能
+读取 Source、编译模型原文、错误详情或历史候选。个人规则仍只由所有者管理，并在与
+系统默认规则冲突时优先。系统规则与每位用户的个人规则合并后每任务最多 10 条；冲突
+或超限会在激活事务中失败，不会静默截断。
+
+规则变更只影响后续新任务。任务创建时已经冻结的作用域、版本和哈希不会漂移。升级到
+Schema 15 前必须停止写入并备份；旧 Server 不能直接打开迁移后的数据库，回滚代码时
+必须同时恢复匹配的迁移前快照。
+
+未激活规则可由个人所有者或系统规则管理员删除；激活规则必须先明确停用，Server 不会
+在删除时自动停用。删除只写入墓碑，普通列表和后续任务不再选择该规则，但历史及在途任务
+仍可读取冻结版本；删除后可以新建同名规则。Compiled Rule v1.2 的
+`deterministic_pagination` 只接受 Source 明确给出的准确工具名、页码参数、页大小与空页
+终止契约，同一作用域内同一工具只能激活一条。
+
 ### 5. 连接和启用模块
 
 1. 生成至少 16 个字符的一次性 Pairing Code，通过部署系统的环境变量或 Secret 注入模块后启动。模块不能把它输出到日志。
@@ -345,6 +370,32 @@ beyond `admin` and `member`.
 ### Plugins are trusted code
 
 Plugins execute in the ChatRaw page JavaScript context. Review their source, manifest hooks, proxy declarations, dependencies, and companion-module compatibility before installation. Disabling a plugin removes its frontend entry point; it does not delete module data.
+
+### System-default Agent rules
+
+Administrators may create a personal or system-default Agent rule; the new
+companion plugin defaults administrators to the system scope. A system rule
+affects every user's future new tasks only after its candidate passes structural
+validation and an administrator reviews and explicitly confirms activation.
+“Structure validated” is not a business-correctness review: verify the Source
+version, Compiled version, hash, `kind`, and policy fields. Server rejects a
+system candidate compiled from an older Source version.
+
+Any current administrator can manage system rules. Members see only name,
+activation state, version, and hash. Personal rules remain owner-managed and
+take precedence over conflicting system defaults. The combined limit remains
+10 rules per task; conflicts and over-capacity activation fail transactionally
+without truncation. Existing task snapshots never drift.
+
+Back up the quiesced Server database before Schema 15. Inactive personal rules
+may be deleted by their owner and inactive system rules by an administrator.
+Server never deactivates a rule as a side effect of deletion. Deletion writes a
+tombstone: ordinary lists and future tasks omit it, frozen in-flight and
+historical snapshots remain readable, and the name may be reused. Compiled Rule
+v1.2 accepts `deterministic_pagination` only with an exact Source-stated tool,
+cursor, page-size, and empty-page termination contract; one scope may activate
+only one such rule per tool. Rolling back to older Server code requires the
+matching pre-migration data snapshot.
 
 ### Module onboarding
 

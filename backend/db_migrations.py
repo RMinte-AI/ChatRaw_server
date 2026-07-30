@@ -4,7 +4,7 @@ import struct
 from datetime import datetime, timezone
 
 
-LATEST_SCHEMA_VERSION = 13
+LATEST_SCHEMA_VERSION = 15
 
 
 class UnsupportedSchemaVersion(RuntimeError):
@@ -996,6 +996,238 @@ def _migration_13_multiple_task_input_resources(
     )
 
 
+def _migration_14_system_default_agent_rules(
+    connection: sqlite3.Connection,
+) -> None:
+    _add_column_if_missing(
+        connection,
+        "agent_rule_documents",
+        "scope",
+        (
+            "TEXT NOT NULL DEFAULT 'personal' "
+            "CHECK (scope IN ('personal', 'system_default'))"
+        ),
+    )
+    _add_column_if_missing(
+        connection,
+        "module_task_rule_activations",
+        "scope_snapshot",
+        (
+            "TEXT NOT NULL DEFAULT 'personal' "
+            "CHECK (scope_snapshot IN ('personal', 'system_default'))"
+        ),
+    )
+    connection.execute(
+        """
+        CREATE UNIQUE INDEX IF NOT EXISTS
+            idx_agent_rule_documents_system_name
+        ON agent_rule_documents(target_module_id, name)
+        WHERE scope = 'system_default'
+        """
+    )
+    connection.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_agent_rule_documents_effective
+        ON agent_rule_documents(
+            target_module_id, scope, owner_user_id, updated_at, id
+        )
+        """
+    )
+    connection.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_module_task_rule_scope
+        ON module_task_rule_activations(task_id, scope_snapshot, ordinal)
+        """
+    )
+
+
+def _migration_15_soft_delete_agent_rules(
+    connection: sqlite3.Connection,
+) -> None:
+    connection.execute("PRAGMA defer_foreign_keys = ON")
+    connection.execute(
+        "ALTER TABLE module_task_rule_activations "
+        "RENAME TO module_task_rule_activations_v14"
+    )
+    connection.execute(
+        "ALTER TABLE agent_compiled_rule_versions "
+        "RENAME TO agent_compiled_rule_versions_v14"
+    )
+    connection.execute(
+        "ALTER TABLE agent_rule_source_versions "
+        "RENAME TO agent_rule_source_versions_v14"
+    )
+    connection.execute(
+        "ALTER TABLE agent_rule_documents "
+        "RENAME TO agent_rule_documents_v14"
+    )
+
+    connection.execute(
+        """
+        CREATE TABLE agent_rule_documents (
+            id TEXT PRIMARY KEY,
+            owner_user_id TEXT NOT NULL,
+            target_module_id TEXT NOT NULL,
+            name TEXT NOT NULL,
+            scope TEXT NOT NULL DEFAULT 'personal'
+                CHECK (scope IN ('personal', 'system_default')),
+            current_source_version_id TEXT NOT NULL,
+            active_compiled_version_id TEXT,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            deleted_at TEXT,
+            FOREIGN KEY (owner_user_id) REFERENCES users(id)
+        )
+        """
+    )
+    connection.execute(
+        """
+        CREATE TABLE agent_rule_source_versions (
+            id TEXT PRIMARY KEY,
+            document_id TEXT NOT NULL,
+            version_number INTEGER NOT NULL CHECK (version_number >= 1),
+            source_document TEXT NOT NULL,
+            content_sha256 TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            UNIQUE (document_id, version_number),
+            FOREIGN KEY (document_id)
+                REFERENCES agent_rule_documents(id) ON DELETE CASCADE
+        )
+        """
+    )
+    connection.execute(
+        """
+        CREATE TABLE agent_compiled_rule_versions (
+            id TEXT PRIMARY KEY,
+            document_id TEXT NOT NULL,
+            source_version_id TEXT NOT NULL,
+            specification_version TEXT NOT NULL,
+            status TEXT NOT NULL CHECK (status IN ('valid', 'invalid')),
+            content_sha256 TEXT NOT NULL,
+            compiled_json TEXT,
+            model_output TEXT NOT NULL,
+            validation_errors_json TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            FOREIGN KEY (document_id)
+                REFERENCES agent_rule_documents(id) ON DELETE CASCADE,
+            FOREIGN KEY (source_version_id)
+                REFERENCES agent_rule_source_versions(id)
+        )
+        """
+    )
+    connection.execute(
+        """
+        CREATE TABLE module_task_rule_activations (
+            task_id TEXT NOT NULL,
+            ordinal INTEGER NOT NULL CHECK (ordinal >= 0),
+            document_id TEXT NOT NULL,
+            compiled_version_id TEXT NOT NULL,
+            scope_snapshot TEXT NOT NULL DEFAULT 'personal'
+                CHECK (
+                    scope_snapshot IN ('personal', 'system_default')
+                ),
+            created_at TEXT NOT NULL,
+            PRIMARY KEY (task_id, document_id),
+            UNIQUE (task_id, ordinal),
+            FOREIGN KEY (task_id)
+                REFERENCES module_tasks(id) ON DELETE CASCADE,
+            FOREIGN KEY (document_id) REFERENCES agent_rule_documents(id),
+            FOREIGN KEY (compiled_version_id)
+                REFERENCES agent_compiled_rule_versions(id)
+        )
+        """
+    )
+    connection.execute(
+        """
+        INSERT INTO agent_rule_documents (
+            id, owner_user_id, target_module_id, name, scope,
+            current_source_version_id, active_compiled_version_id,
+            created_at, updated_at, deleted_at
+        )
+        SELECT id, owner_user_id, target_module_id, name, scope,
+               current_source_version_id, active_compiled_version_id,
+               created_at, updated_at, NULL
+        FROM agent_rule_documents_v14
+        """
+    )
+    connection.execute(
+        """
+        INSERT INTO agent_rule_source_versions
+        SELECT * FROM agent_rule_source_versions_v14
+        """
+    )
+    connection.execute(
+        """
+        INSERT INTO agent_compiled_rule_versions
+        SELECT * FROM agent_compiled_rule_versions_v14
+        """
+    )
+    connection.execute(
+        """
+        INSERT INTO module_task_rule_activations (
+            task_id, ordinal, document_id, compiled_version_id,
+            scope_snapshot, created_at
+        )
+        SELECT task_id, ordinal, document_id, compiled_version_id,
+               scope_snapshot, created_at
+        FROM module_task_rule_activations_v14
+        """
+    )
+
+    connection.execute("DROP TABLE module_task_rule_activations_v14")
+    connection.execute("DROP TABLE agent_compiled_rule_versions_v14")
+    connection.execute("DROP TABLE agent_rule_source_versions_v14")
+    connection.execute("DROP TABLE agent_rule_documents_v14")
+
+    connection.execute(
+        """
+        CREATE UNIQUE INDEX idx_agent_rule_documents_personal_name
+        ON agent_rule_documents(owner_user_id, target_module_id, name)
+        WHERE scope = 'personal' AND deleted_at IS NULL
+        """
+    )
+    connection.execute(
+        """
+        CREATE UNIQUE INDEX idx_agent_rule_documents_system_name
+        ON agent_rule_documents(target_module_id, name)
+        WHERE scope = 'system_default' AND deleted_at IS NULL
+        """
+    )
+    connection.execute(
+        "CREATE INDEX idx_agent_rule_documents_owner "
+        "ON agent_rule_documents(owner_user_id, target_module_id, updated_at)"
+    )
+    connection.execute(
+        """
+        CREATE INDEX idx_agent_rule_documents_effective
+        ON agent_rule_documents(
+            target_module_id, scope, owner_user_id, deleted_at,
+            updated_at, id
+        )
+        """
+    )
+    connection.execute(
+        "CREATE INDEX idx_agent_rule_sources_document "
+        "ON agent_rule_source_versions(document_id, version_number)"
+    )
+    connection.execute(
+        "CREATE INDEX idx_agent_compiled_rules_document "
+        "ON agent_compiled_rule_versions(document_id, created_at)"
+    )
+    connection.execute(
+        "CREATE INDEX idx_module_task_rule_activations_task "
+        "ON module_task_rule_activations(task_id, ordinal)"
+    )
+    connection.execute(
+        """
+        CREATE INDEX idx_module_task_rule_scope
+        ON module_task_rule_activations(
+            task_id, scope_snapshot, ordinal
+        )
+        """
+    )
+
+
 MIGRATIONS = (
     (1, "server_shared_data", _migration_1_server_shared_data),
     (2, "auth_and_audit", _migration_2_auth_and_audit),
@@ -1041,6 +1273,16 @@ MIGRATIONS = (
         13,
         "multiple_task_input_resources",
         _migration_13_multiple_task_input_resources,
+    ),
+    (
+        14,
+        "system_default_agent_rules",
+        _migration_14_system_default_agent_rules,
+    ),
+    (
+        15,
+        "soft_delete_agent_rules",
+        _migration_15_soft_delete_agent_rules,
     ),
 )
 

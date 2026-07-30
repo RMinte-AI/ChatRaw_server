@@ -38,9 +38,16 @@ Agent 是第一个按通用协议完成工程验收的模块适配，但模块�
      → LinkDB tools / 内置 tools / 标准 HTTP MCP
 ```
 
-Server 还为 Agent 提供按任务冻结的逻辑模型、个人 Skills、Compiled Rules 和文件 Resources。
+Server 还为 Agent 提供按任务冻结的逻辑模型、个人 Skills、个人或系统默认
+Compiled Rules 和文件 Resources。
 Source Document 由用户维护；Compiler Specification 由系统维护；模型只生成候选 Compiled Rule；
 候选通过确定性校验并由用户明确激活后才影响新任务。LinkDB 继续独立演进，其私有协议不属于公共模块开发接口。
+管理员可以创建 `system_default` 规则供所有用户后续新任务使用；每位用户自己的
+`personal` 规则只影响本人并在冲突时优先。创建、保存 Source 或编译都不会自动生效，
+任务创建时冻结当时激活的作用域、版本和哈希。未激活规则可以由授权用户软删除；
+激活规则必须先明确停用。删除不会破坏已冻结任务，并允许以后同名新建。
+Compiled Rule v1.2 以类型化 `deterministic_pagination` 表达单一工具的确定性分页契约；
+v1.0/v1.1 快照仍可读取。
 Agent 任务使用通用 `activity.updated` 事件把显式计划、工具调用和脱敏结果显示在同一条对话消息中；
 最终 Markdown 仍由 Server 的聊天投影唯一持久化，不展示模型隐藏思维链。
 
@@ -57,6 +64,7 @@ Agent 的规则、Skill 和 Tool 是三个不同层次：
 | 登录并使用聊天、文档和已启用功能 | ✓ | ✓ |
 | 使用角色允许的已启用插件与模块功能 | ✓ | ✓ |
 | 管理自己的 Agent Skills、规则文档与任务参数 | ✓ | ✓ |
+| 创建和管理系统默认 Agent 规则 | ✓ | — |
 | 管理用户和审计记录 | ✓ | — |
 | 配置模型、插件和模块 | ✓ | — |
 | 安装、启停或删除插件 | ✓ | — |
@@ -237,7 +245,15 @@ User → ChatRaw UI → companion plugin or Resident Integration → generic mod
 
 Agent is the first module adapter to complete engineering acceptance through
 the generic protocol. Server freezes logical models, personal prompt-only
-Skills, validated Compiled Rules, and file Resources per task. Agent uses native
+Skills, validated personal or system-default Compiled Rules, and file Resources
+per task. Administrators may publish a `system_default` rule for every user's
+future new tasks; each user's `personal` rules affect only that user and take
+precedence on conflicts. Creating or compiling a candidate does not activate
+it. An authorized user may soft-delete an inactive rule; active rules must be
+explicitly deactivated first. Tombstones preserve frozen task snapshots and
+allow later name reuse. Compiled Rule v1.2 adds a typed
+`deterministic_pagination` contract for one exact tool while v1.0/v1.1
+snapshots remain readable. Agent uses native
 Pydantic AI Tool Calling over LinkDB, built-in, and standard HTTP MCP tools.
 Rules constrain behavior, Skills provide user-selected task instructions, and
 Tools are the only execution interface. LinkDB remains independent and its
@@ -253,6 +269,7 @@ the only final Markdown answer; hidden model reasoning is never exposed.
 | Sign in and use shared product data | ✓ | ✓ |
 | Use enabled plugin and module features allowed by the role | ✓ | ✓ |
 | Manage personal Agent Skills, Rule Documents, and task budgets | ✓ | ✓ |
+| Create and manage system-default Agent rules | ✓ | — |
 | Manage users and audit events | ✓ | — |
 | Configure models, plugins, and modules | ✓ | — |
 | Install, disable, or remove plugins | ✓ | — |

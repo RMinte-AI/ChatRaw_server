@@ -489,7 +489,45 @@ Host Capability 是 Server 为某个 task 签发的最小、短期、可撤销�
 - 不能把 Token 转发给浏览器或私有依赖；
 - 401/403 必须视为权限失败，不能改用其他身份重试。
 
-`chat.read` 返回可信的 `conversation_ref` 和 `actor_ref`。模块不得接受浏览器自行传入的用户、角色或 Principal 作为替代。
+`chat.read` 返回可信的 `conversation_ref` 和 `actor_ref`。模块不得接受浏览器自行传入的用户、角色或 Principal 作为替代。响应保留兼容字段
+`messages`，并提供版本化的 `conversation_context`：
+
+```json
+{
+  "messages": [
+    {"role": "user", "content": "...", "created_at": "..."}
+  ],
+  "conversation_context": {
+    "schema_version": "1",
+    "turns": [
+      {
+        "source": "module",
+        "status": "failed",
+        "task": {
+          "task_id": "...",
+          "module_id": "...",
+          "action_id": "...",
+          "state": "failed",
+          "outcome_code": "..."
+        },
+        "user": {"content": "..."},
+        "assistant": null
+      }
+    ],
+    "current_task": {
+      "task_id": "...",
+      "module_id": "...",
+      "action_id": "...",
+      "state": "running"
+    }
+  }
+}
+```
+
+`turns` 不包含当前 task 的持久化 user 消息。`complete` 回合含完整的 user 和
+assistant；模块失败、取消分别为 `failed`、`cancelled`；其他无法形成完整回复的回合为
+`incomplete`。普通非模块消息使用 `source: "chat"` 且 `task: null`。模块应将当前任务
+envelope 中已校验的 `input` 作为执行输入，不得要求聊天展示文本与任务输入相等。
 
 模块必须使用 envelope 自带的完整 `endpoint`，不能根据模块地址猜测 ChatRaw 地址。
 `resource.read` 和 `resource.stream` 的 endpoint 包含 `{resource_id}` 占位符，只能替换为 scope
@@ -524,6 +562,11 @@ URL、响应头、供应商 trace 或扩展字段，也不会因暂时只有 hea
 不授予权限；每个 task 最多 5 个。
 Rule 只返回经过 Compiler Specification 编译、Pydantic 校验且由用户明确激活的 Compiled Rule，
 每个 task 最多 10 个。模块必须再次按自己的 Compiled Rule schema 校验，不能执行任意文本。
+`active_rules` 公共任务对象保持 Module Task v1 原有字段，不包含 Agent 作用域。
+Agent 专用 `rule.read` 响应中的 rule 对象可以额外返回任务创建时冻结的
+`scope: "personal" | "system_default"`；模块不得改为读取规则文档的当前状态。
+即使规则文档之后被软删除，已签发 task 的 `rule.read` 仍必须返回被冻结的 Compiled
+版本；模块不得把管理列表中已不可见误判为历史快照失效。
 
 需要原始文件的插件先通过 Module SDK 上传临时资源，再把返回的 `resource_id` 放入创建任务请求的
 `resource_ids`。同一个任务可以包含多份临时资源，但每份资源只能绑定一个任务。临时资源不进入
@@ -727,6 +770,9 @@ Use the committed manifest, management, task, and Resident JSON Schemas; the Mod
 - Durable task identity, idempotent creation, persisted ordered SSE, replay with `Last-Event-ID`, and restart recovery.
 - Optional cancellation, approval, artifacts, and chat projection exactly as declared.
 - Task-scoped, expiring Host Capability tokens; never trust browser-supplied identity.
+- Public Module Task v1 `active_rules` remains scope-neutral. Agent-specific
+  `rule.read` may add the task-frozen `personal` or `system_default` scope;
+  consumers must not read mutable document state instead.
 - `model.chat.completions` advertises streaming through
   `scope.supports_stream`. With `stream: true`, the Server parses and
   re-encodes bounded OpenAI-compatible SSE; only non-empty content or tool

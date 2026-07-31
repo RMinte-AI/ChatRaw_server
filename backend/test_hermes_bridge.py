@@ -998,6 +998,18 @@ class HermesBridgeTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(reasoning["hermes_run"]["type"], "reasoning.available")
         self.assertEqual(reasoning["hermes_run"]["run_id"], "run-r")
 
+        reasoning_with_text = main.normalize_hermes_run_event(
+            {"event": "reasoning.available", "data": {"text": "Final answer"}},
+            run_id="run-r-text",
+        )
+        self.assertEqual(reasoning_with_text["hermes_run"]["type"], "reasoning.available")
+        self.assertEqual(reasoning_with_text["hermes_run"]["run_id"], "run-r-text")
+        self.assertEqual(reasoning_with_text["content_delta"], "")
+        self.assertEqual(reasoning_with_text["content_snapshot"], "")
+        self.assertEqual(reasoning_with_text["content_ambiguous"], "")
+        self.assertEqual(reasoning_with_text["thinking_delta"], "")
+        self.assertFalse(reasoning_with_text["terminal"])
+
         started = main.normalize_hermes_run_event({"event": "run.started", "data": {"status": "running"}}, run_id="run-s")
         self.assertEqual(started["hermes_run"]["type"], "run.started")
         self.assertEqual(started["hermes_run"]["status"], "running")
@@ -1068,7 +1080,7 @@ class HermesBridgeTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(run_payload["instructions"], "Base system prompt.")
         self.assertNotIn("messages", run_payload)
         self.assertNotIn("stream", run_payload)
-        self.assertTrue(any('"content": "Hello "' in chunk for chunk in stream_chunks))
+        self.assertFalse(any('"content": "Hello "' in chunk for chunk in stream_chunks))
         self.assertTrue(any('"content": "world"' in chunk for chunk in stream_chunks))
         self.assertTrue(any('"thinking": "Plan"' in chunk for chunk in stream_chunks))
         self.assertTrue(any('"hermes_run"' in chunk and '"tool.started"' in chunk for chunk in stream_chunks))
@@ -1081,9 +1093,35 @@ class HermesBridgeTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(fake_session.posts[0]["headers"]["X-Hermes-Session-Id"], f"chatraw-{chat_id}")
         self.assertEqual(fake_session.gets[0]["headers"]["X-Hermes-Session-Id"], f"chatraw-{chat_id}")
         messages = main.db.get_messages(chat_id)
-        self.assertEqual(messages[1].content, "<thinking>\nPlan\n</thinking>\n\nHello world")
+        self.assertEqual(messages[1].content, "<thinking>\nPlan\n</thinking>\n\nworld")
         self.assertNotIn("ignored", messages[1].content)
         self.assertNotIn("run-1", main._active_hermes_runs)
+
+    async def test_hermes_runs_reasoning_available_text_is_not_duplicated_or_persisted(self):
+        self.enable_hermes(api_mode=main.HERMES_API_MODE_RUNS)
+        self.configure_chat(stream=True)
+        self.patch_session(FakeHermesSession(
+            post_responses=[FakeHermesResponse(json_data={"run_id": "run-reasoning-text"})],
+            get_response=FakeHermesResponse(stream_chunks=[
+                b'event: reasoning.available\ndata: {"text":"Final answer"}\n\n',
+                b'event: message.delta\ndata: {"delta":"Final answer"}\n\n',
+                b'event: run.completed\ndata: {"output_text":"Final answer"}\n\n',
+            ]),
+        ))
+
+        response = await main.hermes_chat(JsonRequest({"message": "reasoning text"}))
+        stream_chunks = await self.collect_stream(response)
+        events = [json.loads(chunk) for chunk in stream_chunks]
+        content_chunks = [event["content"] for event in events if event.get("content")]
+
+        self.assertEqual(content_chunks, ["Final answer"])
+        self.assertTrue(any(
+            event.get("hermes_run", {}).get("type") == "reasoning.available"
+            for event in events
+        ))
+        chat_id = events[0]["chat_id"]
+        messages = main.db.get_messages(chat_id)
+        self.assertEqual(messages[1].content, "Final answer")
 
     async def test_hermes_runs_stream_collapses_ambiguous_snapshots_and_completed_final_output(self):
         self.enable_hermes(api_mode=main.HERMES_API_MODE_RUNS)
@@ -1102,7 +1140,7 @@ class HermesBridgeTests(unittest.IsolatedAsyncioTestCase):
         events = [json.loads(chunk) for chunk in stream_chunks]
         content_chunks = [event["content"] for event in events if "content" in event]
 
-        self.assertEqual(content_chunks, ["A", "B"])
+        self.assertEqual(content_chunks, ["AB"])
         self.assertTrue(any(event.get("done") is True for event in events))
         chat_id = events[0]["chat_id"]
         messages = main.db.get_messages(chat_id)
@@ -1126,7 +1164,7 @@ class HermesBridgeTests(unittest.IsolatedAsyncioTestCase):
         events = [json.loads(chunk) for chunk in stream_chunks]
         content_chunks = [event["content"] for event in events if "content" in event]
 
-        self.assertEqual(content_chunks, ["Hello ", "world"])
+        self.assertEqual(content_chunks, ["Hello world"])
         chat_id = events[0]["chat_id"]
         messages = main.db.get_messages(chat_id)
         self.assertEqual(messages[1].content, "Hello world")
@@ -1156,8 +1194,41 @@ class HermesBridgeTests(unittest.IsolatedAsyncioTestCase):
                 chat_id = events[0]["chat_id"]
                 messages = main.db.get_messages(chat_id)
 
-                self.assertEqual(content_chunks, [delta_text])
-                self.assertEqual(messages[1].content, delta_text)
+                self.assertEqual(content_chunks, [final_text])
+                self.assertEqual(messages[1].content, final_text)
+
+    async def test_hermes_runs_discards_every_interim_tool_turn(self):
+        self.enable_hermes(api_mode=main.HERMES_API_MODE_RUNS)
+        self.configure_chat(stream=True)
+        self.patch_session(FakeHermesSession(
+            post_responses=[FakeHermesResponse(json_data={"run_id": "run-tool-turns"})],
+            get_response=FakeHermesResponse(stream_chunks=[
+                b'event: message.delta\ndata: {"delta":"I will inspect the first candidate."}\n\n',
+                b'event: tool.started\ndata: {"tool":"linkdb_resolve"}\n\n',
+                b'event: tool.completed\ndata: {"tool":"linkdb_resolve"}\n\n',
+                b'event: message.delta\ndata: {"delta":"I will query the summary capability."}\n\n',
+                b'event: tool.started\ndata: {"tool":"linkdb_query_summary"}\n\n',
+                b'event: tool.completed\ndata: {"tool":"linkdb_query_summary"}\n\n',
+                b'event: message.delta\ndata: {"delta":"Canonical final answer"}\n\n',
+                b'event: run.completed\ndata: {"output":"Canonical final answer"}\n\n',
+            ]),
+        ))
+
+        response = await main.hermes_chat(JsonRequest({"message": "tool workflow"}))
+        stream_chunks = await self.collect_stream(response)
+        events = [json.loads(chunk) for chunk in stream_chunks]
+        content_chunks = [event["content"] for event in events if event.get("content")]
+
+        self.assertEqual(content_chunks, ["Canonical final answer"])
+        self.assertTrue(any(
+            event.get("hermes_run", {}).get("type") == "tool.started"
+            for event in events
+        ))
+        chat_id = events[0]["chat_id"]
+        messages = main.db.get_messages(chat_id)
+        self.assertEqual(messages[1].content, "Canonical final answer")
+        self.assertNotIn("inspect", messages[1].content)
+        self.assertNotIn("query the summary", messages[1].content)
 
     async def test_hermes_runs_payload_uses_input_and_conversation_history(self):
         self.enable_hermes(api_mode=main.HERMES_API_MODE_RUNS)
@@ -1705,7 +1776,7 @@ class HermesBridgeTests(unittest.IsolatedAsyncioTestCase):
         stream_chunks = await self.collect_stream(response)
         chat_id = json.loads(stream_chunks[0])["chat_id"]
 
-        self.assertTrue(any('"content": "partial"' in chunk for chunk in stream_chunks))
+        self.assertFalse(any('"content": "partial"' in chunk for chunk in stream_chunks))
         self.assertTrue(any("ended before completion" in chunk for chunk in stream_chunks))
         self.assertFalse(any('"done": true' in chunk for chunk in stream_chunks))
         self.assertEqual(fake_session.posts[1]["url"], "http://127.0.0.1:8642/v1/runs/run-eof/stop")

@@ -308,7 +308,7 @@ class HermesSmokeTests(unittest.IsolatedAsyncioTestCase):
         content_chunks = [event["content"] for event in events if "content" in event]
         chat_id = events[0]["chat_id"]
 
-        self.assertEqual(content_chunks, ["Fake ", "snapshot"])
+        self.assertEqual(content_chunks, ["Fake snapshot"])
         self.assertTrue(any(event.get("done") is True for event in events))
         messages = main.db.get_messages(chat_id)
         self.assertEqual(len(messages), 2)

@@ -7173,6 +7173,7 @@ def normalize_hermes_run_event(event: dict, run_id: str = "") -> dict:
 
     if "reasoning" in event_type:
         result["hermes_run"] = _build_hermes_run_envelope("reasoning.available", event_run_id, status or "running")
+        return result
 
     raw_delta = data.get("delta")
     delta = raw_delta if isinstance(raw_delta, dict) else {}
@@ -7343,6 +7344,7 @@ async def _consume_hermes_run(submission: dict, config: dict, request: Request, 
     run_id = ""
     references = []
     full_response = ""
+    pending_response = ""
     full_thinking = ""
     terminal_seen = False
     completed = False
@@ -7355,25 +7357,24 @@ async def _consume_hermes_run(submission: dict, config: dict, request: Request, 
             stop_requested = True
             await _stop_hermes_run(session, submission, config, run_id, independent_session=independent_session)
 
-    def emitted_content_for(text: str, mode: str) -> str:
-        nonlocal full_response
+    def buffer_content(text: str, mode: str) -> None:
+        nonlocal pending_response
         if not text:
-            return ""
+            return
         if mode == "delta":
             chunk = text
-        elif not full_response:
+        elif not pending_response:
             chunk = text
-        elif text == full_response:
+        elif text == pending_response:
             chunk = ""
-        elif text.startswith(full_response):
-            chunk = text[len(full_response):]
+        elif text.startswith(pending_response):
+            chunk = text[len(pending_response):]
         elif mode == "ambiguous":
             chunk = text
         else:
             chunk = ""
         if chunk:
-            full_response += chunk
-        return chunk
+            pending_response += chunk
 
     try:
         run_id, references = await _create_hermes_run(session, submission, config)
@@ -7399,7 +7400,13 @@ async def _consume_hermes_run(submission: dict, config: dict, request: Request, 
             hermes_run = event.get("hermes_run")
             if isinstance(hermes_run, dict):
                 hermes_type = hermes_run.get("type", "")
-                if hermes_type == "approval.request":
+                if hermes_type == "tool.started":
+                    # Hermes may stream assistant prose before the provider
+                    # reveals that the same turn contains a tool call. That
+                    # prose is an interim tool-selection turn, not part of the
+                    # canonical answer returned by run.completed.
+                    pending_response = ""
+                elif hermes_type == "approval.request":
                     update_active_hermes_run(run_id, status="pending_approval", pending_approval=hermes_run)
                     if not stream:
                         await request_stop(independent_session=True)
@@ -7427,19 +7434,22 @@ async def _consume_hermes_run(submission: dict, config: dict, request: Request, 
 
             content = event.get("content_delta") or ""
             if content:
-                content = emitted_content_for(content, "delta")
-                if stream:
-                    yield json.dumps({"content": content})
+                buffer_content(content, "delta")
             content = event.get("content_snapshot") or ""
             if content:
-                content = emitted_content_for(content, "snapshot")
-                if content and stream:
-                    yield json.dumps({"content": content})
+                if event.get("terminal") and completed:
+                    full_response = content
+                else:
+                    buffer_content(content, "snapshot")
             content = event.get("content_ambiguous") or ""
             if content:
-                content = emitted_content_for(content, "ambiguous")
-                if content and stream:
-                    yield json.dumps({"content": content})
+                buffer_content(content, "ambiguous")
+
+            if event.get("terminal") and completed:
+                if not full_response:
+                    full_response = pending_response
+                if full_response and stream:
+                    yield json.dumps({"content": full_response})
 
             if event.get("error"):
                 if stream:

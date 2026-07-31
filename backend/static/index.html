@@ -12,8 +12,8 @@
     
     <!-- Performance: Preload Critical Resources -->
     <link rel="preload" href="fonts/remixicon/remixicon.woff2?t=1769685282643" as="font" type="font/woff2" crossorigin>
-    <link rel="preload" href="styles.min.css?v=dbc02d234add9fa3ad2c576492af352da78cf84c1899a7d4fa07692198972bf1" as="style">
-    <link rel="preload" href="app.min.js?v=81981b786aa9177c44717b414a34db4774f88fd2508e2013c88aaa2f548ad054" as="script">
+    <link rel="preload" href="styles.min.css?v=371cc475d2a77656c6495b9c77adaa42093eab97f3ccbbdd13657f0b11894632" as="style">
+    <link rel="preload" href="app.min.js?v=72bbda0602badac4cd291a5f6da0c784a924b57078a469b3026f34a49c340143" as="script">
     <link rel="preload" href="vendor/alpine.min.js?v=c8fa8ff457abdcd212f37a07ef2f292c999011dffabcaa577fb1e1e0076ca658" as="script">
     <link rel="preload" href="vendor/marked.min.js?v=6002af63485b043fa60ddaba1b34363b98d2a8b2c63b607004f3a2405a8a053a" as="script">
     <link rel="preload" href="vendor/purify.min.js?v=c45ba939765574f96cbf35ee9b6d89f73756a17921814425e74b82f7c54603ce" as="script">
@@ -146,7 +146,7 @@
     <script defer src="vendor/alpine.min.js?v=c8fa8ff457abdcd212f37a07ef2f292c999011dffabcaa577fb1e1e0076ca658"></script>
     <!-- highlight.js is lazy-loaded in app.min.js when needed -->
     <link rel="stylesheet" href="fonts/remixicon/remixicon.css">
-    <link rel="stylesheet" href="styles.min.css?v=dbc02d234add9fa3ad2c576492af352da78cf84c1899a7d4fa07692198972bf1">
+    <link rel="stylesheet" href="styles.min.css?v=371cc475d2a77656c6495b9c77adaa42093eab97f3ccbbdd13657f0b11894632">
 </head>
 <body x-data="app()" :data-theme="settings.ui_settings.theme_mode">
     <!-- Sidebar Overlay for Mobile -->
@@ -166,82 +166,110 @@
         </div>
         
         <!-- Stable sidebar mount for Host-rendered feature entries. -->
-        <div class="sidebar-feature-area"
+        <div class="sidebar-feature-section"
              x-show="hasSidebarFeatureEntries"
              x-cloak>
-            <div class="resident-sidebar-entries"
-                 x-show="!sidebarCollapsed">
-                <template x-for="entry in residentEntries('sidebar')"
-                          :key="entry.integration.id + ':' + entry.id">
-                    <button class="resident-entry"
-                            type="button"
-                            :disabled="!entry.integration.feature?.available"
-                            :title="entry.integration.feature?.available
-                                ? residentText(entry.label)
-                                : t('unavailable')"
-                            @click="openResidentIntegration(entry.integration)">
-                        <i :class="entry.icon"></i>
-                        <span x-text="residentText(entry.label)"></span>
-                        <small x-show="!entry.integration.feature?.available" x-text="t('unavailable')"></small>
-                    </button>
-                </template>
-                <template x-for="collection in pluginWorkspaceCollections"
-                          :key="'workspace-collection:' + collection.id">
-                    <button class="plugin-sidebar-entry"
-                            type="button"
-                            :title="getLocalizedText(collection.title, collection.id)"
-                            :class="{ 'active': pluginWorkspace.show && pluginWorkspace.collectionId === collection.id }"
-                            @click="openPluginWorkspaceCollection(collection.id)">
-                        <i :class="collection.icon"></i>
-                        <span x-text="getLocalizedText(collection.title, collection.id)"></span>
-                        <small x-text="collection.panels.length"></small>
-                    </button>
-                </template>
-                <template x-for="btn in sidebarPluginButtons" :key="btn.fullId">
-                    <button class="plugin-sidebar-entry"
-                            type="button"
-                            :disabled="btn.loading || btn.disabled"
-                            :title="getPluginButtonLabel(btn)"
-                            :class="{ 'active': btn.active, 'loading': btn.loading }"
-                            @click="handlePluginButtonClick(btn, $event.currentTarget)">
-                        <i :class="btn.loading ? 'ri-loader-4-line spin' : btn.icon"></i>
-                        <span x-text="getPluginButtonLabel(btn)"></span>
-                        <small x-show="getPluginButtonStatus(btn)" x-text="getPluginButtonStatus(btn)"></small>
-                    </button>
-                </template>
-            </div>
-            <div class="resident-sidebar-collapsed"
-                 x-show="sidebarCollapsed">
-                <template x-for="entry in residentEntries('sidebar')"
-                          :key="entry.integration.id + ':' + entry.id">
-                    <button class="btn-icon"
-                            type="button"
-                            :disabled="!entry.integration.feature?.available"
-                            :title="residentText(entry.label)"
-                            @click="openResidentIntegration(entry.integration)">
-                        <i :class="entry.icon"></i>
-                    </button>
-                </template>
-                <template x-for="collection in pluginWorkspaceCollections"
-                          :key="'workspace-collection-collapsed:' + collection.id">
-                    <button class="btn-icon plugin-sidebar-entry-collapsed"
-                            type="button"
-                            :title="getLocalizedText(collection.title, collection.id)"
-                            :class="{ 'active': pluginWorkspace.show && pluginWorkspace.collectionId === collection.id }"
-                            @click="openPluginWorkspaceCollection(collection.id)">
-                        <i :class="collection.icon"></i>
-                    </button>
-                </template>
-                <template x-for="btn in sidebarPluginButtons" :key="btn.fullId">
-                    <button class="btn-icon plugin-sidebar-entry-collapsed"
-                            type="button"
-                            :disabled="btn.loading || btn.disabled"
-                            :title="getPluginButtonLabel(btn)"
-                            :class="{ 'active': btn.active, 'loading': btn.loading }"
-                            @click="handlePluginButtonClick(btn, $event.currentTarget)">
-                        <i :class="btn.loading ? 'ri-loader-4-line spin' : btn.icon"></i>
-                    </button>
-                </template>
+            <button class="sidebar-feature-toggle"
+                    type="button"
+                    x-show="!sidebarCollapsed"
+                    @click="toggleSidebarFeatures()"
+                    :title="sidebarFeaturesCollapsed
+                        ? t('expandSidebarFeatures')
+                        : t('collapseSidebarFeatures')"
+                    :aria-label="sidebarFeaturesCollapsed
+                        ? t('expandSidebarFeatures')
+                        : t('collapseSidebarFeatures')"
+                    :aria-expanded="String(!sidebarFeaturesCollapsed)"
+                    aria-controls="sidebar-feature-entries">
+                <span class="sidebar-feature-toggle-label">
+                    <i class="ri-apps-2-line"></i>
+                    <span x-text="t('sidebarFeatures')"></span>
+                </span>
+                <span class="sidebar-feature-toggle-action">
+                    <span x-text="sidebarFeaturesCollapsed
+                        ? t('expand')
+                        : t('collapse')"></span>
+                    <i class="ri-arrow-down-s-line sidebar-feature-toggle-chevron"></i>
+                </span>
+            </button>
+
+            <div id="sidebar-feature-entries"
+                 class="sidebar-feature-area"
+                 x-show="sidebarCollapsed || !sidebarFeaturesCollapsed">
+                <div class="resident-sidebar-entries"
+                     x-show="!sidebarCollapsed">
+                    <template x-for="entry in residentEntries('sidebar')"
+                              :key="entry.integration.id + ':' + entry.id">
+                        <button class="resident-entry"
+                                type="button"
+                                :disabled="!entry.integration.feature?.available"
+                                :title="entry.integration.feature?.available
+                                    ? residentText(entry.label)
+                                    : t('unavailable')"
+                                @click="openResidentIntegration(entry.integration)">
+                            <i :class="entry.icon"></i>
+                            <span x-text="residentText(entry.label)"></span>
+                            <small x-show="!entry.integration.feature?.available" x-text="t('unavailable')"></small>
+                        </button>
+                    </template>
+                    <template x-for="collection in pluginWorkspaceCollections"
+                              :key="'workspace-collection:' + collection.id">
+                        <button class="plugin-sidebar-entry"
+                                type="button"
+                                :title="getLocalizedText(collection.title, collection.id)"
+                                :class="{ 'active': pluginWorkspace.show && pluginWorkspace.collectionId === collection.id }"
+                                @click="openPluginWorkspaceCollection(collection.id)">
+                            <i :class="collection.icon"></i>
+                            <span x-text="getLocalizedText(collection.title, collection.id)"></span>
+                            <small x-text="collection.panels.length"></small>
+                        </button>
+                    </template>
+                    <template x-for="btn in sidebarPluginButtons" :key="btn.fullId">
+                        <button class="plugin-sidebar-entry"
+                                type="button"
+                                :disabled="btn.loading || btn.disabled"
+                                :title="getPluginButtonLabel(btn)"
+                                :class="{ 'active': btn.active, 'loading': btn.loading }"
+                                @click="handlePluginButtonClick(btn, $event.currentTarget)">
+                            <i :class="btn.loading ? 'ri-loader-4-line spin' : btn.icon"></i>
+                            <span x-text="getPluginButtonLabel(btn)"></span>
+                            <small x-show="getPluginButtonStatus(btn)" x-text="getPluginButtonStatus(btn)"></small>
+                        </button>
+                    </template>
+                </div>
+                <div class="resident-sidebar-collapsed"
+                     x-show="sidebarCollapsed">
+                    <template x-for="entry in residentEntries('sidebar')"
+                              :key="entry.integration.id + ':' + entry.id">
+                        <button class="btn-icon"
+                                type="button"
+                                :disabled="!entry.integration.feature?.available"
+                                :title="residentText(entry.label)"
+                                @click="openResidentIntegration(entry.integration)">
+                            <i :class="entry.icon"></i>
+                        </button>
+                    </template>
+                    <template x-for="collection in pluginWorkspaceCollections"
+                              :key="'workspace-collection-collapsed:' + collection.id">
+                        <button class="btn-icon plugin-sidebar-entry-collapsed"
+                                type="button"
+                                :title="getLocalizedText(collection.title, collection.id)"
+                                :class="{ 'active': pluginWorkspace.show && pluginWorkspace.collectionId === collection.id }"
+                                @click="openPluginWorkspaceCollection(collection.id)">
+                            <i :class="collection.icon"></i>
+                        </button>
+                    </template>
+                    <template x-for="btn in sidebarPluginButtons" :key="btn.fullId">
+                        <button class="btn-icon plugin-sidebar-entry-collapsed"
+                                type="button"
+                                :disabled="btn.loading || btn.disabled"
+                                :title="getPluginButtonLabel(btn)"
+                                :class="{ 'active': btn.active, 'loading': btn.loading }"
+                                @click="handlePluginButtonClick(btn, $event.currentTarget)">
+                            <i :class="btn.loading ? 'ri-loader-4-line spin' : btn.icon"></i>
+                        </button>
+                    </template>
+                </div>
             </div>
         </div>
 
@@ -1931,6 +1959,6 @@
         <div class="plugin-fullscreen-content" x-html="pluginFullscreenModal.content"></div>
     </div>
 
-    <script src="app.min.js?v=81981b786aa9177c44717b414a34db4774f88fd2508e2013c88aaa2f548ad054"></script>
+    <script src="app.min.js?v=72bbda0602badac4cd291a5f6da0c784a924b57078a469b3026f34a49c340143"></script>
 </body>
 </html>

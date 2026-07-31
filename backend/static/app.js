@@ -59,6 +59,9 @@ const i18n = {
         delete: 'Delete',
         expand: 'Expand',
         collapse: 'Collapse',
+        sidebarFeatures: 'Features',
+        expandSidebarFeatures: 'Expand features',
+        collapseSidebarFeatures: 'Collapse features',
         defaultSubtitle: 'Minimalist AI Assistant, Ready to Use',
         fastResponse: 'Fast Response',
         multiModel: 'Multi-Model',
@@ -221,6 +224,9 @@ const i18n = {
         delete: '删除',
         expand: '展开',
         collapse: '收起',
+        sidebarFeatures: '功能入口',
+        expandSidebarFeatures: '展开功能入口',
+        collapseSidebarFeatures: '收起功能入口',
         defaultSubtitle: '极简AI助手，开箱即用',
         fastResponse: '极速响应',
         multiModel: '多模型支持',
@@ -894,6 +900,8 @@ const MODULE_ACTIVITY_LIMIT = 512;
 
 function app() {
     const initialDesktopCollapsed = localStorage.getItem('chatraw_sidebar_collapsed') === '1';
+    const initialSidebarFeaturesCollapsed =
+        localStorage.getItem('chatraw_sidebar_features_collapsed') === '1';
     const initialIsMobile = isMobileViewport();
     
     return {
@@ -904,6 +912,7 @@ function app() {
         isMobileView: initialIsMobile,
         desktopSidebarCollapsed: initialDesktopCollapsed,
         sidebarCollapsed: initialIsMobile ? true : initialDesktopCollapsed,
+        sidebarFeaturesCollapsed: initialSidebarFeaturesCollapsed,
         _resizeRaf: null,
         showSettings: false,
         settingsTab: 'models',
@@ -2495,6 +2504,14 @@ function app() {
                 this.desktopSidebarCollapsed = this.sidebarCollapsed;
                 localStorage.setItem('chatraw_sidebar_collapsed', this.sidebarCollapsed ? '1' : '0');
             }
+        },
+
+        toggleSidebarFeatures() {
+            this.sidebarFeaturesCollapsed = !this.sidebarFeaturesCollapsed;
+            localStorage.setItem(
+                'chatraw_sidebar_features_collapsed',
+                this.sidebarFeaturesCollapsed ? '1' : '0'
+            );
         },
         
         openSidebar() {

@@ -208,11 +208,17 @@ async function assertRoleLayout(page) {
 
 async function setSidebarFeatureStressState(page, {
     collapsed = false,
+    featuresCollapsed = false,
     count = 24
 } = {}) {
-    await page.evaluate(({ collapsed: nextCollapsed, count: entryCount }) => {
+    await page.evaluate(({
+        collapsed: nextCollapsed,
+        featuresCollapsed: nextFeaturesCollapsed,
+        count: entryCount
+    }) => {
         const state = document.body._x_dataStack[0];
         state.sidebarCollapsed = nextCollapsed;
+        state.sidebarFeaturesCollapsed = nextFeaturesCollapsed;
         state.residentIntegrations = [];
         state.pluginWorkspaceDefinitions = {};
         state.pluginToolbarButtons = Array.from(
@@ -236,9 +242,13 @@ async function setSidebarFeatureStressState(page, {
             id: 'sidebar-layout-chat',
             title: 'Sidebar layout chat'
         }];
-    }, { collapsed, count });
+    }, { collapsed, featuresCollapsed, count });
     await page.waitForFunction(
-        ({ collapsed: nextCollapsed, count: entryCount }) => {
+        ({
+            collapsed: nextCollapsed,
+            featuresCollapsed: nextFeaturesCollapsed,
+            count: entryCount
+        }) => {
             const container = document.querySelector(
                 nextCollapsed
                     ? '.resident-sidebar-collapsed'
@@ -247,12 +257,14 @@ async function setSidebarFeatureStressState(page, {
             return (
                 document.body._x_dataStack[0].sidebarCollapsed
                     === nextCollapsed
+                && document.body._x_dataStack[0].sidebarFeaturesCollapsed
+                    === nextFeaturesCollapsed
                 && container?.querySelectorAll(
                     '.plugin-sidebar-entry, .plugin-sidebar-entry-collapsed'
                 ).length === entryCount
             );
         },
-        { collapsed, count }
+        { collapsed, featuresCollapsed, count }
     );
 }
 
@@ -272,6 +284,8 @@ async function measureSidebarFeatureLayout(page, collapsed = false) {
         const featureArea = document.querySelector('.sidebar-feature-area');
         return {
             sidebar: rectangle('.sidebar'),
+            featureSection: rectangle('.sidebar-feature-section'),
+            featureToggle: rectangle('.sidebar-feature-toggle'),
             feature: {
                 ...rectangle('.sidebar-feature-area'),
                 clientHeight: featureArea.clientHeight,
@@ -280,8 +294,8 @@ async function measureSidebarFeatureLayout(page, collapsed = false) {
             },
             firstFeatureEntry: rectangle(
                 nextCollapsed
-                    ? '.resident-sidebar-collapsed .plugin-sidebar-entry-collapsed'
-                    : '.resident-sidebar-entries .plugin-sidebar-entry'
+                    ? '.resident-sidebar-collapsed > button'
+                    : '.resident-sidebar-entries > button'
             ),
             divider: rectangle('.sidebar-section-divider'),
             newChat: rectangle(
@@ -308,16 +322,20 @@ function expectContained(inner, outer) {
 test('sidebar feature overflow keeps chat controls reachable', async ({
     page,
     request
-}) => {
+}, testInfo) => {
     const consoleErrors = await loginAndConfigureModel(page, request);
     await page.setViewportSize({ width: 900, height: 600 });
 
     await setSidebarFeatureStressState(page, { count: 0 });
+    await expect(page.locator('.sidebar-feature-section')).toBeHidden();
     await expect(page.locator('.sidebar-feature-area')).toBeHidden();
     await expect(page.locator('.sidebar-section-divider')).toBeHidden();
     await expect(page.locator('.btn-new-chat')).toBeVisible();
 
     await setSidebarFeatureStressState(page);
+    const featureToggle = page.locator('.sidebar-feature-toggle');
+    await expect(featureToggle).toBeVisible();
+    await expect(featureToggle).toHaveAttribute('aria-expanded', 'true');
     await expect(page.locator('.sidebar-feature-area')).toBeVisible();
     const desktop = await measureSidebarFeatureLayout(page);
     expect(desktop.feature.scrollHeight).toBeGreaterThan(
@@ -325,6 +343,7 @@ test('sidebar feature overflow keeps chat controls reachable', async ({
     );
     expect(desktop.feature.overflowY).toBe('auto');
     expectContained(desktop.firstFeatureEntry, desktop.feature);
+    expectContained(desktop.featureToggle, desktop.featureSection);
     expect(desktop.feature.bottom).toBeLessThanOrEqual(desktop.divider.top);
     expect(desktop.divider.bottom).toBeLessThanOrEqual(desktop.newChat.top);
     expect(desktop.chatList.height).toBeGreaterThanOrEqual(47);
@@ -336,6 +355,64 @@ test('sidebar feature overflow keeps chat controls reachable', async ({
     ]) {
         expectContained(element, desktop.sidebar);
     }
+
+    if (!testInfo.project.use.isMobile) {
+        await page.setViewportSize({ width: 900, height: 500 });
+        await page.waitForFunction(() => {
+            const state = document.body._x_dataStack[0];
+            return window.innerWidth === 900
+                && window.innerHeight === 500
+                && !state.isMobileView;
+        });
+        const shortDesktop = await measureSidebarFeatureLayout(page);
+        expect(shortDesktop.feature.scrollHeight).toBeGreaterThan(
+            shortDesktop.feature.clientHeight
+        );
+        expect(shortDesktop.feature.overflowY).toBe('auto');
+        expectContained(shortDesktop.firstFeatureEntry, shortDesktop.feature);
+        expectContained(
+            shortDesktop.featureToggle,
+            shortDesktop.featureSection
+        );
+        expect(shortDesktop.feature.bottom).toBeLessThanOrEqual(
+            shortDesktop.divider.top
+        );
+        expect(shortDesktop.divider.bottom).toBeLessThanOrEqual(
+            shortDesktop.newChat.top
+        );
+        expect(shortDesktop.chatList.height).toBeGreaterThanOrEqual(47);
+        for (const element of [
+            shortDesktop.newChat,
+            shortDesktop.chatList,
+            shortDesktop.clearAll,
+            shortDesktop.footer
+        ]) {
+            expectContained(element, shortDesktop.sidebar);
+        }
+        await page.setViewportSize({ width: 900, height: 600 });
+    }
+
+    await featureToggle.click();
+    await expect(featureToggle).toHaveAttribute('aria-expanded', 'false');
+    await expect(page.locator('.sidebar-feature-area')).toBeHidden();
+    const folded = await measureSidebarFeatureLayout(page);
+    expectContained(folded.featureToggle, folded.featureSection);
+    expect(folded.featureSection.bottom).toBeLessThanOrEqual(
+        folded.divider.top
+    );
+    expect(folded.chatList.height).toBeGreaterThan(
+        desktop.chatList.height + 100
+    );
+    expect(await page.evaluate(() => (
+        localStorage.getItem('chatraw_sidebar_features_collapsed')
+    ))).toBe('1');
+
+    await featureToggle.click();
+    await expect(featureToggle).toHaveAttribute('aria-expanded', 'true');
+    await expect(page.locator('.sidebar-feature-area')).toBeVisible();
+    expect(await page.evaluate(() => (
+        localStorage.getItem('chatraw_sidebar_features_collapsed')
+    ))).toBe('0');
 
     await setSidebarFeatureStressState(page, { collapsed: true });
     await expect(page.locator('.btn-new-chat-collapsed')).toBeVisible();

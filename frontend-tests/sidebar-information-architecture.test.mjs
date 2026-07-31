@@ -22,6 +22,8 @@ function createDocument() {
 test('sidebar feature entries precede chat creation and history', () => {
     const { window } = createDocument();
     const { document, Node } = window;
+    const featureSection = document.querySelector('.sidebar-feature-section');
+    const featureToggle = document.querySelector('.sidebar-feature-toggle');
     const featureArea = document.querySelector('.sidebar-feature-area');
     const divider = document.querySelector('.sidebar-section-divider');
     const expandedNewChat = document.querySelector('.btn-new-chat');
@@ -34,7 +36,10 @@ test('sidebar feature entries precede chat creation and history', () => {
         left.compareDocumentPosition(right)
         & Node.DOCUMENT_POSITION_FOLLOWING
     );
-    assert.equal(precedes(featureArea, divider), true);
+    assert.equal(featureToggle.parentElement, featureSection);
+    assert.equal(featureArea.parentElement, featureSection);
+    assert.equal(precedes(featureToggle, featureArea), true);
+    assert.equal(precedes(featureSection, divider), true);
     assert.equal(precedes(divider, expandedNewChat), true);
     assert.equal(precedes(divider, collapsedNewChat), true);
     assert.equal(precedes(expandedNewChat, chatList), true);
@@ -70,13 +75,57 @@ test('feature visibility follows live sidebar registrations', () => {
     assert.equal(host.hasSidebarFeatureEntries, false);
 });
 
+test('feature collapse preference persists independently from the sidebar', () => {
+    const dom = new JSDOM('<!doctype html><body></body>', {
+        runScripts: 'outside-only',
+        url: 'http://chatraw.test/'
+    });
+    dom.window.matchMedia = () => ({ matches: false });
+    dom.window.marked = { setOptions() {} };
+    dom.window.eval(appScript);
+
+    const host = dom.window.app();
+    assert.equal(host.sidebarCollapsed, false);
+    assert.equal(host.sidebarFeaturesCollapsed, false);
+
+    host.toggleSidebarFeatures();
+    assert.equal(host.sidebarCollapsed, false);
+    assert.equal(host.sidebarFeaturesCollapsed, true);
+    assert.equal(
+        dom.window.localStorage.getItem(
+            'chatraw_sidebar_features_collapsed'
+        ),
+        '1'
+    );
+
+    const restoredHost = dom.window.app();
+    assert.equal(restoredHost.sidebarFeaturesCollapsed, true);
+
+    restoredHost.toggleSidebarFeatures();
+    assert.equal(restoredHost.sidebarFeaturesCollapsed, false);
+    assert.equal(
+        dom.window.localStorage.getItem(
+            'chatraw_sidebar_features_collapsed'
+        ),
+        '0'
+    );
+});
+
 test('feature overflow preserves dedicated chat and footer space', () => {
     const { window } = createDocument();
     const { document } = window;
+    const featureSection = document.querySelector(
+        '.sidebar-feature-section'
+    );
     const featureArea = document.querySelector('.sidebar-feature-area');
-    featureArea.removeAttribute('x-cloak');
+    const featureToggle = document.querySelector(
+        '.sidebar-feature-toggle'
+    );
+    featureSection.removeAttribute('x-cloak');
 
+    const featureSectionStyle = window.getComputedStyle(featureSection);
     const featureStyle = window.getComputedStyle(featureArea);
+    const featureToggleStyle = window.getComputedStyle(featureToggle);
     const newChatStyle = window.getComputedStyle(
         document.querySelector('.btn-new-chat')
     );
@@ -87,10 +136,12 @@ test('feature overflow preserves dedicated chat and footer space', () => {
         document.querySelector('.sidebar-footer')
     );
 
-    assert.equal(featureStyle.maxHeight, '40%');
+    assert.equal(featureSectionStyle.maxHeight, '40%');
+    assert.equal(featureSectionStyle.minHeight, '0');
     assert.equal(featureStyle.minHeight, '0');
     assert.equal(featureStyle.overflowY, 'auto');
     assert.equal(featureStyle.overscrollBehavior, 'contain');
+    assert.equal(featureToggleStyle.flexShrink, '0');
     assert.equal(newChatStyle.flexShrink, '0');
     assert.equal(chatListStyle.minHeight, '48px');
     assert.equal(footerStyle.flexShrink, '0');

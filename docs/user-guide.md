@@ -69,7 +69,9 @@ Magic Mouse 的横向手势，或按住 Shift 使用鼠标滚轮。ChatRaw 会�
 
 已启用的侧边栏功能入口位于对话区顶部，并由分隔线与“新对话”和对话列表分开。没有可用的
 侧边栏功能时，不显示空功能区或分隔线，侧栏直接从“新对话”开始。功能入口较多时，仅顶部
-功能区独立滚动，“新对话”、对话列表和底部操作保持可访问。
+功能区独立滚动，“新对话”、对话列表和底部操作保持可访问。点击功能区标题栏中的“收起”
+可以隐藏功能入口并把空间让给对话历史；标题栏会保留，点击“展开”即可恢复。该选择保存在
+当前浏览器中，与整个侧栏的展开或收起互不影响。
 
 配套插件可以在主内容区打开交互工作台。工作台可能出现在聊天右侧、上侧、下侧，或占据整个
 主区域；右、上、下模式不会阻止继续操作聊天。窄屏设备会统一显示为主区域；高度很低时，
@@ -231,7 +233,9 @@ Enabled sidebar feature entries appear above the chat controls, separated from *
 the chat list by a divider. When no sidebar feature is available, ChatRaw omits the empty feature
 section and divider, so the sidebar starts with **New Chat**. When feature entries exceed the
 available space, only the feature section scrolls; **New Chat**, the chat list, and footer actions
-remain accessible.
+remain accessible. Use **Collapse** in the feature-section header to hide those entries and give
+the space to chat history; the header remains available so **Expand** can restore them. This
+browser-local preference is independent from collapsing the whole sidebar.
 
 A companion plugin may open an interactive workspace in the main content area. It can appear to
 the right, above, below, or in place of the visible chat surface. Right, top, and bottom workspaces

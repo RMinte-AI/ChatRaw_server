@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="ChatRaw 四页面重构原型：首页与功能卡片入口。">
+  <meta property="og:title" content="ChatRaw 首页原型">
+  <meta property="og:description" content="自定义品牌标志、三组标签、六个功能卡片与 Agent Copilot。">
+  <title>首页 · ChatRaw 原型</title>
+  <link rel="icon" href="assets/brand-mark.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="prototype.css?v=5">
+</head>
+<body class="home-page">
+  <a class="skip-link" href="#main-content">跳到主要内容</a>
+  <div class="ambient-shape" aria-hidden="true"></div>
+
+  <header class="site-header">
+    <nav class="header-actions" aria-label="账户导航">
+      <a class="user-chip" href="settings.html#account" aria-label="当前用户：人，在线">
+        <img src="assets/avatar-ren.svg" alt="用户“人”的头像" width="34" height="34">
+        <span>
+          <strong>人</strong>
+          <small>ONLINE</small>
+        </span>
+      </a>
+      <a class="icon-button" href="settings.html" aria-label="打开独立设置页面" title="设置">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 8.5a3.5 3.5 0 1 0 0 7 3.5 3.5 0 0 0 0-7Z"/><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.88l.06.06-2.83 2.83-.06-.06a1.7 1.7 0 0 0-1.88-.34 1.7 1.7 0 0 0-1.03 1.55V21h-4v-.08A1.7 1.7 0 0 0 8.95 19.4a1.7 1.7 0 0 0-1.88.34l-.06.06-2.83-2.83.06-.06A1.7 1.7 0 0 0 4.58 15 1.7 1.7 0 0 0 3.03 14H3v-4h.08A1.7 1.7 0 0 0 4.6 8.95a1.7 1.7 0 0 0-.34-1.88l-.06-.06 2.83-2.83.06.06A1.7 1.7 0 0 0 8.97 4.6 1.7 1.7 0 0 0 10 3.05V3h4v.08a1.7 1.7 0 0 0 1.03 1.55 1.7 1.7 0 0 0 1.88-.34l.06-.06 2.83 2.83-.06.06a1.7 1.7 0 0 0-.34 1.88A1.7 1.7 0 0 0 20.95 10H21v4h-.08A1.7 1.7 0 0 0 19.4 15Z"/></svg>
+      </a>
+      <a class="icon-button" href="login.html" aria-label="退出登录" title="退出登录">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10 4H5a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h5M14 8l4 4-4 4M18 12H9"/></svg>
+      </a>
+    </nav>
+  </header>
+
+  <main id="main-content" class="home-main">
+    <section class="home-hero" aria-label="ChatRaw 工作空间">
+      <img class="brand-image reveal stagger-0" src="assets/brand-mark.svg" alt="可自定义的 ChatRaw 首页标志" width="96" height="96">
+    </section>
+
+    <section class="home-categories" aria-label="首页内容分类">
+      <div class="category-tabs reveal stagger-1" role="tablist" aria-label="首页内容分类">
+        <button class="tag-button" type="button" role="tab" aria-selected="true" data-card-tab="work">
+          <span class="tag-index">01</span> 工作入口
+        </button>
+        <button class="tag-button" type="button" role="tab" aria-selected="false" data-card-tab="assets">
+          <span class="tag-index">02</span> 内容资产
+        </button>
+        <button class="tag-button" type="button" role="tab" aria-selected="false" data-card-tab="system">
+          <span class="tag-index">03</span> 系统能力
+        </button>
+      </div>
+      <div class="cards-grid" data-card-grid aria-live="polite"></div>
+    </section>
+  </main>
+
+  <button class="agent-launcher" type="button" aria-label="打开 Agent Copilot" aria-expanded="false" aria-controls="copilot-panel" data-agent-launcher>
+    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v3M7 7.5 5 5.5M17 7.5l2-2M5 12H2M22 12h-3"/><rect x="5" y="8" width="14" height="12" rx="4"/><path d="M9 13h.01M15 13h.01M9 17c1.8 1.2 4.2 1.2 6 0"/></svg>
+  </button>
+
+  <aside id="copilot-panel" class="copilot-panel" aria-label="Agent Copilot 浮窗" aria-hidden="true" data-copilot-panel>
+    <header class="copilot-header">
+      <div class="copilot-identity">
+        <span class="copilot-mark">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="6" width="16" height="14" rx="4"/><path d="M12 3v3M8.5 12h.01M15.5 12h.01M9 16h6"/></svg>
+        </span>
+        <span>
+          <strong>Agent Copilot</strong>
+          <small>READY / CONFIGURED</small>
+        </span>
+      </div>
+      <button class="icon-button" type="button" aria-label="关闭 Copilot" data-copilot-close>
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg>
+      </button>
+    </header>
+    <div class="copilot-messages" aria-live="polite" data-copilot-messages>
+      <div class="copilot-message">
+        我可以根据当前页面上下文帮你找到入口、整理任务，或开始一个已配置的 Agent 工作流。
+        <small>AGENT · 14:36</small>
+      </div>
+      <div class="copilot-message user">
+        帮我查看今天等待审批的任务。
+        <small>你 · 草稿示例</small>
+      </div>
+    </div>
+    <footer class="copilot-compose">
+      <form data-copilot-form>
+        <input name="prompt" type="text" aria-label="向 Agent 提问" placeholder="输入你的问题" autocomplete="off">
+        <button class="primary-button" type="submit" aria-label="发送消息">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m4 4 17 8-17 8 3-8Z"/><path d="M7 12h14"/></svg>
+        </button>
+      </form>
+    </footer>
+  </aside>
+
+  <script src="prototype.js?v=5"></script>
+</body>
+</html>

@@ -30,28 +30,34 @@ test('core settings sections and task center use translation bindings', () => {
     assert.doesNotMatch(appHtml, /aria-label="(?:Settings navigation|Module tasks|Task progress)"/);
 });
 
-test('language selector remains in admin-only UI settings, not account settings', () => {
+test('language selector is available to every user in account settings', () => {
+    const uiStart = appHtml.indexOf(`x-show="settingsTab === 'ui'"`);
+    const usersStart = appHtml.indexOf(`x-show="settingsTab === 'users'`, uiStart);
+    const accountStart = appHtml.indexOf(`x-show="settingsTab === 'account'"`, usersStart);
     const uiSection = appHtml.slice(
-        appHtml.indexOf(`x-show="settingsTab === 'ui'"`),
-        appHtml.indexOf(`x-show="settingsTab === 'users'"`)
+        uiStart,
+        usersStart
     );
     const accountSection = appHtml.slice(
-        appHtml.indexOf(`x-show="settingsTab === 'account'"`),
-        appHtml.indexOf('<!-- Modal Actions Footer -->')
+        accountStart,
+        appHtml.indexOf('<!-- Modal Actions Footer -->', accountStart)
     );
     assert.match(
         appHtml,
-        /<div class="nav-item" x-show="isAdmin\(\)"[^>]+settingsTab === 'ui'/
+        /<button class="nav-item"[^>]*x-show="isAdmin\(\)"[^>]*settingsTab === 'ui'/
     );
-    assert.match(uiSection, /setLanguage\('en'\)/);
-    assert.match(uiSection, /setLanguage\('zh'\)/);
-    assert.doesNotMatch(accountSection, /setLanguage\(/);
-    assert.doesNotMatch(accountSection, /t\('language'\)/);
+    assert.doesNotMatch(uiSection, /setLanguage\(/);
+    assert.match(accountSection, /setLanguage\('en'\)/);
+    assert.match(accountSection, /setLanguage\('zh'\)/);
+    assert.match(accountSection, /t\('language'\)/);
 });
 
 test('language changes synchronize storage and document metadata', () => {
     assert.match(appScript, /document\.documentElement\.lang = this\.lang === 'zh' \? 'zh-CN' : 'en'/);
     assert.match(appScript, /localStorage\.setItem\('justchat_lang', this\.lang\)/);
+    assert.match(appScript, /document\.title = this\.t\('appDocumentTitle', \{ brand \}\)/);
+    assert.match(appScript, /appDocumentTitle: '\{brand\} Workspace'/);
+    assert.match(appScript, /appDocumentTitle: '\{brand\} 工作空间'/);
     assert.match(appScript, /this\.setLanguage\(this\.lang\)/);
 });
 

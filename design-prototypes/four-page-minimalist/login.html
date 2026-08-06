@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="ChatRaw 四页面重构原型：登录页。">
+  <meta property="og:title" content="ChatRaw 登录原型">
+  <meta property="og:description" content="全屏背景与克制的半透明玻璃登录面板。">
+  <title>登录 · ChatRaw 原型</title>
+  <link rel="icon" href="assets/brand-mark.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="prototype.css?v=3">
+</head>
+<body class="login-page">
+  <a class="skip-link" href="#login-form">跳到登录表单</a>
+  <main class="login-shell">
+    <section class="login-image" aria-label="暖灰色抽象建筑景观">
+      <div class="login-story reveal stagger-0">
+        <p class="eyebrow eyebrow-on-image">ChatRaw / shared intelligence</p>
+        <h1>把复杂工作，<br>放进一个入口。</h1>
+        <p>登录后进入共享工作空间。对话、知识、模块任务与个人 Agent 配置保持在同一个清晰的结构中。</p>
+      </div>
+    </section>
+
+    <section class="login-panel-wrap" aria-label="登录区域">
+      <form id="login-form" class="glass-login-card reveal stagger-1" data-login-form novalidate>
+        <div class="login-brand">
+          <img src="assets/brand-mark.svg" alt="ChatRaw 几何标志" width="48" height="48">
+          <span>
+            <strong>ChatRaw</strong>
+            <small>多人共享工作空间</small>
+          </span>
+        </div>
+
+        <header class="login-heading">
+          <p class="eyebrow">欢迎回来</p>
+          <h2>继续你的工作</h2>
+          <p>使用平台账户登录。</p>
+        </header>
+
+        <div class="field">
+          <label for="username">用户名</label>
+          <input id="username" name="username" type="text" autocomplete="username" placeholder="请输入用户名" required>
+        </div>
+        <div class="field">
+          <label for="password">密码</label>
+          <input id="password" name="password" type="password" autocomplete="current-password" placeholder="请输入密码" required>
+        </div>
+        <p class="login-error" aria-live="polite" data-login-error></p>
+
+        <div class="login-actions">
+          <button class="primary-button" type="submit">确认登录</button>
+          <button class="secondary-button" type="button" data-login-cancel>取消</button>
+        </div>
+
+      </form>
+    </section>
+  </main>
+  <script src="prototype.js?v=3"></script>
+</body>
+</html>

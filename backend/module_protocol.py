@@ -6,6 +6,7 @@ import hashlib
 import json
 import re
 from copy import deepcopy
+from math import isfinite
 from pathlib import Path
 from typing import Any
 
@@ -366,10 +367,15 @@ def validate_manifest(
     if companion is not None:
         normalized["frontend_integration"] = {
             "mode": "plugin",
-            "id": companion["id"],
-            "version_range": companion["version_range"],
+            **companion,
         }
     integration = normalized["frontend_integration"]
+    catalog = integration.get("catalog")
+    if catalog is not None and not isfinite(catalog["order"]):
+        raise ModuleProtocolError(
+            "invalid_manifest",
+            "Module manifest catalog order must be finite",
+        )
     try:
         SpecifierSet(integration["version_range"])
     except InvalidSpecifier as error:

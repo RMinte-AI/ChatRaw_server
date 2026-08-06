@@ -227,6 +227,10 @@ class T2AuthSecurityTests(unittest.TestCase):
 
     def test_anonymous_route_enumeration_is_default_deny(self):
         public = main.PUBLIC_EXACT_PATHS
+        self.assertIn("/brand-mark.svg", public)
+        self.assertIn("/landing-field.svg", public)
+        self.assertEqual(self.public_client.get("/brand-mark.svg").status_code, 200)
+        self.assertEqual(self.public_client.get("/landing-field.svg").status_code, 200)
         checked = set()
         for route in main.app.routes:
             methods = getattr(route, "methods", None)
@@ -398,6 +402,168 @@ class T2AuthSecurityTests(unittest.TestCase):
             200,
         )
 
+    def test_agent_chat_history_is_private_per_user(self):
+        member = self.member_client()
+        other = self.other_client()
+        response = member.post(
+            "/api/agent/chats",
+            headers=write_headers(),
+        )
+        self.assertEqual(response.status_code, 200, response.text)
+        chat_id = response.json()["id"]
+
+        self.assertIn(
+            chat_id,
+            {item["id"] for item in member.get("/api/agent/chats").json()},
+        )
+        self.assertNotIn(
+            chat_id,
+            {item["id"] for item in other.get("/api/agent/chats").json()},
+        )
+        self.assertNotIn(
+            chat_id,
+            {item["id"] for item in other.get("/api/chats").json()},
+        )
+        for method in ("get", "patch", "delete"):
+            request = getattr(other, method)
+            kwargs = {"headers": write_headers()} if method != "get" else {}
+            if method == "patch":
+                kwargs["json"] = {"title": "forbidden"}
+            self.assertEqual(
+                request(f"/api/agent/chats/{chat_id}" + (
+                    "/messages" if method == "get" else ""
+                ), **kwargs).status_code,
+                404,
+            )
+        self.assertEqual(
+            other.get(f"/api/chats/{chat_id}/messages").status_code,
+            404,
+        )
+        self.assertEqual(
+            other.patch(
+                f"/api/chats/{chat_id}",
+                headers=write_headers(),
+                json={"title": "classic route"},
+            ).status_code,
+            404,
+        )
+        self.assertEqual(
+            other.delete(
+                f"/api/chats/{chat_id}",
+                headers=write_headers(),
+            ).status_code,
+            404,
+        )
+        self.assertEqual(
+            other.post(
+                "/api/chat",
+                headers=write_headers(),
+                json={"chat_id": chat_id, "message": "cross-route"},
+            ).status_code,
+            404,
+        )
+
+        renamed = member.patch(
+            f"/api/agent/chats/{chat_id}",
+            headers=write_headers(),
+            json={"title": "我的 Agent 会话"},
+        )
+        self.assertEqual(renamed.status_code, 200, renamed.text)
+        self.assertEqual(
+            member.delete(
+                f"/api/agent/chats/{chat_id}",
+                headers=write_headers(),
+            ).status_code,
+            200,
+        )
+
+    def test_feature_catalog_has_localized_host_categories_and_no_fallback_cards(self):
+        catalog = self.member_client().get("/api/module-feature-catalog")
+        self.assertEqual(catalog.status_code, 200, catalog.text)
+        payload = catalog.json()
+        self.assertEqual(
+            [item["title"] for item in payload["categories"]],
+            [
+                {"en": "Data Hub", "zh": "数据中枢"},
+                {"en": "Knowledge Hub", "zh": "知识中枢"},
+                {"en": "Operations Hub", "zh": "业务中枢"},
+            ],
+        )
+        self.assertEqual(payload["schema_version"], "2")
+        self.assertEqual(payload["cards"], [])
+
+    def test_dark_setting_is_normalized_and_public_identity_is_minimal(self):
+        settings = self.admin.get("/api/settings").json()
+        settings["ui_settings"]["theme_mode"] = "dark"
+        saved = self.admin.post(
+            "/api/settings",
+            headers=write_headers(),
+            json=settings,
+        )
+        self.assertEqual(saved.status_code, 200, saved.text)
+        self.assertEqual(
+            self.admin.get("/api/settings").json()["ui_settings"][
+                "theme_mode"
+            ],
+            "light",
+        )
+        identity = self.public_client.get("/api/settings/logo")
+        self.assertEqual(identity.status_code, 200, identity.text)
+        self.assertEqual(
+            set(identity.json()),
+            {"logo_data", "logo_text"},
+        )
+
+    def test_feature_catalog_is_derived_from_registered_manifest(self):
+        class CatalogRegistry:
+            def list(self):
+                return [{"id": "registration-1", "module_id": "example.module"}]
+
+            def get(self, _registration_id):
+                return {
+                    "manifest": {
+                        "frontend_integration": {
+                            "mode": "plugin",
+                            "id": "example-plugin",
+                            "version_range": ">=1.0.0,<2.0.0",
+                            "workspace_panel_id": "example-panel",
+                            "catalog": {
+                                "category_id": "data-hub",
+                                "order": 5,
+                                "title": {"en": "Example", "zh": "示例"},
+                                "description": {
+                                    "en": "Example feature",
+                                    "zh": "示例功能",
+                                },
+                                "icon": "ri-pulse-line",
+                            },
+                        }
+                    }
+                }
+
+            def feature_status(self, _module_id):
+                return {
+                    "available": True,
+                    "visible": True,
+                    "state": "available",
+                    "reason": None,
+                }
+
+        original_registry = main.module_registry
+        main.module_registry = CatalogRegistry()
+        try:
+            response = self.member_client().get("/api/module-feature-catalog")
+        finally:
+            main.module_registry = original_registry
+        self.assertEqual(response.status_code, 200, response.text)
+        card = response.json()["cards"][0]
+        self.assertEqual(card["module_id"], "example.module")
+        self.assertEqual(card["plugin_id"], "example-plugin")
+        self.assertEqual(card["panel_id"], "example-panel")
+        self.assertTrue(card["service_ready"])
+        self.assertIsNone(card["service_reason"])
+        self.assertFalse(card["runtime_ready"])
+        self.assertFalse(card["available"])
     def test_legacy_resources_are_shared_but_admin_managed(self):
         member = self.member_client()
         legacy_chat = main.db.create_chat("legacy")

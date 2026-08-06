@@ -234,7 +234,7 @@ Workspace 规则：
 - 同一时刻只有一个 Workspace。打开另一面板或切换位置时，旧面板先执行一次 `dispose()`。
 - 同一面板以同一位置重复打开不会重复 mount。页面刷新后 Workspace 保持关闭。
 - 只有用户点击或用键盘激活 Host 渲染的工具栏、侧栏入口，且该入口的 `onClick` 在返回前同步
-  打开同一 Plugin 所属的 Workspace 时，Host 才会把焦点移到标题栏关闭按钮；关闭、挂载失败或
+  打开同一 Plugin 所属的 Workspace 时，Host 才会把焦点移到 Workspace 标题；关闭、挂载失败或
   替换失败后，焦点返回仍在页面中的 Host 入口。溢出菜单中的入口统一返回稳定的“更多”按钮。
   直接 API 调用、在 `await` 之后打开、模块回调、定时器或跨 Plugin 代开都保持当前焦点。
   Plugin 不能传入参数覆盖这一 Host 判定。需要异步数据时，先同步打开并在 `mount()` 中渲染
@@ -247,8 +247,12 @@ Workspace 规则：
   最近的这类容器并在边缘继续消费。不要依赖 `body` 横向溢出，也不要拦截普通纵向滚动或
   `Ctrl` + 滚轮缩放。
 
+首页卡片来自配套 Module Manifest 的 `frontend_integration.catalog`，并通过同级 `workspace_panel_id` 指向 `plugin_id + panel_id`。Plugin 不得自行向首页插入 DOM；它必须保持插件 ID、面板 ID 稳定，并让该面板的 `placements` 明确包含 `main`。Host 只有在 Module 服务就绪、Plugin 安装启用且版本兼容、当前浏览器已注册目标面板时才将卡片标记为可用；首页点击固定以 `main` 打开，不会退回 `defaultPlacement`。对于已进入目录的面板，`catalog.icon` 是 Host 首页卡片、内容导航、Workspace 标题和 collection 页签的唯一展示图标；`WorkspacePanelDefinition.icon` 仅作为无目录面板的回退。开发者应让两者语义一致，但不能依赖注册图标覆盖 Host 目录图标。
+
 机器契约见 [Plugin UI SDK Contract](../backend/contracts/plugin-ui-sdk-v1.json)，完整可运行示例见
 [Plugin Workspace UI Implementation Guide](plugin-workspace-ui-guide.md)。
+
+产品本身只启用浅色主题。Host 仍保留未激活的公共 `[data-theme="dark"]` CSS token 别名，避免既有 Plugin 的公共变量引用失效；Plugin 不得把这些兼容 token 当成可用的用户主题开关，也不得自行切换根节点主题。
 
 `registerToolbarButton` 默认把入口放在输入框工具栏。独立业务工作台可以在 definition 中声明
 `placement: 'sidebar'`，由 Server 使用稳定的左侧业务入口样式呈现；未声明或使用未知值时仍按
@@ -279,6 +283,8 @@ ChatRawPlugin.hooks.register('send_intercept', {
 只有明确返回 `{ success: true, handled: true }` 时，`send_intercept` 才接管发送。异常不能被当作成功；除 `AbortError` 外，ChatRaw 会记录错误并继续尝试安全路径。
 
 ChatRaw 在调用 `send_intercept` 前会确保当前聊天已经创建，因此 `context.currentChatId` 是可用于同源任务绑定的非空聊天 ID。插件不得自行创建聊天或伪造该值。
+
+当前产品 UI 已移除通用主聊天，Hermes Agent 浮窗不会调用 `send_intercept`、`transform_input`、`route_message` 或 `after_receive`。Agent 只允许 `before_send` 返回白名单中的非身份上下文字段；Host 始终重写 `chat_id`、`message` 和技能身份，再固定发送到 `/api/agent/chat`。不要把这些兼容 hook 当作 Agent 路由入口。
 
 ### 8. Module SDK
 
@@ -481,7 +487,7 @@ Use `ChatRawPlugin.hooks`, `ChatRawPlugin.ui`, `ChatRawPlugin.utils`, and docume
 renders `top` and `bottom` as `main`. The plugin receives a real DOM container. `mount`
 must synchronously return one cleanup function, and that function must synchronously return
 `undefined`. It must not fall back to the legacy fullscreen modal when registration or
-mounting fails. The Host focuses its close button only when the `onClick` callback of that plugin's
+mounting fails. The Host focuses the Workspace title only when the `onClick` callback of that plugin's
 Host-rendered toolbar or sidebar entry synchronously opens its own workspace during click or keyboard
 activation. Closing, mount failure, or replacement failure then restores the connected Host entry;
 overflow entries return to the stable More button. Direct API calls, opens after `await`, module
@@ -500,6 +506,12 @@ their title, icon, and collection order are identical. Collection order and tab
 order are deterministic, and switching tabs still disposes the old panel
 before mounting the new one.
 
+For a catalog-backed panel, `frontend_integration.catalog.icon` is the canonical
+icon across the Host card, content navigator, Workspace heading, and collection
+tab. `WorkspacePanelDefinition.icon` is used only as the fallback for a panel
+without a catalog entry. Keep both icons semantically aligned, but do not rely
+on the registered panel icon to override the Host catalog.
+
 The Host consumes horizontal wheel, trackpad, and Magic Mouse gestures at the page root to prevent
 Safari history rubber-banding. A plugin-owned horizontal region must explicitly use
 `overflow-x: auto` or `scroll`; the Host routes the gesture to the nearest such overflow container
@@ -508,7 +520,13 @@ ordinary vertical scrolling and `Ctrl`+wheel zoom.
 
 Before `send_intercept` runs, ChatRaw ensures that the current chat exists, so `context.currentChatId` is a non-empty chat ID suitable for same-origin task binding. Plugins must not create chats themselves or invent this value.
 
+The current product UI has no generic main chat. The Hermes Agent popup does not invoke `send_intercept`, `transform_input`, `route_message`, or `after_receive`. It accepts only whitelisted non-identity context from `before_send`; the Host rewrites chat, message, and skill identity and always posts to `/api/agent/chat`.
+
 Companion plugins use only `window.ChatRaw.modules`. The machine-readable contract is [module-plugin-sdk-v1.json](../backend/contracts/module-plugin-sdk-v1.json). They must never fetch a module URL directly, retain module credentials, use the legacy proxy as a module tunnel, or invent actor/capability identity.
+
+Module SDK 1.6 exposes the validated `workspace_panel_id` and `catalog` metadata in feature status. The browser must still compute Plugin runtime readiness from the current tab's actual Workspace registration; service readiness alone never makes a card openable.
+
+The product activates only the light theme. The Host retains unactivated public `[data-theme="dark"]` CSS token aliases so existing plugins do not lose public variable references. Plugins must not treat those aliases as a user-facing theme option or switch the root theme themselves.
 
 SDK 1.5 adds the `conversation` presentation. It requires `chat_id` and
 `user_message`; Core owns the inline activity timeline, subscription, recovery,

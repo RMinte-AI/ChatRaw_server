@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://chatraw.local/contracts/plugin-ui-sdk-v1.json",
   "contract": "ChatRaw Plugin UI SDK",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "global": "window.ChatRawPlugin.ui",
   "runtime": {
     "plugin_code_trust": "administrator-installed trusted frontend code",
@@ -11,6 +11,25 @@
     "workspace_persistence": false,
     "responsive_main_max_width_px": 1024,
     "stacked_workspace_main_max_height_px": 420
+  },
+  "host_feature_catalog": {
+    "source": "registered Module manifests with frontend_integration.catalog",
+    "panel_identity": "frontend_integration.id plus frontend_integration.workspace_panel_id",
+    "service_readiness_owner": "Server",
+    "runtime_readiness_owner": "browser Host after Plugin runtime registration",
+    "required_placement": "main",
+    "presentation_icon_precedence": "for catalog-backed panels, frontend_integration.catalog.icon is canonical in the Host main shell; the registered WorkspacePanelDefinition.icon is the fallback for panels without a catalog entry",
+    "states": [
+      "loading",
+      "module_unavailable",
+      "plugin_missing",
+      "plugin_disabled",
+      "plugin_version_mismatch",
+      "panel_not_registered",
+      "main_placement_required",
+      "available"
+    ],
+    "silent_fallback": false
   },
   "methods": {
     "registerToolbarButton": {
@@ -228,7 +247,7 @@
   },
   "focus": {
     "host_focus_authorization": "all conditions must hold: a Host-rendered toolbar or sidebar entry is synchronously dispatching its onClick callback, navigator.userActivation.isActive is true, the entry pluginId equals the workspace owner, and the Host trigger remains connected",
-    "authorized_open": "focus the Server-owned close button after the workspace is visible; opening the same already-visible workspace also focuses that button",
+    "authorized_open": "focus the Server-owned workspace title after the workspace is visible; opening the same already-visible workspace also focuses that title",
     "unauthorized_open": "preserve the current focus, including direct API calls during unrelated transient activation, asynchronous callback continuations, module callbacks, timers, and cross-owner opens",
     "overflow_return_trigger": "the stable Host More button",
     "missing_user_activation_api": "preserve the current focus",

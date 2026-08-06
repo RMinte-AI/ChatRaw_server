@@ -51,6 +51,7 @@ function loadScript(src) {
 // i18n translations
 const i18n = {
     en: {
+        appDocumentTitle: '{brand} Workspace',
         newChat: 'New Chat',
         clearAllChats: 'Clear All',
         confirmClearAll: 'Are you sure you want to delete all chats? This cannot be undone.',
@@ -128,7 +129,6 @@ const i18n = {
         language: 'Language',
         theme: 'Theme',
         light: 'Light',
-        dark: 'Dark',
         uploadLogo: 'Upload',
         logoText: 'Logo Text',
         subtitle: 'Subtitle',
@@ -213,9 +213,39 @@ const i18n = {
         hermesApprovalDeny: 'Deny',
         hermesApprovalSubmitting: 'Submitting...',
         hermesApprovalError: 'Approval failed',
-        close: 'Close'
+        close: 'Close',
+        online: 'Online',
+        signOut: 'Sign out',
+        featureCategories: 'Feature categories',
+        featureNavigation: 'Feature navigation',
+        loadingFeatureCatalog: 'Loading feature catalog…',
+        noFeatures: 'No features available',
+        openFeature: 'Open',
+        featureUnavailable: 'Unavailable',
+        featureAvailable: 'Available',
+        featureLoading: 'Loading',
+        moduleUnavailable: 'Module unavailable',
+        pluginMissing: 'Plugin missing',
+        pluginDisabledState: 'Plugin disabled',
+        pluginVersionMismatch: 'Plugin version mismatch',
+        panelNotRegistered: 'Panel not registered',
+        mainPlacementRequired: 'Main view required',
+        featurePanelNotReady: 'The feature panel is not ready.',
+        backHome: 'Back to home',
+        currentConversation: 'Current conversation',
+        agentSubtitle: 'Your intelligent work assistant',
+        conversationHistory: 'Conversation history',
+        newConversation: 'New conversation',
+        closeAgent: 'Close Agent',
+        openAgent: 'Open Hermes Agent',
+        expandAgent: 'Expand conversation window',
+        restoreAgent: 'Restore conversation window',
+        renameConversation: 'Rename conversation',
+        deleteConversation: 'Delete conversation',
+        noConversationHistory: 'No conversation history yet'
     },
     zh: {
+        appDocumentTitle: '{brand} 工作空间',
         newChat: '新对话',
         clearAllChats: '清空所有',
         confirmClearAll: '确定要删除所有对话吗？此操作无法撤销。',
@@ -293,7 +323,6 @@ const i18n = {
         language: '语言',
         theme: '主题',
         light: '浅色',
-        dark: '深色',
         uploadLogo: '上传',
         logoText: 'Logo文字',
         subtitle: '副标题',
@@ -378,16 +407,45 @@ const i18n = {
         hermesApprovalDeny: '拒绝',
         hermesApprovalSubmitting: '提交中...',
         hermesApprovalError: '审批失败',
-        close: '关闭'
+        close: '关闭',
+        online: '在线',
+        signOut: '退出登录',
+        featureCategories: '功能分类',
+        featureNavigation: '功能导航',
+        loadingFeatureCatalog: '正在读取功能目录…',
+        noFeatures: '暂无功能',
+        openFeature: '打开',
+        featureUnavailable: '暂不可用',
+        featureAvailable: '可用',
+        featureLoading: '加载中',
+        moduleUnavailable: '模块不可用',
+        pluginMissing: '插件未安装',
+        pluginDisabledState: '插件已停用',
+        pluginVersionMismatch: '插件版本不兼容',
+        panelNotRegistered: '功能面板未注册',
+        mainPlacementRequired: '需要主内容区布局',
+        featurePanelNotReady: '功能界面尚未就绪。',
+        backHome: '返回首页',
+        currentConversation: '当前对话',
+        agentSubtitle: '你的智能工作助手',
+        conversationHistory: '历史会话',
+        newConversation: '新建会话',
+        closeAgent: '关闭 Agent',
+        openAgent: '打开 Hermes Agent',
+        expandAgent: '扩展对话窗口',
+        restoreAgent: '还原对话窗口',
+        renameConversation: '重命名会话',
+        deleteConversation: '删除会话',
+        noConversationHistory: '还没有历史会话'
     }
 };
 
 Object.assign(i18n.en, {
     send: 'Send',
     rename: 'Rename',
-    renameSharedChat: 'Rename this shared chat',
+    renameSharedChat: 'Rename this conversation',
     renameFailed: 'Rename failed',
-    deleteSharedChat: 'Delete this shared chat? Other users will lose access to it.',
+    deleteSharedChat: 'Delete this private conversation? This cannot be undone.',
     deleteSharedDocument: 'Delete this shared document? Other users will lose access to it.',
     requestFailed: 'Request failed',
     unknownError: 'Unknown error',
@@ -615,9 +673,9 @@ Object.assign(i18n.en, {
 Object.assign(i18n.zh, {
     send: '发送',
     rename: '重命名',
-    renameSharedChat: '重命名此共享对话',
+    renameSharedChat: '重命名此会话',
     renameFailed: '重命名失败',
-    deleteSharedChat: '确定删除此共享对话吗？其他用户将无法再访问。',
+    deleteSharedChat: '确定删除此私有会话吗？此操作无法撤销。',
     deleteSharedDocument: '确定删除此共享文档吗？其他用户将无法再访问。',
     requestFailed: '请求失败',
     unknownError: '未知错误',
@@ -878,15 +936,20 @@ const COMPOSER_COMPLETION_LIMIT = 20;
 const SKILL_CATALOG_CACHE_MS = 30000;
 const MAX_ACTIVE_SKILLS_PER_REQUEST = 5;
 const DEFAULT_CHAT_ENDPOINT = '/api/chat';
+const AGENT_CHAT_ENDPOINT = '/api/agent/chat';
 const CHAT_ROUTE_ENDPOINTS = Object.freeze({
     hermes: '/api/hermes/chat'
 });
-const ALLOWED_CHAT_ENDPOINTS = new Set([DEFAULT_CHAT_ENDPOINT, ...Object.values(CHAT_ROUTE_ENDPOINTS)]);
+const ALLOWED_CHAT_ENDPOINTS = new Set([
+    DEFAULT_CHAT_ENDPOINT,
+    AGENT_CHAT_ENDPOINT,
+    ...Object.values(CHAT_ROUTE_ENDPOINTS)
+]);
 const ROUTE_MESSAGE_RESULT_KEYS = new Set(['success', 'route']);
 const RESERVED_SLASH_COMMANDS = new Set(['plugins', 'settings', 'help', 'clear', 'compact', 'api']);
 const COMMON_PATH_ROOTS = new Set(['tmp', 'var', 'usr', 'etc', 'home', 'users', 'opt', 'private', 'volumes', 'mnt']);
 const SKILL_NAME_PATTERN = /^[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?$/;
-const MODULE_SDK_VERSION = '1.5.0';
+const MODULE_SDK_VERSION = '1.6.0';
 const MODULE_TASK_STORAGE_KEY = 'chatraw_module_tasks_v1';
 const MODULE_TERMINAL_STATES = new Set(['succeeded', 'failed', 'cancelled']);
 const PLUGIN_WORKSPACE_PLACEMENTS = Object.freeze([
@@ -915,6 +978,12 @@ function app() {
         sidebarFeaturesCollapsed: initialSidebarFeaturesCollapsed,
         _resizeRaf: null,
         showSettings: false,
+        agentOpen: false,
+        agentExpanded: false,
+        agentHistoryOpen: false,
+        featureCatalog: { categories: [], cards: [] },
+        activeFeatureCategory: 'data-hub',
+        featureCatalogLoading: true,
         settingsTab: 'models',
         me: null,
         adminUsers: [],
@@ -987,7 +1056,6 @@ function app() {
         skillCatalogCache: null,
         skillCatalogLoadedAt: 0,
         useRAG: false,
-        useThinking: false,
         isGenerating: false,
         abortController: null,
         uploadedImage: null,
@@ -1076,6 +1144,12 @@ function app() {
             transform_output: [],    // Transform AI output before display
         },
         loadedPluginDeps: {},
+        pluginRuntimeVersions: {},
+        _pluginRuntimeSyncPromise: null,
+        _pluginRuntimeSyncInitialized: false,
+        _pluginRuntimeChangeChannel: null,
+        _agentChatChangeChannel: null,
+        _settingsChangeChannel: null,
         
         // Data
         chats: [],
@@ -1126,6 +1200,12 @@ function app() {
             this.lang = newLang === 'zh' ? 'zh' : 'en';
             localStorage.setItem('justchat_lang', this.lang);
             document.documentElement.lang = this.lang === 'zh' ? 'zh-CN' : 'en';
+            this.updateDocumentTitle();
+        },
+
+        updateDocumentTitle() {
+            const brand = this.settings?.ui_settings?.logo_text || 'ChatRaw';
+            document.title = this.t('appDocumentTitle', { brand });
         },
 
         roleLabel(role) {
@@ -1249,15 +1329,70 @@ function app() {
             await this.loadMe();
             await this.loadSettings();
             await this.loadModels();
-            await this.loadChats();
+            await this.loadAgentChats();
+            await this.loadFeatureCatalog();
             await this.loadDocuments();
             await this.loadInstalledPlugins();
             this.applyTheme();
+            this.initCrossTabStateSync();
             // Note: favicon is updated by loadLogo() which is called from loadSettings()
             // Initialize plugin system
             this.initPluginSystem();
             await this.initResidentIntegrations();
             await this.resumeModuleTasks();
+        },
+
+        initCrossTabStateSync() {
+            if (typeof window.BroadcastChannel !== 'function') return;
+            if (!this._agentChatChangeChannel) {
+                this._agentChatChangeChannel = new window.BroadcastChannel(
+                    'chatraw-agent-chats-v1'
+                );
+                this._agentChatChangeChannel.addEventListener(
+                    'message',
+                    async event => {
+                        if (event.data?.type !== 'agent-chats-changed') return;
+                        await this.loadAgentChats();
+                        if (
+                            this.currentChatId
+                            && !this.chats.some(
+                                chat => chat.id === this.currentChatId
+                            )
+                        ) {
+                            if (this.isGenerating) this.stopGeneration();
+                            this.currentChatId = null;
+                            this.messages = [];
+                        }
+                    }
+                );
+            }
+            if (!this._settingsChangeChannel) {
+                this._settingsChangeChannel = new window.BroadcastChannel(
+                    'chatraw-settings-v1'
+                );
+                this._settingsChangeChannel.addEventListener(
+                    'message',
+                    async event => {
+                        if (event.data?.type !== 'settings-changed') return;
+                        await this.loadSettings();
+                        this.applyTheme();
+                    }
+                );
+            }
+        },
+
+        announceAgentChatChange(action, chatId) {
+            this._agentChatChangeChannel?.postMessage({
+                type: 'agent-chats-changed',
+                action,
+                chat_id: chatId
+            });
+        },
+
+        announceSettingsChange() {
+            this._settingsChangeChannel?.postMessage({
+                type: 'settings-changed'
+            });
         },
 
         isAdmin() {
@@ -1277,6 +1412,171 @@ function app() {
         async logout() {
             await fetch('/api/auth/logout', { method: 'POST' });
             location.replace('/login');
+        },
+
+        async loadFeatureCatalog() {
+            this.featureCatalogLoading = true;
+            try {
+                const response = await fetch('/api/module-feature-catalog');
+                if (!response.ok) throw new Error('Feature catalog unavailable');
+                const catalog = await response.json();
+                this.featureCatalog = {
+                    categories: Array.isArray(catalog.categories)
+                        ? catalog.categories
+                        : [],
+                    cards: Array.isArray(catalog.cards) ? catalog.cards : []
+                };
+                this.recomputeFeatureCatalogRuntime();
+                if (
+                    !this.featureCatalog.categories.some(
+                        category => category.id === this.activeFeatureCategory
+                    )
+                ) {
+                    this.activeFeatureCategory = this.featureCatalog.categories[0]?.id || '';
+                }
+            } catch (error) {
+                console.error('Failed to load feature catalog:', error);
+                this.featureCatalog = { categories: [], cards: [] };
+            } finally {
+                this.featureCatalogLoading = false;
+            }
+        },
+
+        get activeFeatureCards() {
+            return this.featureCatalog.cards
+                .filter(card => card.category_id === this.activeFeatureCategory)
+                .sort((left, right) => left.order - right.order);
+        },
+
+        featureCatalogCardForPanel(pluginId, panelId) {
+            return this.featureCatalog.cards.find(card => (
+                card.plugin_id === pluginId
+                && card.panel_id === panelId
+            )) || null;
+        },
+
+        pluginWorkspacePanelIcon(pluginId, panelId, fallback = '') {
+            return this.featureCatalogCardForPanel(pluginId, panelId)?.icon
+                || fallback;
+        },
+
+        featureStateLabel(state) {
+            return this.t({
+                loading: 'featureLoading',
+                module_unavailable: 'moduleUnavailable',
+                plugin_missing: 'pluginMissing',
+                plugin_disabled: 'pluginDisabledState',
+                plugin_version_mismatch: 'pluginVersionMismatch',
+                panel_not_registered: 'panelNotRegistered',
+                main_placement_required: 'mainPlacementRequired',
+                available: 'featureAvailable'
+            }[state] || 'featureUnavailable');
+        },
+
+        recomputeFeatureCatalogRuntime() {
+            this.featureCatalog = {
+                ...this.featureCatalog,
+                cards: this.featureCatalog.cards.map(card => {
+                    if (!card.service_ready) {
+                        return {
+                            ...card,
+                            runtime_ready: false,
+                            available: false
+                        };
+                    }
+                    const definition = this.pluginWorkspaceDefinitions[
+                        this.pluginWorkspaceKey(card.plugin_id, card.panel_id)
+                    ];
+                    if (!definition) {
+                        return {
+                            ...card,
+                            runtime_ready: false,
+                            available: false,
+                            state: 'panel_not_registered'
+                        };
+                    }
+                    if (!definition.placements.includes('main')) {
+                        return {
+                            ...card,
+                            runtime_ready: false,
+                            available: false,
+                            state: 'main_placement_required'
+                        };
+                    }
+                    return {
+                        ...card,
+                        runtime_ready: true,
+                        available: true,
+                        state: 'available'
+                    };
+                })
+            };
+        },
+
+        async openFeatureCard(card, trigger = null) {
+            if (!card?.available) return;
+            const key = this.pluginWorkspaceKey(card.plugin_id, card.panel_id);
+            if (!this.pluginWorkspaceDefinitions[key]) {
+                await this.syncPluginRuntimes();
+            }
+            if (!this.pluginWorkspaceDefinitions[key]) {
+                this.recomputeFeatureCatalogRuntime();
+                this.showToast(this.t('featurePanelNotReady'), 'error');
+                return;
+            }
+            const definition = this.pluginWorkspaceDefinitions[key];
+            if (!definition.placements.includes('main')) {
+                this.recomputeFeatureCatalogRuntime();
+                this.showToast(this.t('featurePanelNotReady'), 'error');
+                return;
+            }
+            const placement = 'main';
+            this.showSettings = false;
+            if (this.isGenerating) this.stopGeneration();
+            this.agentOpen = false;
+            this.agentExpanded = false;
+            this.agentHistoryOpen = false;
+            const previousActivation = this._pluginWorkspaceActivation;
+            this._pluginWorkspaceActivation = (
+                navigator.userActivation?.isActive === true
+                && trigger instanceof HTMLElement
+                && trigger.isConnected
+            ) ? { pluginId: card.plugin_id, trigger } : null;
+            try {
+                this.openPluginWorkspacePanel(
+                    card.panel_id,
+                    { placement },
+                    card.plugin_id
+                );
+            } finally {
+                this._pluginWorkspaceActivation = previousActivation;
+            }
+        },
+
+        returnHome() {
+            this.showSettings = false;
+            if (this.pluginWorkspace.show) this.closeActivePluginWorkspace();
+        },
+
+        toggleAgent() {
+            if (!this.agentOpen) {
+                this.showSettings = false;
+                this.showPlugins = false;
+            }
+            this.agentOpen = !this.agentOpen;
+            if (!this.agentOpen) {
+                this.agentHistoryOpen = false;
+                this.agentExpanded = false;
+            }
+            if (this.agentOpen && !this.currentChatId && this.chats.length) {
+                this.selectChat(this.chats[0].id);
+            }
+        },
+
+        toggleAgentExpanded() {
+            if (!this.agentOpen) return;
+            this.agentExpanded = !this.agentExpanded;
+            if (this.agentExpanded) this.agentHistoryOpen = false;
         },
 
         async loadAdminUsers() {
@@ -2532,6 +2832,11 @@ function app() {
             this.showPlugins = false;
             this.settingsTab = this.isAdmin() ? 'models' : 'account';
             this.showSettings = true;
+            if (this.isGenerating) this.stopGeneration();
+            this.agentOpen = false;
+            this.agentExpanded = false;
+            this.agentHistoryOpen = false;
+            if (this.pluginWorkspace.show) this.closeActivePluginWorkspace();
             if (this.isAdmin()) {
                 this.loadAdminUsers();
                 this.loadModules();
@@ -2550,7 +2855,8 @@ function app() {
         
         // Apply theme
         applyTheme() {
-            document.documentElement.setAttribute('data-theme', this.settings.ui_settings.theme_mode);
+            this.settings.ui_settings.theme_mode = 'light';
+            document.documentElement.setAttribute('data-theme', 'light');
         },
         
         // Load settings
@@ -2568,6 +2874,7 @@ function app() {
                     }
                     if (data.ui_settings) {
                         this.settings.ui_settings = { ...this.settings.ui_settings, ...data.ui_settings };
+                        this.settings.ui_settings.theme_mode = 'light';
                     }
                 }
                 // Lazy load logo after initial settings (for better LCP)
@@ -2583,10 +2890,11 @@ function app() {
                 const res = await fetch('/api/settings/logo');
                 if (res.ok) {
                     const data = await res.json();
-                    if (data.logo_data) {
-                        this.settings.ui_settings.logo_data = data.logo_data;
-                        this.updateFavicon(data.logo_data);
+                    this.settings.ui_settings.logo_data = data.logo_data || '';
+                    if (typeof data.logo_text === 'string') {
+                        this.settings.ui_settings.logo_text = data.logo_text;
                     }
+                    this.updateFavicon(this.settings.ui_settings.logo_data);
                 }
             } catch (e) {
                 // Logo loading is non-critical, fail silently
@@ -2615,8 +2923,12 @@ function app() {
         
         // Load chat list
         async loadChats() {
+            return this.loadAgentChats();
+        },
+
+        async loadAgentChats() {
             try {
-                const res = await fetch('/api/chats');
+                const res = await fetch('/api/agent/chats');
                 if (res.ok) {
                     this.chats = await res.json() || [];
                 }
@@ -2645,11 +2957,13 @@ function app() {
             }
             
             try {
-                const res = await fetch('/api/chats', { method: 'POST' });
+                const res = await fetch('/api/agent/chats', { method: 'POST' });
                 if (res.ok) {
                     const chat = await res.json();
                     this.chats.unshift(chat);
-                    this.selectChat(chat.id);
+                    await this.selectChat(chat.id);
+                    this.agentHistoryOpen = false;
+                    this.announceAgentChatChange('created', chat.id);
                     this.closeSidebarOnMobile();
                 }
             } catch (e) {
@@ -2661,7 +2975,7 @@ function app() {
             if (this.currentChatId) {
                 return this.currentChatId;
             }
-            const res = await fetch('/api/chats', {
+            const res = await fetch('/api/agent/chats', {
                 method: 'POST',
                 signal
             });
@@ -2680,6 +2994,7 @@ function app() {
         // Select chat
         async selectChat(chatId) {
             if (this.currentChatId === chatId) {
+                this.agentHistoryOpen = false;
                 this.closeSidebarOnMobile();
                 return;
             }
@@ -2687,15 +3002,25 @@ function app() {
                 this.stopGeneration();
             }
             this.currentChatId = chatId;
+            this.messages = [];
             await this.loadMessages(chatId);
+            this.agentHistoryOpen = false;
             this.closeSidebarOnMobile();
         },
         
         // Load messages
         async loadMessages(chatId) {
             try {
-                const res = await fetch(`/api/chats/${chatId}/messages`);
-                if (res.ok) {
+                const res = await fetch(`/api/agent/chats/${chatId}/messages`);
+                if (!res.ok) {
+                    if (res.status === 404 && this.currentChatId === chatId) {
+                        this.currentChatId = null;
+                        this.messages = [];
+                        await this.loadAgentChats();
+                    }
+                    throw new Error(`Agent history request failed (${res.status})`);
+                }
+                if (this.currentChatId === chatId) {
                     const messages = await res.json() || [];
                     let tasks = [];
                     if (window.ChatRaw?.modules) {
@@ -2727,6 +3052,9 @@ function app() {
                 }
             } catch (e) {
                 console.error('Failed to load messages:', e);
+                if (this.currentChatId === chatId) {
+                    this.messages = [];
+                }
             }
         },
         
@@ -2737,7 +3065,7 @@ function app() {
                 if (this.currentChatId === chatId && this.isGenerating) {
                     this.stopGeneration();
                 }
-                const response = await fetch(`/api/chats/${chatId}`, { method: 'DELETE' });
+                const response = await fetch(`/api/agent/chats/${chatId}`, { method: 'DELETE' });
                 if (!response.ok) {
                     const result = await response.json();
                     throw new Error(result.detail || this.t('deleteFailed'));
@@ -2747,6 +3075,7 @@ function app() {
                     this.currentChatId = null;
                     this.messages = [];
                 }
+                this.announceAgentChatChange('deleted', chatId);
             } catch (e) {
                 this.showToast(this.t('deleteFailed'), 'error');
             }
@@ -2755,7 +3084,7 @@ function app() {
         async renameChat(chat) {
             const title = window.prompt(this.t('renameSharedChat'), chat.title);
             if (!title || title.trim() === chat.title) return;
-            const response = await fetch(`/api/chats/${encodeURIComponent(chat.id)}`, {
+            const response = await fetch(`/api/agent/chats/${encodeURIComponent(chat.id)}`, {
                 method: 'PATCH',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ title: title.trim() })
@@ -2766,6 +3095,7 @@ function app() {
                 return;
             }
             chat.title = result.title;
+            this.announceAgentChatChange('renamed', chat.id);
         },
         
         // Clear all chats
@@ -2778,12 +3108,13 @@ function app() {
             try {
                 // Delete all chats one by one
                 for (const chat of this.chats) {
-                    const response = await fetch(`/api/chats/${chat.id}`, { method: 'DELETE' });
+                    const response = await fetch(`/api/agent/chats/${chat.id}`, { method: 'DELETE' });
                     if (!response.ok) throw new Error(this.t('deleteFailed'));
                 }
                 this.chats = [];
                 this.currentChatId = null;
                 this.messages = [];
+                this.announceAgentChatChange('cleared', '');
                 this.showToast(this.t('allChatsCleared'), 'success');
             } catch (e) {
                 this.showToast(this.t('deleteFailed'), 'error');
@@ -3523,25 +3854,9 @@ function app() {
                 await this.ensureCurrentChat(sendController.signal);
                 if (sendController.signal.aborted) return;
 
-                const interceptResult = await this.callSendInterceptors(
-                    this.buildSendInterceptContext(message, activeSkillNames, sendController.signal)
-                );
-                if (sendController.signal.aborted) return;
-                if (interceptResult?.success && interceptResult.handled) {
-                    this.applySendInterceptResult(interceptResult, message);
-                    return;
-                }
-
                 this.inputMessage = '';
                 this.closeCompletionMenu();
                 this.$nextTick(() => this.autoResize(this.$refs.inputBox));
-
-                // Call transform_input hooks to allow plugins to modify the input
-                const transformResult = await this.callHook('transform_input', message);
-                if (sendController.signal.aborted) return;
-                if (transformResult?.success && transformResult.content) {
-                    message = transformResult.content;
-                }
 
                 this.messages.push({
                     role: 'user',
@@ -3570,25 +3885,40 @@ function app() {
                     chat_id: this.currentChatId,
                     message: message,
                     use_rag: this.useRAG,
-                    use_thinking: this.useThinking,
                     image_base64: this.uploadedImageBase64,
                     web_content: combinedContent,
                     web_url: contentSource
                 };
                 
-                // Call before_send hooks to allow plugins to modify the request
-                const beforeSendResult = await this.callHook('before_send', body);
+                // Agent plugins may enrich only non-identity context. The Host
+                // rewrites conversation and message identity after every hook.
+                const beforeSendResult = await this.callHook(
+                    'before_send',
+                    { ...body }
+                );
                 if (sendController.signal.aborted) return;
                 if (beforeSendResult?.success && beforeSendResult.body) {
-                    body = { ...body, ...beforeSendResult.body };
+                    const proposed = beforeSendResult.body;
+                    for (const key of ['use_rag']) {
+                        if (typeof proposed[key] === 'boolean') {
+                            body[key] = proposed[key];
+                        }
+                    }
+                    for (const key of ['web_content', 'web_url']) {
+                        if (typeof proposed[key] === 'string') {
+                            body[key] = proposed[key];
+                        }
+                    }
                 }
+                body.chat_id = this.currentChatId;
+                body.message = message;
                 if (activeSkillNames.length > 0) {
                     body.active_skills = activeSkillNames;
                 } else {
                     delete body.active_skills;
                 }
 
-                const endpoint = await this.resolveMessageRouteEndpoint(body);
+                const endpoint = AGENT_CHAT_ENDPOINT;
                 if (sendController.signal.aborted) return;
                 
                 this.removeUploadedImage();
@@ -3600,16 +3930,6 @@ function app() {
                 } else {
                     await this.handleNormalResponse(body, endpoint, sendController.signal);
                 }
-                // Call after_receive hooks for post-processing
-                const lastMsg = this.messages[this.messages.length - 1];
-                if (lastMsg && lastMsg.role === 'assistant') {
-                    const afterResult = await this.callHook('after_receive', lastMsg);
-                    if (afterResult?.success && afterResult.content) {
-                        lastMsg.content = afterResult.content;
-                        this.messages[this.messages.length - 1] = { ...lastMsg };
-                    }
-                }
-                
                 await this.loadChats();
                 
             } catch (e) {
@@ -4311,6 +4631,20 @@ function app() {
             
             event.target.value = '';
         },
+
+        removeCustomLogo() {
+            this.settings.ui_settings.logo_data = '';
+            this.updateFavicon('');
+        },
+
+        handleLogoImageError(event) {
+            const image = event?.currentTarget;
+            if (!image) return;
+            const source = image.getAttribute('src') || '';
+            if (!source.endsWith('/brand-mark.svg') && source !== 'brand-mark.svg') {
+                image.src = '/brand-mark.svg';
+            }
+        },
         
         // Update favicon
         updateFavicon(dataUrl) {
@@ -4318,10 +4652,9 @@ function app() {
             if (dataUrl) {
                 favicon.href = dataUrl;
             } else {
-                // Empty favicon when no logo is set
-                favicon.href = 'data:,';
+                favicon.href = '/brand-mark.svg';
             }
-            document.title = this.settings.ui_settings.logo_text || 'ChatRaw';
+            this.updateDocumentTitle();
         },
         
         // Handle avatar upload
@@ -4648,11 +4981,15 @@ function app() {
         async saveAllSettings() {
             try {
                 // Save settings
-                await fetch('/api/settings', {
+                this.settings.ui_settings.theme_mode = 'light';
+                const settingsResponse = await fetch('/api/settings', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify(this.settings)
                 });
+                if (!settingsResponse.ok) {
+                    throw new Error(this.t('saveFailed'));
+                }
                 
                 // Save model configs
                 for (const model of this.models) {
@@ -4673,12 +5010,15 @@ function app() {
                 }
                 
                 this.applyTheme();
+                this.announceSettingsChange();
                 this.showSettings = false;
                 this.showToast(this.t('settingsSaved'), 'success');
                 
                 await this.loadModels();
                 
             } catch (e) {
+                await this.loadSettings();
+                this.applyTheme();
                 this.showToast(this.t('saveFailed'), 'error');
             }
         },
@@ -4836,7 +5176,12 @@ function app() {
                 .filter(btn => {
                     // Only show buttons from enabled plugins
                     const plugin = this.installedPlugins?.find(p => p.id === btn.pluginId);
-                    return plugin?.enabled !== false && btn.placement === placement;
+                    // Hermes is the fixed runtime for the Agent surface. It is
+                    // not a user-selectable composer mode anymore, so its
+                    // legacy toolbar toggle must stay out of every placement.
+                    return plugin?.enabled !== false
+                        && btn.pluginId !== 'hermes'
+                        && btn.placement === placement;
                 })
                 .sort((a, b) => (a.order || 100) - (b.order || 100));
         },
@@ -4883,7 +5228,11 @@ function app() {
                     pluginId: definition.pluginId,
                     panelId: definition.id,
                     title: definition.title,
-                    icon: definition.icon,
+                    icon: this.pluginWorkspacePanelIcon(
+                        definition.pluginId,
+                        definition.id,
+                        definition.icon
+                    ),
                     order: collection.tabOrder
                 });
             }
@@ -5120,7 +5469,7 @@ function app() {
             return definition;
         },
 
-        focusPluginWorkspaceClose(owner, panelId, placement) {
+        focusPluginWorkspaceTitle(owner, panelId, placement) {
             this.$nextTick(() => {
                 requestAnimationFrame(() => {
                     if (
@@ -5130,7 +5479,7 @@ function app() {
                         && this.pluginWorkspace.placement === placement
                     ) {
                         document.getElementById(
-                            'plugin-workspace-close'
+                            'plugin-workspace-title'
                         )?.focus();
                     }
                 });
@@ -5168,6 +5517,7 @@ function app() {
                     : null,
                 mount: definition.mount
             });
+            this.recomputeFeatureCatalogRuntime();
             return true;
         },
 
@@ -5191,6 +5541,7 @@ function app() {
                 if (disposeError) throw disposeError;
             }
             delete this.pluginWorkspaceDefinitions[key];
+            this.recomputeFeatureCatalogRuntime();
             return true;
         },
 
@@ -5245,7 +5596,7 @@ function app() {
             ) {
                 if (shouldMoveFocus) {
                     this._pluginWorkspaceReturnFocus = returnFocus;
-                    this.focusPluginWorkspaceClose(
+                    this.focusPluginWorkspaceTitle(
                         owner,
                         panelId,
                         placement
@@ -5310,7 +5661,7 @@ function app() {
                 this._pluginWorkspaceTransition = null;
             }
             if (shouldMoveFocus) {
-                this.focusPluginWorkspaceClose(
+                this.focusPluginWorkspaceTitle(
                     owner,
                     panelId,
                     placement
@@ -5416,6 +5767,7 @@ function app() {
                     delete this.pluginWorkspaceDefinitions[key];
                 }
             }
+            this.recomputeFeatureCatalogRuntime();
         },
         
         // Handle plugin button click
@@ -6510,6 +6862,93 @@ function app() {
 
             // Load enabled plugins
             this.loadEnabledPlugins();
+            this.initPluginRuntimeSync();
+        },
+
+        initPluginRuntimeSync() {
+            if (this._pluginRuntimeSyncInitialized) return;
+            this._pluginRuntimeSyncInitialized = true;
+
+            const syncVisibleTab = () => {
+                if (document.visibilityState === 'visible') {
+                    void this.syncPluginRuntimes();
+                }
+            };
+            if (typeof window.addEventListener === 'function') {
+                window.addEventListener('focus', syncVisibleTab);
+            }
+            if (
+                typeof document !== 'undefined'
+                && typeof document.addEventListener === 'function'
+            ) {
+                document.addEventListener('visibilitychange', syncVisibleTab);
+            }
+
+            if (typeof window.BroadcastChannel === 'function') {
+                this._pluginRuntimeChangeChannel = new window.BroadcastChannel(
+                    'chatraw-plugin-runtime-v1'
+                );
+                this._pluginRuntimeChangeChannel.addEventListener(
+                    'message',
+                    event => {
+                        if (event.data?.type === 'plugins-changed') {
+                            void this.syncPluginRuntimes();
+                        }
+                    }
+                );
+            }
+        },
+
+        announcePluginRuntimeChange(pluginId) {
+            this._pluginRuntimeChangeChannel?.postMessage({
+                type: 'plugins-changed',
+                plugin_id: pluginId
+            });
+        },
+
+        async refreshFeatureCatalogAfterPluginChange(pluginId) {
+            await this.loadFeatureCatalog();
+            this.announcePluginRuntimeChange(pluginId);
+        },
+
+        async syncPluginRuntimes() {
+            if (this._pluginRuntimeSyncPromise) {
+                return this._pluginRuntimeSyncPromise;
+            }
+            this._pluginRuntimeSyncPromise = (async () => {
+                const response = await fetch('/api/plugins', {
+                    credentials: 'same-origin',
+                    cache: 'no-store'
+                });
+                if (!response.ok) return;
+
+                const latestPlugins = await response.json();
+                const latestById = new Map(
+                    latestPlugins.map(plugin => [plugin.id, plugin])
+                );
+                for (const pluginId of Object.keys(this.pluginRuntimeVersions)) {
+                    const latest = latestById.get(pluginId);
+                    if (!latest || latest.enabled === false) {
+                        this.cleanupPluginRuntime(pluginId);
+                    }
+                }
+
+                this.installedPlugins = latestPlugins;
+                for (const plugin of latestPlugins) {
+                    if (plugin.enabled === false) continue;
+                    const loadedVersion = this.pluginRuntimeVersions[plugin.id];
+                    const currentVersion = String(plugin.version || '0');
+                    if (loadedVersion !== currentVersion) {
+                        await this.loadPluginJS(plugin);
+                    }
+                }
+                this.recomputeFeatureCatalogRuntime();
+            })().catch(error => {
+                console.error('[Plugin] Failed to synchronize runtimes:', error);
+            }).finally(() => {
+                this._pluginRuntimeSyncPromise = null;
+            });
+            return this._pluginRuntimeSyncPromise;
         },
         
         // Load installed plugins list
@@ -6579,6 +7018,9 @@ function app() {
                 const pluginVersion = encodeURIComponent(String(plugin.version || '0'));
                 const scriptUrl = `${scriptBaseUrl}?v=${pluginVersion}`;
                 await this.loadScript(scriptUrl, { reload: true, reloadPrefix: scriptBaseUrl });
+                this.pluginRuntimeVersions[plugin.id] = String(
+                    plugin.version || '0'
+                );
                 
                 this._currentLoadingPlugin = null;
                 console.log(`[Plugin] Loaded: ${plugin.id}`);
@@ -6589,6 +7031,7 @@ function app() {
         },
 
         cleanupPluginRuntime(pluginId) {
+            delete this.pluginRuntimeVersions[pluginId];
             this.unregisterPluginHooks(pluginId);
             this.unregisterPluginCompletions(pluginId);
             this.pluginToolbarButtons = this.pluginToolbarButtons.filter(
@@ -6864,6 +7307,7 @@ function app() {
                     if (newPlugin) {
                         await this.loadPluginJS(newPlugin);
                     }
+                    await this.refreshFeatureCatalogAfterPluginChange(plugin.id);
                 } else {
                     this.showToast(this.t('installFailed'), 'error');
                 }
@@ -6915,6 +7359,7 @@ function app() {
                     if (newPlugin) {
                         await this.loadPluginJS(newPlugin);
                     }
+                    await this.refreshFeatureCatalogAfterPluginChange(data.plugin_id);
                 } else {
                     this.showToast(this.t('installFailed'), 'error');
                 }
@@ -6947,6 +7392,7 @@ function app() {
                         this.cleanupPluginRuntime(plugin.id);
                         this.showToast(this.t('pluginDisabled'), 'success');
                     }
+                    await this.refreshFeatureCatalogAfterPluginChange(plugin.id);
                 }
             } catch (e) {
                 this.showToast(this.t('saveFailed'), 'error');
@@ -7060,6 +7506,7 @@ function app() {
                     this.currentPluginSettings = null;
                     this.showToast(this.t('uninstallSuccess'), 'success');
                     await this.loadInstalledPlugins();
+                    await this.refreshFeatureCatalogAfterPluginChange(plugin.id);
                 } else {
                     const data = await res.json().catch(() => ({}));
                     this.showToast(this.t('uninstallFailed'), 'error');

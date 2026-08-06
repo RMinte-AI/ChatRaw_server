@@ -41,6 +41,46 @@ def _definition_validator(contract, definition):
 
 
 class ModuleContractAlignmentTests(unittest.TestCase):
+    def test_catalog_metadata_is_strict_and_survives_legacy_normalization(self):
+        manifest = copy.deepcopy(REFERENCE_MANIFEST)
+        manifest["companion_plugin"].update({
+            "workspace_panel_id": "reference-workbench",
+            "catalog": {
+                "category_id": "knowledge-hub",
+                "order": 10,
+                "title": {"en": "Reference", "zh": "参考功能"},
+                "description": {
+                    "en": "Reference feature",
+                    "zh": "参考功能说明",
+                },
+                "icon": "ri-pulse-line",
+            },
+        })
+        normalized = validate_manifest(manifest)
+        integration = normalized["frontend_integration"]
+        self.assertEqual(integration["workspace_panel_id"], "reference-workbench")
+        self.assertEqual(integration["catalog"]["category_id"], "knowledge-hub")
+
+        missing_panel = copy.deepcopy(manifest)
+        del missing_panel["companion_plugin"]["workspace_panel_id"]
+        invalid_category = copy.deepcopy(manifest)
+        invalid_category["companion_plugin"]["catalog"]["category_id"] = "other"
+        extra_catalog_key = copy.deepcopy(manifest)
+        extra_catalog_key["companion_plugin"]["catalog"]["unknown"] = True
+        non_finite_order = copy.deepcopy(manifest)
+        non_finite_order["companion_plugin"]["catalog"]["order"] = float(
+            "nan"
+        )
+        for invalid in (
+            missing_panel,
+            invalid_category,
+            extra_catalog_key,
+            non_finite_order,
+        ):
+            with self.subTest(invalid=invalid):
+                with self.assertRaises(ModuleProtocolError):
+                    validate_manifest(invalid)
+
     def test_frontend_integration_legacy_plugin_normalizes_without_review_churn(
         self,
     ):

@@ -11,6 +11,7 @@ from openai import AsyncOpenAI
 from backend import main
 from backend.module_model_stream import (
     MAX_MODEL_STREAM_EVENT_BYTES,
+    MAX_MODEL_STREAM_JSON_DEPTH,
     ModuleModelStreamError,
     iter_sanitized_openai_sse,
     sanitize_openai_stream_chunk,
@@ -465,6 +466,23 @@ class ModuleModelStreamTests(unittest.IsolatedAsyncioTestCase):
                     ],
                 }
             )
+
+    async def test_small_unknown_vendor_metadata_is_filtered_but_bounded(self):
+        output = await self._collect(
+            _event(_chunk({}, extra={"vendor": {"items": [["safe"]]}})),
+            b"data: [DONE]\n\n",
+        )
+        self.assertNotIn("vendor", b"".join(output).decode("utf-8"))
+
+        nested: object = "too-deep"
+        for _ in range(MAX_MODEL_STREAM_JSON_DEPTH + 1):
+            nested = [nested]
+        with self.assertRaises(ModuleModelStreamError) as rejected:
+            await self._collect(
+                _event(_chunk({}, extra={"vendor": nested})),
+                b"data: [DONE]\n\n",
+            )
+        self.assertEqual(rejected.exception.code, "invalid_model_stream")
 
     async def test_eof_without_done_is_incomplete(self):
         with self.assertRaises(ModuleModelStreamError) as incomplete:

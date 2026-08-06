@@ -5,15 +5,25 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="robots" content="noindex">
     <title data-i18n="loginTitle">Sign in · ChatRaw Server</title>
-    <link rel="stylesheet" href="/auth.css?v=e097f4d5880397cedfb4fdbf9caf7770e39bd1bdc11826d724890b879b6749ae">
+    <link rel="stylesheet" href="/auth.css?v=f07a31c703b40bdf18566936d997d1ea574d9757113bbeb714040bf7663ee6fe">
 </head>
 <body data-mode="login">
-    <main class="shell">
+    <main class="login-page-shell">
+      <section class="login-field" data-i18n-aria-label="loginArtworkLabel">
+        <div class="login-field-copy">
+          <p data-i18n="loginArtworkEyebrow">ChatRaw / Shared Intelligence</p>
+          <h2 data-i18n="loginArtworkHeading">Put complex work in one place.</h2>
+          <span data-i18n="loginArtworkCopy">Conversations, knowledge and business modules work together in one clear workspace.</span>
+        </div>
+      </section>
+      <section class="login-panel-wrap" aria-label="登录区域">
+       <div class="shell">
         <div class="language-switch" role="group" data-i18n-aria-label="languageSelector">
             <button type="button" class="language-option" data-language="en">English</button>
             <button type="button" class="language-option" data-language="zh">中文</button>
         </div>
-        <p class="eyebrow">ChatRaw Server</p>
+        <div class="login-brand"><img id="public-logo" src="/brand-mark.svg" alt=""><div><strong id="public-logo-text">ChatRaw</strong><span data-i18n="sharedWorkspace">Shared workspace</span></div></div>
+        <p class="eyebrow" data-i18n="welcomeBack">Welcome back</p>
         <h1 data-i18n="loginHeading">Welcome back.</h1>
         <p class="intro" data-i18n="loginIntro">Sign in to enter the shared workspace. Your administrator manages access.</p>
         <form>
@@ -21,10 +31,15 @@
             <input id="username" name="username" autocomplete="username" required autofocus>
             <label for="password" data-i18n="password">Password</label>
             <input id="password" name="password" type="password" autocomplete="current-password" required>
-            <button type="submit" data-i18n="signIn">Sign in</button>
+            <div class="login-actions">
+              <button type="submit" data-i18n="signIn">Sign in</button>
+              <button type="reset" class="login-cancel" data-i18n="cancel">Cancel</button>
+            </div>
             <p class="message" role="status" aria-live="polite"></p>
         </form>
+       </div>
+      </section>
     </main>
-    <script src="/auth.js?v=5f6b759e1c1d446fb46c3d662c64f4f973b4f007b5f4ba2e3da3a79b9d51e106" defer></script>
+    <script src="/auth.js?v=94c804a51e43787aa42da3cc0b61576d9891f9fdb3479696d7eaab46d538fe8f" defer></script>
 </body>
 </html>

@@ -1,6 +1,8 @@
 # Hermes Integration
 
-ChatRaw can route selected messages to a local or confirmed remote Hermes API Server through the Hermes Router plugin. ChatRaw still owns the chat UI, local chat list, message history, markdown rendering, export flow, and plugin hooks. Hermes owns its agent, tool, MCP, and session-side state.
+The bottom-right Hermes Agent popup is ChatRaw's only generic conversation UI. Every popup message uses the private `/api/agent/chat` bridge; there is no normal-chat, route-hook, send-intercept, or model fallback. ChatRaw owns the popup, per-user private chat list, message history, markdown rendering, and approval UI. Run approvals are owner-only; administrator role never grants access to another user's Agent run. Hermes owns its agent, tools, MCP configuration, and session-side state. The legacy `/api/hermes/chat` bridge remains for compatible clients but is not selected by the new UI.
+
+When a Run starts, ChatRaw freezes both the authenticated actor and the bridge entrypoint/chat kind. Agent Runs remain owner-only for their lifetime. The legacy bridge cannot open an Agent conversation, while legacy Runs retain their documented administrator compatibility behavior.
 
 This integration does not use A2A or MCP as the main chat transport. Browser plugins do not call Hermes directly, and `/api/proxy/request` remains blocked from localhost and private network targets.
 
@@ -39,7 +41,7 @@ The default ChatRaw Hermes settings are:
 6. Adjust **Request timeout** only if Hermes needs more time for complex prompts, tools, or long Runs. It does not change health check, approval, or stop timeouts.
 7. Optionally enter a Session Key. Empty session key input does not delete an existing key; use **Clear session key** to remove it.
 8. Use **Save** to persist the settings, then use **Check** to call `/api/hermes/health` with the saved configuration.
-9. Turn on the Hermes toolbar toggle when a message should route through Hermes. The toggle is browser-local and defaults to off.
+9. Open the bottom-right Agent popup and send a message. No route toggle is used.
 
 ## Remote Base URLs
 
@@ -128,10 +130,10 @@ The request timeout is saved as `requestTimeoutSeconds` and is clamped to `30-36
 ## Manual QA Checklist
 
 - Optional fake server smoke: `script/hermes_fake_server.py` is a local test double for ChatRaw QA only. ChatRaw does not start it automatically, does not expose it through any production API, and it is not an official Hermes replacement. To use it manually, run `python script/hermes_fake_server.py --port 8642`, set Hermes Base URL to `http://127.0.0.1:8642/v1`, switch to Runs mode, and send messages containing `once`, `deny`, `session`, `session followup`, and `stop` to exercise approval, session reuse, and stop behavior without a real Hermes installation.
-- Install the Hermes Router plugin from the plugin market.
-- Enable and disable the ChatRaw plugin; the toolbar button should appear and disappear with the plugin state.
-- Toggle Hermes off; a normal message should still use the default ChatRaw backend.
-- Toggle Hermes on; a normal message should route to `/api/hermes/chat`.
+- Install and enable the Hermes Router plugin from the plugin market.
+- Disable Hermes Router and confirm the Agent popup reports an error without normal-chat fallback.
+- Send from the Agent popup and confirm the request uses `/api/agent/chat` only.
+- With two accounts, verify list, message, rename, delete, and Runs approval operations are mutually private; an administrator must also be denied another user's Agent approval, and classic `/api/chats` must not expose Agent sessions.
 - Save base URL, model, API key if required, and optional Session Key with **Save**, then use **Check**.
 - Add multiple allowed remote Base URLs, confirm the warning, save, and verify a listed remote Base URL can be checked.
 - Modify the allowed remote list after confirmation; **Check** should fail until the warning is confirmed and saved again.
@@ -140,14 +142,16 @@ The request timeout is saved as `requestTimeoutSeconds` and is clamped to `30-36
 - Test `chat_completions` and `runs` modes.
 - In Runs mode with Stream Output on, verify **Allow once** continues only the current run, **Allow for session** allows a later matching command in the same ChatRaw chat session, and **Deny** blocks the run without continuing the dangerous action.
 - In Runs mode with Stream Output off, a workflow that needs approval should show `Hermes Runs approval requires stream output`.
-- Test a search/RAG-style `before_send` plugin together with Hermes routing; the enhanced body should still reach the Hermes bridge.
+- Test a search/RAG-style `before_send` plugin. Only boolean `use_rag`/`use_thinking` and string `web_content`/`web_url` may be accepted; attempted changes to `chat_id`, `message`, skills, endpoint, or other fields must be ignored before the request reaches `/api/agent/chat`.
 - Create a new chat, switch back to an old chat, and delete a chat; Hermes session ids should remain tied to final ChatRaw `chat_id` values.
 - Stop generation while a Runs request is active; ChatRaw should request `/runs/{run_id}/stop` from the backend and clear the active run so later approvals for that run are rejected as stale.
 - Validate the loopback topology: with ChatRaw on `10.10.99.99:51111`, Hermes on the same machine at `127.0.0.1:8642`, and a browser on `10.10.99.100`, the browser should never call Hermes directly.
 
 # Hermes 集成
 
-ChatRaw 可以通过 Hermes Router 插件，把选定消息经由后端安全桥接路由到本机或已确认放行的远程 Hermes API Server。ChatRaw 仍负责聊天 UI、本地对话列表、消息历史、Markdown 渲染、导出流程和插件 hooks；Hermes 负责 agent、工具、MCP 配置和 session 侧状态。
+右下角 Hermes Agent 浮窗是 ChatRaw 唯一的通用对话界面。浮窗中的所有消息固定调用按用户私有的 `/api/agent/chat` 后端桥接，不存在普通聊天、路由 hook、发送拦截或模型回退。ChatRaw 负责浮窗、当前用户的私有会话列表、消息历史、Markdown 渲染和审批界面；Run 审批仅限发起人，管理员身份也不能批准其他用户的 Agent Run。Hermes 负责 agent、工具、MCP 配置和 session 侧状态。兼容接口 `/api/hermes/chat` 继续保留，但新 UI 不会选择它。
+
+Run 创建时，ChatRaw 同时冻结已认证用户以及桥接入口和会话类型。Agent Run 在整个生命周期中都仅限发起人；兼容桥接不能打开 Agent 会话，旧式 Run 则继续保留既有的管理员兼容行为。
 
 该集成不把 A2A 或 MCP 作为主聊天通道。浏览器插件不会直接调用 Hermes，`/api/proxy/request` 也继续拒绝 localhost 和私网目标。
 
@@ -186,7 +190,7 @@ ChatRaw 的 Hermes 默认设置为：
 6. 只有在复杂问题、工具链或长 Runs 需要更久等待时，才调整 **请求超时时间**。它不会改变健康检查、审批或停止请求的短超时。
 7. 可选输入 Session Key。Session key 输入框留空不会删除已有 key；需要点击 **Clear session key** 才会清除。
 8. 点击 **保存** 保存配置，然后点击 **检查** 使用已保存配置调用 `/api/hermes/health`。
-9. 需要让某条消息走 Hermes 时，打开输入框工具栏中的 Hermes toggle。该 toggle 是浏览器本地偏好，默认关闭。
+9. 打开右下角 Agent 浮窗并发送消息；新 UI 不再提供路由 toggle。
 
 ## 远程 Base URL
 
@@ -276,9 +280,9 @@ Runs 审批需要开启 **流式输出**。当 Hermes 请求人工审批时，Ch
 
 - 可选 fake server smoke：`script/hermes_fake_server.py` 只是 ChatRaw QA 使用的本地测试替身。ChatRaw 不会自动启动它，不会通过任何生产 API 暴露它，它也不是官方 Hermes 替代实现。手动使用时运行 `python script/hermes_fake_server.py --port 8642`，把 Hermes Base URL 设为 `http://127.0.0.1:8642/v1`，切到 Runs 模式，然后发送包含 `once`、`deny`、`session`、`session followup`、`stop` 的消息，在没有真实 Hermes 安装的情况下验证 approval、session 复用和 stop 行为。
 - 从插件市场安装 Hermes Router。
-- 启用和禁用 ChatRaw 插件；工具栏按钮应随插件状态出现和消失。
-- 关闭 Hermes toggle；普通消息仍走默认 ChatRaw 后端。
-- 打开 Hermes toggle；普通消息应路由到 `/api/hermes/chat`。
+- 启用和禁用 Hermes Router；禁用时 Agent 浮窗应明确报错，不得回退到普通聊天。
+- 从 Agent 浮窗发送消息；请求应只进入 `/api/agent/chat`。
+- 使用两个账户验证会话列表、消息、改名、删除和 Runs 审批均互不可见；管理员也必须被拒绝审批其他用户的 Agent Run，经典 `/api/chats` 也不得暴露 Agent 会话。
 - 点击 **保存** 保存 base URL、model、按服务要求填写的 API key 和可选 Session Key，然后点击 **检查**。
 - 添加多个允许的远程 Base URL，确认风险并保存；确认命中的远程 Base URL 可以通过 **检查**。
 - 确认后修改允许列表；在重新确认并保存前，**检查** 应失败。
@@ -287,7 +291,7 @@ Runs 审批需要开启 **流式输出**。当 Hermes 请求人工审批时，Ch
 - 测试 `chat_completions` 和 `runs` 模式。
 - Runs 模式且开启流式输出时，确认 **允许一次** 只继续当前 run，**本会话允许** 会让同一 ChatRaw chat session 后续匹配命令继续执行，**拒绝** 会阻断 run 且不继续危险动作。
 - Runs 模式但关闭流式输出时，触发审批的工作流应显示 `Hermes Runs approval requires stream output`。
-- 与搜索/RAG 类 `before_send` 插件同时启用；增强后的 body 应继续到达 Hermes bridge。
+- 与搜索/RAG 类 `before_send` 插件同时启用；只允许布尔型 `use_rag`/`use_thinking` 和字符串型 `web_content`/`web_url` 生效，插件对 `chat_id`、`message`、skills、endpoint 或其他字段的改写必须在进入 `/api/agent/chat` 前被忽略。
 - 新建对话、切换回旧对话、删除对话；Hermes session id 应始终绑定最终有效的 ChatRaw `chat_id`。
 - Runs 请求执行中点击停止生成；ChatRaw 后端应请求 `/runs/{run_id}/stop` 并清理 active run，后续对该 run 的 approval 应被视为 stale。
 - 验证 loopback 拓扑：ChatRaw 在 `10.10.99.99:51111`，Hermes 在同机 `127.0.0.1:8642`，浏览器来自 `10.10.99.100` 时，浏览器不应直接调用 Hermes。

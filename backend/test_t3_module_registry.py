@@ -478,7 +478,7 @@ class ModuleRegistryTests(unittest.IsolatedAsyncioTestCase):
         )
         self.plugin = {
             "id": "reference-module-companion",
-            "version": "1.0.0",
+            "version": "1.1.0",
             "enabled": True,
         }
         await self.registry.check(
@@ -624,7 +624,7 @@ class ModuleRegistryTests(unittest.IsolatedAsyncioTestCase):
             incompatible["feature_suite"]["status"],
             "plugin_incompatible",
         )
-        self.plugin["version"] = "1.0.0"
+        self.plugin["version"] = "1.1.0"
         self.plugin["enabled"] = False
         disabled = await self.registry.check(
             paired["id"],
@@ -787,6 +787,19 @@ class ModuleRegistryTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(available["state"], "available")
         self.assertTrue(available["visible"])
         self.assertTrue(available["available"])
+        self.assertEqual(available["sdk_version"], "1.6.0")
+        self.assertEqual(
+            available["frontend_integration"]["workspace_panel_id"],
+            "reference-module-workspace",
+        )
+        self.assertEqual(
+            available["frontend_integration"]["catalog"]["category_id"],
+            "data-hub",
+        )
+        self.assertEqual(
+            available["companion_plugin"]["workspace_panel_id"],
+            "reference-module-workspace",
+        )
 
         self.plugin["enabled"] = False
         unavailable = self.registry.feature_status(

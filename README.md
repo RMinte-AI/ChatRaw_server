@@ -1,6 +1,6 @@
 # ChatRaw Server
 
-ChatRaw Server 是 ChatRaw 的多人共享版本：用户必须登录后才能使用任何业务功能；管理员统一管理用户、模型、插件和后端模块；普通用户可以使用已启用且角色允许的功能，但不能安装、停用或删除插件与模块。
+ChatRaw Server 是 ChatRaw 的多人共享业务工作台：用户必须登录后才能使用任何业务功能；首页按“数据中枢、知识中枢、业务中枢”组织由已注册 Module Manifest 声明的 Companion Plugin 卡片；右下角 Hermes Agent 浮窗是唯一的通用对话入口。管理员统一管理用户、模型、插件和后端模块；普通用户可以使用已启用且角色允许的功能，但不能安装、停用或删除插件与模块。
 
 [English](#english) · [用户指南](docs/user-guide.md) · [管理员指南](docs/admin-guide.md) · [AI 文档导航](AGENTS.md) · [模块开发](docs/module-developer-guide.md) · [Resident 集成](docs/resident-module-integration-guide.md)
 
@@ -8,7 +8,7 @@ ChatRaw Server 是 ChatRaw 的多人共享版本：用户必须登录后才能�
 
 ChatRaw Server 只做两件核心事情：
 
-1. **多人共享与权限管理**：所有用户共享同一个 ChatRaw 平台和业务数据，不做租户式数据隔离；管理员与普通用户拥有不同的管理权限。
+1. **多人共享与权限管理**：所有用户共享同一个 ChatRaw 平台和业务数据，不做租户式数据隔离；Hermes Agent 会话是明确的例外，只对创建它的登录用户可见。管理员与普通用户拥有不同的管理权限。
 2. **大型功能模块化**：需要独立后端、高权限或复杂依赖的功能作为单独模块运行，不把业务代码塞进 ChatRaw 后端。前端入口选择可由管理员动态管理的插件，或随 Server 源码构建的 Resident Integration。
 
 插件与模块不是同一种东西：
@@ -72,7 +72,7 @@ Agent 的规则、Skill 和 Tool 是三个不同层次：
 | 安装、启停或删除插件 | ✓ | — |
 | 连接、审批、启停、断开或清理模块 | ✓ | — |
 
-ChatRaw Server 是共享平台，不是应用编排或租户隔离平台。聊天和文档对平台用户可见；创建者和管理员可以执行相应管理操作，经典版导入的无归属数据只能由管理员管理。
+ChatRaw Server 是共享平台，不是应用编排或租户隔离平台。业务模块数据、文档和保留的经典聊天继续遵循共享边界；新 Hermes Agent 会话按用户私有，且不能从经典聊天 API 枚举或管理。创建者和管理员可以管理共享资源，经典版导入的无归属数据只能由管理员管理。
 
 ## 快速开始
 
@@ -221,7 +221,7 @@ MIT
 
 # English
 
-ChatRaw Server is the shared multi-user edition of ChatRaw. Every user must sign in before accessing product data or functions. Administrators manage users, models, plugins, and backend modules. Members can use enabled features allowed by their role but cannot install, disable, or remove plugins or modules.
+ChatRaw Server is a shared multi-user business workspace. Every user must sign in before accessing product data or functions. Its home page groups registered Module-backed cards into Data Hub, Knowledge Hub, and Operations Hub; the bottom-right Hermes Agent popup is the only generic conversation UI. Administrators manage users, models, plugins, and backend modules. Members can use enabled features allowed by their role but cannot install, disable, or remove plugins or modules.
 
 [User Guide](docs/user-guide.md) · [Administrator Guide](docs/admin-guide.md) · [AI Documentation Map](AGENTS.md) · [Module Development](docs/module-developer-guide.md) · [Resident Integration](docs/resident-module-integration-guide.md)
 
@@ -229,7 +229,7 @@ ChatRaw Server is the shared multi-user edition of ChatRaw. Every user must sign
 
 ChatRaw Server has two primary responsibilities:
 
-1. **Shared multi-user access with roles.** Users share one platform and its business data; this is not tenant-level data isolation.
+1. **Shared multi-user access with roles.** Users share one platform and its business data; this is not tenant-level data isolation. Hermes Agent conversations are the explicit exception and remain private to their creator, including from administrators.
 2. **Large features as independent modules.** A feature that needs a backend, privileged access, a database, or complex dependencies runs outside the ChatRaw backend. Its frontend entry is either an administrator-managed plugin or a source-built Resident Integration.
 
 - A **plugin** is trusted frontend code that adds an entry point or presentation.

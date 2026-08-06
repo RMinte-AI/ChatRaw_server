@@ -4,7 +4,7 @@ import struct
 from datetime import datetime, timezone
 
 
-LATEST_SCHEMA_VERSION = 16
+LATEST_SCHEMA_VERSION = 17
 
 
 class UnsupportedSchemaVersion(RuntimeError):
@@ -1286,6 +1286,20 @@ def _migration_16_structured_model_capability(
     )
 
 
+def _migration_17_private_agent_chats(connection: sqlite3.Connection) -> None:
+    _add_column_if_missing(
+        connection,
+        "chats",
+        "kind",
+        "TEXT NOT NULL DEFAULT 'classic' "
+        "CHECK (kind IN ('classic', 'hermes_agent'))",
+    )
+    connection.execute(
+        "CREATE INDEX IF NOT EXISTS idx_chats_kind_owner_updated "
+        "ON chats(kind, owner_user_id, updated_at DESC)"
+    )
+
+
 MIGRATIONS = (
     (1, "server_shared_data", _migration_1_server_shared_data),
     (2, "auth_and_audit", _migration_2_auth_and_audit),
@@ -1347,6 +1361,7 @@ MIGRATIONS = (
         "structured_model_capability",
         _migration_16_structured_model_capability,
     ),
+    (17, "private_agent_chats", _migration_17_private_agent_chats),
 )
 
 

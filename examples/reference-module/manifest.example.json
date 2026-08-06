@@ -123,7 +123,21 @@
   ],
   "companion_plugin": {
     "id": "reference-module-companion",
-    "version_range": ">=1.0.0,<2.0.0"
+    "version_range": ">=1.1.0,<2.0.0",
+    "workspace_panel_id": "reference-module-workspace",
+    "catalog": {
+      "category_id": "data-hub",
+      "order": 900,
+      "title": {
+        "en": "Reference Module",
+        "zh": "参考模块"
+      },
+      "description": {
+        "en": "Runs the public Module Protocol reference task from a main Workspace panel.",
+        "zh": "在主工作区中运行公共 Module Protocol 参考任务。"
+      },
+      "icon": "ri-pulse-line"
+    }
   },
   "administration": {
     "supports_data_purge": true

@@ -402,9 +402,9 @@ collection 入口和标签是 Server 自己的控件。点击后浏览器焦点�
 
 Server 会在同步 `dispose()` 返回后清空挂载容器。返回 Promise 或其他值属于契约错误；
 Host 仍会关闭并清空面板；直接调用 `closeWorkspacePanel()` 会抛错，停用、卸载或重载触发的
-Host 清理会记录错误并继续注销面板。Plugin 不需要删除 Server 的标题栏或关闭按钮。
+Host 清理会记录错误并继续注销面板。Plugin 不需要删除 Server 的标题栏。
 只有用户点击或用键盘激活 Host 渲染的工具栏、侧栏入口，且该入口的 `onClick` 在返回前同步
-打开同一 Plugin 所属的 Workspace 时，Host 才会在 Workspace 可见后聚焦标题栏关闭按钮。
+打开同一 Plugin 所属的 Workspace 时，Host 才会在 Workspace 可见后聚焦 Workspace 标题。
 正常关闭、挂载失败或替换失败后，Host 会在聊天布局恢复可见后把焦点交还仍连接在页面中的
 Host 入口；溢出菜单入口统一返回稳定的“更多”按钮。直接调用 API、在 `await` 之后打开、
 模块回调、定时器或跨 Plugin 代开时，Host 不移动当前焦点。Plugin 无权通过参数伪造或覆盖

@@ -1,0 +1,246 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="ChatRaw 四页面重构原型：独立全屏设置页面。">
+  <meta property="og:title" content="ChatRaw 独立设置页原型">
+  <meta property="og:description" content="由首页右上角设置按钮进入的左右两栏设置页面。">
+  <title>设置 · ChatRaw 原型</title>
+  <link rel="icon" href="assets/brand-mark.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="prototype.css?v=2">
+</head>
+<body class="settings-page">
+  <a class="skip-link" href="#settings-content">跳到设置内容</a>
+  <main class="settings-shell">
+    <aside class="settings-sidebar" aria-label="设置导航">
+      <a class="text-button settings-back" href="home.html">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m15 18-6-6 6-6"/><path d="M9 12h10"/></svg>
+        返回首页
+      </a>
+
+      <header class="settings-heading">
+        <p class="eyebrow">ChatRaw / preferences</p>
+        <h1>设置</h1>
+        <p>独立页面 · 账户“人”</p>
+      </header>
+
+      <nav class="settings-nav" role="tablist" aria-label="设置分类">
+        <button class="settings-nav-button active" type="button" role="tab" aria-selected="true" data-settings-tab="general">
+          <span>常规</span><span>01</span>
+        </button>
+        <button class="settings-nav-button" type="button" role="tab" aria-selected="false" data-settings-tab="appearance">
+          <span>外观</span><span>02</span>
+        </button>
+        <button class="settings-nav-button" type="button" role="tab" aria-selected="false" data-settings-tab="agent">
+          <span>Agent</span><span>03</span>
+        </button>
+        <button class="settings-nav-button" type="button" role="tab" aria-selected="false" data-settings-tab="modules">
+          <span>模块与插件</span><span>04</span>
+        </button>
+        <button class="settings-nav-button" type="button" role="tab" aria-selected="false" data-settings-tab="account">
+          <span>账户</span><span>05</span>
+        </button>
+      </nav>
+
+      <div class="settings-user">
+        <img src="assets/avatar-ren.svg" alt="用户“人”的头像" width="38" height="38">
+        <span><strong>人</strong><small>已登录 · 在线</small></span>
+      </div>
+    </aside>
+
+    <section id="settings-content" class="settings-content" aria-live="polite">
+      <div class="settings-content-inner">
+        <article class="settings-panel" data-settings-panel="general">
+          <header class="settings-content-header reveal stagger-0">
+            <div>
+              <p class="eyebrow">01 / General</p>
+              <h2 tabindex="-1">常规设置</h2>
+              <p>控制语言、默认入口和任务提醒。更改只影响当前账户。</p>
+            </div>
+            <button class="primary-button" type="button" data-save-settings>保存更改</button>
+          </header>
+
+          <section class="settings-section reveal stagger-1">
+            <div class="settings-section-title">
+              <h3>工作空间</h3>
+              <p>决定登录后首先看到的内容，以及页面如何记住最近的工作状态。</p>
+            </div>
+            <div class="setting-row">
+              <label for="language">界面语言</label>
+              <select id="language"><option>简体中文</option><option>English</option></select>
+              <span class="setting-detail">立即生效</span>
+            </div>
+            <div class="setting-row">
+              <label for="landing">登录后进入</label>
+              <select id="landing"><option>首页</option><option>最近内容页</option></select>
+              <span class="setting-detail">推荐首页</span>
+            </div>
+            <div class="setting-row">
+              <span>记住最近的 Tag</span>
+              <span class="setting-detail">再次进入首页时保留上次选择。</span>
+              <button class="toggle" type="button" role="switch" aria-checked="true" aria-label="记住最近的 Tag"></button>
+            </div>
+          </section>
+
+          <section class="settings-section reveal stagger-2">
+            <div class="settings-section-title">
+              <h3>通知</h3>
+              <p>只显示需要你介入的状态，避免把普通运行事件变成干扰。</p>
+            </div>
+            <div class="setting-row">
+              <span>等待审批</span>
+              <span class="setting-detail">任务进入等待审批时在首页显示提醒。</span>
+              <button class="toggle" type="button" role="switch" aria-checked="true" aria-label="等待审批提醒"></button>
+            </div>
+            <div class="setting-row">
+              <span>任务完成</span>
+              <span class="setting-detail">仅提醒长时间运行的任务。</span>
+              <button class="toggle" type="button" role="switch" aria-checked="false" aria-label="任务完成提醒"></button>
+            </div>
+          </section>
+        </article>
+
+        <article class="settings-panel" data-settings-panel="appearance" hidden>
+          <header class="settings-content-header">
+            <div>
+              <p class="eyebrow">02 / Appearance</p>
+              <h2 tabindex="-1">外观</h2>
+              <p>管理首页 Logo、标题和界面密度。视觉基线保持暖白与低饱和色。</p>
+            </div>
+            <button class="primary-button" type="button" data-save-settings>保存更改</button>
+          </header>
+          <section class="settings-section">
+            <div class="settings-section-title">
+              <h3>品牌入口</h3>
+              <p>首页中央 Logo 会在进入内容页后移动到左侧 Navigator 顶部。</p>
+            </div>
+            <div class="setting-row">
+              <label for="brand-name">品牌文字</label>
+              <input id="brand-name" type="text" value="ChatRaw">
+              <span class="setting-detail">最多 24 字符</span>
+            </div>
+            <div class="setting-row">
+              <span>当前 Logo</span>
+              <span class="setting-detail">几何四格标志 · SVG</span>
+              <img src="assets/brand-mark.svg" alt="当前 ChatRaw 标志" width="42" height="42">
+            </div>
+          </section>
+          <section class="settings-section">
+            <div class="settings-section-title">
+              <h3>强调色</h3>
+              <p>颜色只用于状态、Tag 和小面积图标背景。</p>
+            </div>
+            <div class="color-choice-row" role="radiogroup" aria-label="强调色">
+              <button class="color-choice swatch-green" type="button" role="radio" aria-checked="true">灰绿</button>
+              <button class="color-choice swatch-blue" type="button" role="radio" aria-checked="false">雾蓝</button>
+              <button class="color-choice swatch-yellow" type="button" role="radio" aria-checked="false">纸黄</button>
+            </div>
+          </section>
+        </article>
+
+        <article class="settings-panel" data-settings-panel="agent" hidden>
+          <header class="settings-content-header">
+            <div>
+              <p class="eyebrow">03 / Agent</p>
+              <h2 tabindex="-1">Agent Copilot</h2>
+              <p>控制首页和内容页右下角的 Agent 入口及默认工作上下文。</p>
+            </div>
+            <button class="primary-button" type="button" data-save-settings>保存更改</button>
+          </header>
+          <section class="settings-section">
+            <div class="settings-section-title">
+              <h3>浮动入口</h3>
+              <p>入口只打开 Copilot 浮窗，不自动开始任务。</p>
+            </div>
+            <div class="setting-row">
+              <span>显示 Copilot</span>
+              <span class="setting-detail">在首页与内容页右下角显示 Agent 图标。</span>
+              <button class="toggle" type="button" role="switch" aria-checked="true" aria-label="显示 Copilot"></button>
+            </div>
+            <div class="setting-row">
+              <span>读取页面上下文</span>
+              <span class="setting-detail">将当前卡片和功能入口作为可见上下文。</span>
+              <button class="toggle" type="button" role="switch" aria-checked="true" aria-label="读取页面上下文"></button>
+            </div>
+            <div class="setting-row">
+              <label for="agent-model">逻辑模型</label>
+              <select id="agent-model"><option>默认 Agent 模型</option><option>轻量 Agent 模型</option></select>
+              <span class="setting-detail">由管理员配置</span>
+            </div>
+          </section>
+        </article>
+
+        <article class="settings-panel" data-settings-panel="modules" hidden>
+          <header class="settings-content-header">
+            <div>
+              <p class="eyebrow">04 / Modules &amp; plugins</p>
+              <h2 tabindex="-1">模块与插件</h2>
+              <p>查看已启用功能的展示状态。管理能力仍按账户角色控制。</p>
+            </div>
+          </header>
+          <section class="settings-section">
+            <div class="settings-section-title">
+              <h3>首页入口</h3>
+              <p>决定哪些已启用功能会出现在首页卡片中。</p>
+            </div>
+            <div class="setting-row">
+              <span>知识检索</span><span class="setting-detail">已连接 · 显示在“工作入口”</span><button class="toggle" type="button" role="switch" aria-checked="true" aria-label="显示知识检索"></button>
+            </div>
+            <div class="setting-row">
+              <span>文档解析</span><span class="setting-detail">已连接 · 显示在“工作入口”</span><button class="toggle" type="button" role="switch" aria-checked="true" aria-label="显示文档解析"></button>
+            </div>
+            <div class="setting-row">
+              <span>数据查询</span><span class="setting-detail">已启用 · 显示在“内容资产”</span><button class="toggle" type="button" role="switch" aria-checked="true" aria-label="显示数据查询"></button>
+            </div>
+          </section>
+        </article>
+
+        <form class="settings-panel" data-settings-panel="account" hidden>
+          <header class="settings-content-header">
+            <div>
+              <p class="eyebrow">05 / Account</p>
+              <h2 tabindex="-1">账户</h2>
+              <p>管理当前用户头像、显示名和密码。</p>
+            </div>
+            <button class="primary-button" type="button" data-save-settings>保存更改</button>
+          </header>
+          <section class="settings-section">
+            <div class="settings-section-title">
+              <h3>个人信息</h3>
+              <p>这些信息会显示在首页右上角和设置导航底部。</p>
+            </div>
+            <div class="setting-row">
+              <label for="display-name">显示名</label>
+              <input id="display-name" type="text" value="人">
+              <span class="setting-detail">当前用户</span>
+            </div>
+            <div class="setting-row">
+              <span>头像</span>
+              <span class="setting-detail">方形圆角头像，用于减少模板化圆形头像。</span>
+              <img src="assets/avatar-ren.svg" alt="用户“人”的当前头像" width="44" height="44">
+            </div>
+          </section>
+          <section class="settings-section">
+            <div class="settings-section-title">
+              <h3>安全</h3>
+              <p>修改密码后，其他登录会话需要重新认证。</p>
+            </div>
+            <div class="setting-row">
+              <label for="current-password">当前密码</label>
+              <input id="current-password" type="password" autocomplete="current-password" placeholder="输入当前密码">
+              <span class="setting-detail">必填</span>
+            </div>
+            <div class="setting-row">
+              <label for="new-password">新密码</label>
+              <input id="new-password" type="password" autocomplete="new-password" placeholder="至少 12 个字符">
+              <span class="setting-detail">未保存</span>
+            </div>
+          </section>
+        </form>
+      </div>
+    </section>
+  </main>
+  <script src="prototype.js?v=2"></script>
+</body>
+</html>

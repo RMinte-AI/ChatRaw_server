@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://chatraw.local/contracts/module-plugin-sdk-v1.json",
   "contract": "ChatRaw Module Plugin SDK",
-  "version": "1.5.0",
+  "version": "1.6.0",
   "global": "window.ChatRaw.modules",
   "transport": {
     "origin": "same-origin",
@@ -418,7 +418,7 @@
       ],
       "properties": {
         "sdk_version": {
-          "const": "1.5.0"
+          "const": "1.6.0"
         },
         "module_id": {
           "type": "string"
@@ -458,9 +458,9 @@
           ]
         },
         "companion_plugin": {
-          "type": [
-            "object",
-            "null"
+          "oneOf": [
+            {"type": "null"},
+            {"$ref": "#/$defs/CompanionPluginStatus"}
           ]
         },
         "frontend_integration": {
@@ -492,6 +492,12 @@
                 },
                 "status": {
                   "type": "string"
+                },
+                "workspace_panel_id": {
+                  "type": "string"
+                },
+                "catalog": {
+                  "$ref": "#/$defs/FeatureCatalogDeclaration"
                 }
               }
             }
@@ -503,6 +509,39 @@
             "$ref": "#/$defs/FeatureAction"
           }
         }
+      }
+    },
+    "LocalizedText": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["en", "zh"],
+      "properties": {
+        "en": {"type": "string"},
+        "zh": {"type": "string"}
+      }
+    },
+    "FeatureCatalogDeclaration": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["category_id", "order", "title", "description", "icon"],
+      "properties": {
+        "category_id": {
+          "enum": ["data-hub", "knowledge-hub", "business-hub"]
+        },
+        "order": {"type": "number"},
+        "title": {"$ref": "#/$defs/LocalizedText"},
+        "description": {"$ref": "#/$defs/LocalizedText"},
+        "icon": {"type": "string", "pattern": "^ri-[a-z0-9-]+$"}
+      }
+    },
+    "CompanionPluginStatus": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status"],
+      "properties": {
+        "status": {"type": "string"},
+        "workspace_panel_id": {"type": "string"},
+        "catalog": {"$ref": "#/$defs/FeatureCatalogDeclaration"}
       }
     },
     "TaskInputResource": {

@@ -11,6 +11,13 @@
             username: 'Username',
             password: 'Password',
             signIn: 'Sign in',
+            cancel: 'Cancel',
+            welcomeBack: 'Welcome back',
+            sharedWorkspace: 'Shared workspace',
+            loginArtworkLabel: 'Warm gray abstract architectural landscape',
+            loginArtworkEyebrow: 'ChatRaw / Shared Intelligence',
+            loginArtworkHeading: 'Put complex work in one place.',
+            loginArtworkCopy: 'Conversations, knowledge and business modules work together in one clear workspace.',
             setupTitle: 'Set up · ChatRaw Server',
             setupEyebrow: 'First-run setup',
             setupHeading: 'Create the administrator.',
@@ -33,11 +40,18 @@
         zh: {
             languageSelector: '语言',
             loginTitle: '登录 · ChatRaw Server',
-            loginHeading: '欢迎回来。',
-            loginIntro: '登录以进入共享工作区。访问权限由管理员管理。',
+            loginHeading: '继续你的工作',
+            loginIntro: '使用平台账户登录。',
             username: '用户名',
             password: '密码',
             signIn: '登录',
+            cancel: '取消',
+            welcomeBack: '欢迎回来',
+            sharedWorkspace: '多人共享工作空间',
+            loginArtworkLabel: '暖灰色抽象建筑景观',
+            loginArtworkEyebrow: 'ChatRaw / 共享智能',
+            loginArtworkHeading: '把复杂工作，放进一个入口。',
+            loginArtworkCopy: '对话、知识与业务模块，在同一个清晰的工作空间中协作。',
             setupTitle: '初始化 · ChatRaw Server',
             setupEyebrow: '首次运行设置',
             setupHeading: '创建管理员。',
@@ -167,6 +181,23 @@
         if (mode === 'setup' && !status.setup_required) location.replace('/login');
     }
 
+    async function loadPublicIdentity() {
+        const response = await fetch('/api/settings/logo');
+        if (!response.ok) return;
+        const identity = await response.json();
+        const logo = document.getElementById('public-logo');
+        const logoText = document.getElementById('public-logo-text');
+        if (logo) {
+            logo.onerror = () => {
+                logo.onerror = null;
+                logo.src = '/brand-mark.svg';
+            };
+            logo.src = identity.logo_data || '/brand-mark.svg';
+            logo.alt = identity.logo_text || 'ChatRaw';
+        }
+        if (logoText) logoText.textContent = identity.logo_text || 'ChatRaw';
+    }
+
     for (const option of document.querySelectorAll('[data-language]')) {
         option.addEventListener('click', () => {
             applyLanguage(option.dataset.language, true);
@@ -209,4 +240,5 @@
     });
 
     setupRedirect().catch(() => {});
+    if (mode === 'login') loadPublicIdentity().catch(() => {});
 })();

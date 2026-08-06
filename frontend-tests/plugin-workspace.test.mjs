@@ -19,7 +19,7 @@ function createHost({
     const animationFrames = [];
     const dom = new JSDOM(`<!doctype html><body>
         <button id="launcher">Open</button>
-        <button id="plugin-workspace-close">Close</button>
+        <h2 id="plugin-workspace-title" tabindex="-1">Workspace</h2>
         <div id="plugin-workspace-mount"></div>
     </body>`, {
         runScripts: 'outside-only',
@@ -124,6 +124,128 @@ function counters() {
     return { mounts: 0, disposals: 0, clicks: 0, placements: [] };
 }
 
+function catalogCard() {
+    return {
+        id: 'module-one',
+        module_id: 'module-one',
+        plugin_id: 'plugin-one',
+        panel_id: 'catalog-panel',
+        category_id: 'data-hub',
+        order: 10,
+        title: { en: 'Catalog', zh: '目录' },
+        description: { en: 'Catalog card', zh: '目录卡片' },
+        icon: 'ri-pulse-line',
+        service_ready: true,
+        service_reason: null,
+        runtime_ready: false,
+        available: false,
+        state: 'loading'
+    };
+}
+
+test('catalog availability follows live panel registration and main support', () => {
+    const { host, ui } = createHost();
+    host.featureCatalog = { categories: [], cards: [catalogCard()] };
+
+    host.recomputeFeatureCatalogRuntime();
+    assert.equal(host.featureCatalog.cards[0].state, 'panel_not_registered');
+
+    const rightOnly = panelDefinition('catalog-panel', counters());
+    rightOnly.placements = ['right'];
+    rightOnly.defaultPlacement = 'right';
+    ui.registerWorkspacePanel(rightOnly, 'plugin-one');
+    assert.equal(host.featureCatalog.cards[0].state, 'main_placement_required');
+
+    const mainPanel = panelDefinition('catalog-panel', counters());
+    mainPanel.placements = ['main'];
+    mainPanel.defaultPlacement = 'main';
+    ui.registerWorkspacePanel(mainPanel, 'plugin-one');
+    assert.equal(host.featureCatalog.cards[0].state, 'available');
+    assert.equal(host.featureCatalog.cards[0].runtime_ready, true);
+    assert.equal(host.featureCatalog.cards[0].available, true);
+
+    ui.unregisterWorkspacePanel('catalog-panel', 'plugin-one');
+    assert.equal(host.featureCatalog.cards[0].state, 'panel_not_registered');
+    assert.equal(host.featureCatalog.cards[0].available, false);
+});
+
+test('catalog icon is canonical across main workspace presentation', () => {
+    const { host, ui } = createHost();
+    const card = catalogCard();
+    host.featureCatalog = { categories: [], cards: [card] };
+    const panel = collectionPanelDefinition(
+        'catalog-panel',
+        counters(),
+        { tabOrder: 10 }
+    );
+    panel.icon = 'ri-layout-right-line';
+    ui.registerWorkspacePanel(panel, 'plugin-one');
+
+    assert.equal(
+        host.pluginWorkspacePanelIcon(
+            'plugin-one',
+            'catalog-panel',
+            panel.icon
+        ),
+        card.icon
+    );
+    assert.equal(host.pluginWorkspaceCollections[0].panels[0].icon, card.icon);
+
+    ui.openWorkspacePanel(
+        'catalog-panel',
+        { placement: 'main' },
+        'plugin-one'
+    );
+    assert.equal(
+        host.pluginWorkspacePanelIcon(
+            host.pluginWorkspace.pluginId,
+            host.pluginWorkspace.panelId,
+            host.pluginWorkspace.icon
+        ),
+        card.icon
+    );
+    assert.match(appHtml, /pluginWorkspacePanelIcon\(/);
+    assert.doesNotMatch(
+        appHtml,
+        /pluginWorkspace\.collectionIcon \|\| pluginWorkspace\.icon/
+    );
+
+    assert.equal(
+        host.pluginWorkspacePanelIcon(
+            'plugin-two',
+            'uncatalogued-panel',
+            'ri-dashboard-line'
+        ),
+        'ri-dashboard-line'
+    );
+});
+
+test('opening settings stops Agent generation and disposes Workspace', () => {
+    const { host, ui } = createHost();
+    const state = counters();
+    const panel = panelDefinition('catalog-panel', state);
+    panel.placements = ['main'];
+    panel.defaultPlacement = 'main';
+    ui.registerWorkspacePanel(panel, 'plugin-one');
+    ui.openWorkspacePanel('catalog-panel', { placement: 'main' }, 'plugin-one');
+    host.me = { role: 'member' };
+    host.agentOpen = true;
+    host.agentHistoryOpen = true;
+    let aborted = 0;
+    host.isGenerating = true;
+    host.abortController = { abort() { aborted += 1; } };
+    host.markActiveHermesRunCancelled = () => {};
+
+    host.openSettingsPanel();
+
+    assert.equal(aborted, 1);
+    assert.equal(host.isGenerating, false);
+    assert.equal(host.agentOpen, false);
+    assert.equal(host.agentHistoryOpen, false);
+    assert.equal(host.pluginWorkspace.show, false);
+    assert.equal(state.disposals, 1);
+});
+
 test('workspace API mounts interactive DOM and closes with one disposal', () => {
     const { dom, host, ui } = createHost();
     const state = counters();
@@ -227,7 +349,7 @@ test('workspace collections group, order, open, switch, and filter panels', () =
         ),
         ['plugin-two:video', 'plugin-one:finance']
     );
-    assert.equal(host.openPluginWorkspaceCollection('operations'), true);
+    ui.openWorkspacePanel('video', { placement: 'main' }, 'plugin-two');
     assert.equal(host.pluginWorkspace.pluginId, 'plugin-two');
     assert.equal(host.pluginWorkspace.panelId, 'video');
     assert.equal(host.pluginWorkspace.collectionId, 'operations');
@@ -247,7 +369,6 @@ test('workspace collections group, order, open, switch, and filter panels', () =
         ),
         ['plugin-one:finance']
     );
-    assert.equal(host.openPluginWorkspaceCollection('missing'), false);
 });
 
 test('workspace collection definitions and tab switches fail closed', () => {
@@ -329,7 +450,7 @@ test('workspace collection runtime and machine contract stay aligned', () => {
         /dispose-before-mount/
     );
     assert.match(appHtml, /class="plugin-workspace-tabs"/);
-    assert.match(appHtml, /openPluginWorkspaceCollection\(collection\.id\)/);
+    assert.doesNotMatch(appHtml, /openPluginWorkspaceCollection\(/);
     assert.match(appCss, /\.plugin-workspace-tabs button\.active/);
 });
 
@@ -376,7 +497,7 @@ test('workspace focus moves only for a synchronous Host entry activation', async
     flushAnimationFrames();
     assert.equal(
         dom.window.document.activeElement,
-        dom.window.document.getElementById('plugin-workspace-close')
+        dom.window.document.getElementById('plugin-workspace-title')
     );
     assert.equal(await firstClick, true);
 
@@ -550,7 +671,7 @@ test('an entry click can activate an already-open background workspace', async (
     flushAnimationFrames();
     assert.equal(
         dom.window.document.activeElement,
-        dom.window.document.getElementById('plugin-workspace-close')
+        dom.window.document.getElementById('plugin-workspace-title')
     );
     ui.closeWorkspacePanel('already-open', 'plugin-one');
     flushAnimationFrames();
@@ -1018,6 +1139,11 @@ test('workspace lifecycle mutations fail closed during mount and dispose', () =>
 test('workspace layout is non-modal, responsive, and isolated from Alpine', () => {
     assert.match(appHtml, /class="plugin-workspace-layout"/);
     assert.match(appHtml, /role="region"/);
+    assert.match(
+        appHtml,
+        /id="plugin-workspace-title"[\s\S]*?tabindex="-1"/
+    );
+    assert.doesNotMatch(appHtml, /id="plugin-workspace-close"/);
     assert.match(appHtml, /id="plugin-workspace-mount"[\s\S]*x-ignore/);
     assert.match(appHtml, /@keydown\.escape\.stop="closeActivePluginWorkspace\(\)"/);
     assert.doesNotMatch(
@@ -1049,7 +1175,7 @@ test('workspace layout is non-modal, responsive, and isolated from Alpine', () =
 test('focus contract and Host entry wiring describe the same authorization boundary', () => {
     assert.match(
         pluginUiContract.focus.host_focus_authorization,
-        /Host-rendered toolbar or sidebar entry/
+        /Host-rendered Agent composer toolbar entry/
     );
     assert.match(
         pluginUiContract.focus.host_focus_authorization,
@@ -1059,6 +1185,7 @@ test('focus contract and Host entry wiring describe the same authorization bound
         pluginUiContract.focus.unauthorized_open,
         /direct API calls.*asynchronous callback continuations.*cross-owner/s
     );
+    assert.match(pluginUiContract.focus.authorized_open, /workspace title/);
     assert.equal(pluginUiContract.focus.plugin_override, false);
     assert.match(
         appHtml,
@@ -1090,4 +1217,97 @@ test('plugin lifecycle paths use one shared runtime cleanup', () => {
         ),
         /setInterval|MutationObserver|ResizeObserver/
     );
+});
+
+test('plugin runtime synchronization replaces changed versions and removes stale runtimes', async () => {
+    const { dom, host } = createHost();
+    host.installedPlugins = [
+        { id: 'plugin-one', version: '1.0.0', enabled: true },
+        { id: 'plugin-removed', version: '1.0.0', enabled: true }
+    ];
+    host.pluginRuntimeVersions = {
+        'plugin-one': '1.0.0',
+        'plugin-removed': '1.0.0'
+    };
+    const loaded = [];
+    const cleaned = [];
+    host.loadPluginJS = async plugin => {
+        loaded.push(`${plugin.id}@${plugin.version}`);
+        host.pluginRuntimeVersions[plugin.id] = plugin.version;
+    };
+    host.cleanupPluginRuntime = pluginId => {
+        cleaned.push(pluginId);
+        delete host.pluginRuntimeVersions[pluginId];
+    };
+    dom.window.fetch = async (url, options) => {
+        assert.equal(url, '/api/plugins');
+        assert.equal(options.credentials, 'same-origin');
+        assert.equal(options.cache, 'no-store');
+        return {
+            ok: true,
+            async json() {
+                return [
+                    { id: 'plugin-one', version: '1.1.0', enabled: true },
+                    { id: 'plugin-disabled', version: '2.0.0', enabled: false }
+                ];
+            }
+        };
+    };
+
+    await host.syncPluginRuntimes();
+
+    assert.deepEqual(cleaned, ['plugin-removed']);
+    assert.deepEqual(loaded, ['plugin-one@1.1.0']);
+    assert.deepEqual(
+        host.installedPlugins.map(plugin => plugin.id),
+        ['plugin-one', 'plugin-disabled']
+    );
+    assert.equal(host.pluginRuntimeVersions['plugin-one'], '1.1.0');
+    assert.equal(host.pluginRuntimeVersions['plugin-removed'], undefined);
+});
+
+test('plugin management changes notify other open tabs', () => {
+    assert.match(
+        appSource,
+        /new window\.BroadcastChannel\(\s*'chatraw-plugin-runtime-v1'\s*\)/
+    );
+    for (const method of [
+        'installPlugin',
+        'uploadPluginFile',
+        'togglePlugin',
+        'uninstallPlugin'
+    ]) {
+        const start = appSource.indexOf(`async ${method}(`);
+        const end = appSource.indexOf('\n        },', start);
+        assert.ok(start >= 0, `${method} must exist`);
+        assert.match(
+            appSource.slice(start, end),
+            /refreshFeatureCatalogAfterPluginChange\(/
+        );
+    }
+    const refreshStart = appSource.indexOf('async refreshFeatureCatalogAfterPluginChange(');
+    const refreshEnd = appSource.indexOf('\n        },', refreshStart);
+    assert.match(appSource.slice(refreshStart, refreshEnd), /announcePluginRuntimeChange\(/);
+});
+
+test('same-tab plugin toggles refresh the service catalog before broadcasting', async () => {
+    const { dom, host } = createHost();
+    const plugin = { id: 'plugin-one', enabled: true };
+    host.installedPlugins = [plugin];
+    host.showToast = () => {};
+    let catalogRefreshes = 0;
+    let broadcasts = 0;
+    host.loadFeatureCatalog = async () => {
+        catalogRefreshes += 1;
+    };
+    host.announcePluginRuntimeChange = () => {
+        broadcasts += 1;
+    };
+    dom.window.fetch = async () => ({ ok: true });
+
+    await host.togglePlugin(plugin);
+
+    assert.equal(plugin.enabled, false);
+    assert.equal(catalogRefreshes, 1);
+    assert.equal(broadcasts, 1);
 });

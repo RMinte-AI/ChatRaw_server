@@ -14,6 +14,7 @@ MAX_MODEL_STREAM_CHOICES = 16
 MAX_MODEL_STREAM_TOOL_CALLS = 128
 MAX_MODEL_STREAM_USAGE_TOKENS = 1_000_000_000
 MAX_MODEL_STREAM_TIMESTAMP = (1 << 63) - 1
+MAX_MODEL_STREAM_JSON_DEPTH = 64
 STANDARD_FINISH_REASONS = {
     "stop",
     "length",
@@ -39,6 +40,21 @@ def _invalid_stream() -> ModuleModelStreamError:
 
 def _reject_json_constant(_value: str) -> None:
     raise ValueError
+
+
+def _validate_json_depth(value: Any) -> None:
+    """Reject pathological nesting without recursively walking untrusted JSON."""
+    pending = [(value, 0)]
+    while pending:
+        current, depth = pending.pop()
+        if isinstance(current, dict):
+            if depth >= MAX_MODEL_STREAM_JSON_DEPTH and current:
+                raise _invalid_stream()
+            pending.extend((item, depth + 1) for item in current.values())
+        elif isinstance(current, list):
+            if depth >= MAX_MODEL_STREAM_JSON_DEPTH and current:
+                raise _invalid_stream()
+            pending.extend((item, depth + 1) for item in current)
 
 
 def _bounded_string(value: Any, *, maximum: int = 4096) -> str:
@@ -298,6 +314,7 @@ def _sanitize_sse_event(
         RecursionError,
     ):
         raise _invalid_stream() from None
+    _validate_json_depth(payload)
     safe, _has_progress, tool_bytes = sanitize_openai_stream_chunk(payload)
     encoded = json.dumps(
         safe,

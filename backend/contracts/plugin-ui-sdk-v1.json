@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://chatraw.local/contracts/plugin-ui-sdk-v1.json",
   "contract": "ChatRaw Plugin UI SDK",
-  "version": "1.0.0",
+  "version": "1.2.0",
   "global": "window.ChatRawPlugin.ui",
   "runtime": {
     "plugin_code_trust": "administrator-installed trusted frontend code",
@@ -11,6 +11,25 @@
     "workspace_persistence": false,
     "responsive_main_max_width_px": 1024,
     "stacked_workspace_main_max_height_px": 420
+  },
+  "host_feature_catalog": {
+    "source": "registered Module manifests with frontend_integration.catalog",
+    "panel_identity": "frontend_integration.id plus frontend_integration.workspace_panel_id",
+    "service_readiness_owner": "Server",
+    "runtime_readiness_owner": "browser Host after Plugin runtime registration",
+    "required_placement": "main",
+    "presentation_icon_precedence": "for catalog-backed panels, frontend_integration.catalog.icon is canonical in the Host main shell; the registered WorkspacePanelDefinition.icon is the fallback for panels without a catalog entry",
+    "states": [
+      "loading",
+      "module_unavailable",
+      "plugin_missing",
+      "plugin_disabled",
+      "plugin_version_mismatch",
+      "panel_not_registered",
+      "main_placement_required",
+      "available"
+    ],
+    "silent_fallback": false
   },
   "methods": {
     "registerToolbarButton": {
@@ -100,7 +119,10 @@
         "id": {"type": "string"},
         "icon": {"type": "string", "pattern": "^ri-[a-z0-9-]+$"},
         "label": {"$ref": "#/$defs/LocalizedText"},
-        "placement": {"enum": ["toolbar", "sidebar"]},
+        "placement": {
+          "enum": ["toolbar", "sidebar"],
+          "description": "toolbar is the current Agent composer entry surface; legacy sidebar is accepted and normalized to toolbar because the four-page shell has no sidebar"
+        },
         "order": {"type": "number"},
         "onClick": {"x-javascript-type": "function"}
       }
@@ -210,7 +232,7 @@
     "invalid_behavior": "throw; never fall back to a modal, toolbar, or another placement"
   },
   "workspace_collections": {
-    "purpose": "group related main-placement panels under one Server-rendered sidebar entry and tab list",
+    "purpose": "group related catalog-opened main-placement panels under one Server-rendered tab list",
     "membership": "optional collection metadata on WorkspacePanelDefinition; collected panels may belong to different enabled plugins",
     "metadata_consistency": "panels sharing one collection id must use identical title, icon, and order",
     "placement": "collection panels must include main and use main as defaultPlacement",
@@ -227,8 +249,8 @@
     "short_screen": "top and bottom render as main at 420px or shorter"
   },
   "focus": {
-    "host_focus_authorization": "all conditions must hold: a Host-rendered toolbar or sidebar entry is synchronously dispatching its onClick callback, navigator.userActivation.isActive is true, the entry pluginId equals the workspace owner, and the Host trigger remains connected",
-    "authorized_open": "focus the Server-owned close button after the workspace is visible; opening the same already-visible workspace also focuses that button",
+    "host_focus_authorization": "all conditions must hold: a Host-rendered Agent composer toolbar entry is synchronously dispatching its onClick callback, navigator.userActivation.isActive is true, the entry pluginId equals the workspace owner, and the Host trigger remains connected",
+    "authorized_open": "focus the Server-owned workspace title after the workspace is visible; opening the same already-visible workspace also focuses that title",
     "unauthorized_open": "preserve the current focus, including direct API calls during unrelated transient activation, asynchronous callback continuations, module callbacks, timers, and cross-owner opens",
     "overflow_return_trigger": "the stable Host More button",
     "missing_user_activation_api": "preserve the current focus",
@@ -274,7 +296,7 @@
     "preserve_extension_points": [
       "hooks",
       "toolbar buttons",
-      "sidebar buttons",
+      "legacy sidebar button declarations normalized to toolbar buttons",
       "plugin fullscreen modal"
     ]
   }

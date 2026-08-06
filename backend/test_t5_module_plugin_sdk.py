@@ -24,7 +24,7 @@ class ModulePluginSdkContractTests(unittest.TestCase):
     def test_contract_is_machine_readable_and_method_set_is_frozen(self):
         contract = json.loads(CONTRACT_PATH.read_text(encoding="utf-8"))
         Draft202012Validator.check_schema(contract)
-        self.assertEqual(contract["version"], "1.5.0")
+        self.assertEqual(contract["version"], "1.6.0")
         self.assertEqual(contract["global"], "window.ChatRaw.modules")
         self.assertEqual(
             set(contract["methods"]),
@@ -109,7 +109,7 @@ class ModulePluginSdkContractTests(unittest.TestCase):
         self.assertIn("'Last-Event-ID': String(cursor)", source)
         self.assertIn("credentials: 'same-origin'", source)
         self.assertIn("module_event_stream_incomplete", source)
-        self.assertIn("const MODULE_SDK_VERSION = '1.5.0'", source)
+        self.assertIn("const MODULE_SDK_VERSION = '1.6.0'", source)
         self.assertIn(
             "fetch('/api/module-task-resources'",
             source,
@@ -396,6 +396,26 @@ class ModulePluginSdkContractTests(unittest.TestCase):
         self.assertIn(
             "ChatRawPlugin.ui.registerToolbarButton",
             source,
+        )
+        self.assertIn(
+            "ChatRawPlugin.ui.registerWorkspacePanel",
+            source,
+        )
+        self.assertIn("placements: ['main']", source)
+        self.assertIn("return () =>", source)
+        reference_manifest = json.loads(
+            (
+                ROOT / "examples/reference-module/manifest.example.json"
+            ).read_text(encoding="utf-8")
+        )
+        integration = reference_manifest["companion_plugin"]
+        self.assertEqual(
+            integration["workspace_panel_id"],
+            "reference-module-workspace",
+        )
+        self.assertEqual(
+            integration["catalog"]["category_id"],
+            "data-hub",
         )
 
 

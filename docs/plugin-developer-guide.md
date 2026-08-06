@@ -190,7 +190,7 @@ ChatRawPlugin.ui.registerToolbarButton(
         id: 'open-workbench',
         icon: 'ri-dashboard-line',
         label: { en: 'Example workbench', zh: '示例工作台' },
-        placement: 'sidebar',
+        placement: 'toolbar',
         onClick() {
             ChatRawPlugin.ui.openWorkspacePanel(
                 'workbench',
@@ -204,7 +204,7 @@ ChatRawPlugin.ui.registerToolbarButton(
 ```
 
 多个只在 `main` 位置显示的相关面板可以声明同一个可选 `collection`。Server 会为该
-collection 只渲染一个侧栏入口，并在 Workspace 标题下渲染面板标签：
+collection 不创建独立入口；用户从首页目录卡片进入后，Host 在 Workspace 标题下渲染面板标签：
 
 ```js
 collection: {
@@ -233,8 +233,8 @@ Workspace 规则：
   Server 挂载点写入模块返回的 HTML。
 - 同一时刻只有一个 Workspace。打开另一面板或切换位置时，旧面板先执行一次 `dispose()`。
 - 同一面板以同一位置重复打开不会重复 mount。页面刷新后 Workspace 保持关闭。
-- 只有用户点击或用键盘激活 Host 渲染的工具栏、侧栏入口，且该入口的 `onClick` 在返回前同步
-  打开同一 Plugin 所属的 Workspace 时，Host 才会把焦点移到标题栏关闭按钮；关闭、挂载失败或
+- 只有用户点击或用键盘激活 Host 在 Agent 输入区渲染的工具栏入口，且该入口的 `onClick` 在返回前同步
+  打开同一 Plugin 所属的 Workspace 时，Host 才会把焦点移到 Workspace 标题；关闭、挂载失败或
   替换失败后，焦点返回仍在页面中的 Host 入口。溢出菜单中的入口统一返回稳定的“更多”按钮。
   直接 API 调用、在 `await` 之后打开、模块回调、定时器或跨 Plugin 代开都保持当前焦点。
   Plugin 不能传入参数覆盖这一 Host 判定。需要异步数据时，先同步打开并在 `mount()` 中渲染
@@ -247,38 +247,43 @@ Workspace 规则：
   最近的这类容器并在边缘继续消费。不要依赖 `body` 横向溢出，也不要拦截普通纵向滚动或
   `Ctrl` + 滚轮缩放。
 
+首页卡片来自配套 Module Manifest 的 `frontend_integration.catalog`，并通过同级 `workspace_panel_id` 指向 `plugin_id + panel_id`。Plugin 不得自行向首页插入 DOM；它必须保持插件 ID、面板 ID 稳定，并让该面板的 `placements` 明确包含 `main`。Host 只有在 Module 服务就绪、Plugin 安装启用且版本兼容、当前浏览器已注册目标面板时才将卡片标记为可用；首页点击固定以 `main` 打开，不会退回 `defaultPlacement`。对于已进入目录的面板，`catalog.icon` 是 Host 首页卡片、内容导航、Workspace 标题和 collection 页签的唯一展示图标；`WorkspacePanelDefinition.icon` 仅作为无目录面板的回退。开发者应让两者语义一致，但不能依赖注册图标覆盖 Host 目录图标。
+
 机器契约见 [Plugin UI SDK Contract](../backend/contracts/plugin-ui-sdk-v1.json)，完整可运行示例见
 [Plugin Workspace UI Implementation Guide](plugin-workspace-ui-guide.md)。
 
-`registerToolbarButton` 默认把入口放在输入框工具栏。独立业务工作台可以在 definition 中声明
-`placement: 'sidebar'`，由 Server 使用稳定的左侧业务入口样式呈现；未声明或使用未知值时仍按
-`toolbar` 处理，保证旧插件兼容。侧栏入口可以提供本地化 `status`，并通过
-`setButtonState` 更新 `status`、`disabled`、`active` 或 `loading`。插件不得自行查询或修改
-ChatRaw 的 DOM 来移动入口。
+产品本身只启用浅色主题。Host 仍保留未激活的公共 `[data-theme="dark"]` CSS token 别名，避免既有 Plugin 的公共变量引用失效；Plugin 不得把这些兼容 token 当成可用的用户主题开关，也不得自行切换根节点主题。
+
+Plugin 与 Resident 的视觉实现同时遵循[前端配色要求](frontend-color-requirements.md)：公共语义变量只读，选择器限定在分配的根节点内。
+
+`registerToolbarButton` 把入口放在 Agent 输入区工具栏。四页式壳层不再提供左侧栏；为保证旧插件
+可达，历史 `placement: 'sidebar'` 声明仍被接受，但 Host 会将它归一为 `toolbar`。入口可以提供
+本地化 `status`，并通过 `setButtonState` 更新 `status`、`disabled`、`active` 或 `loading`。
+独立业务能力的首选入口是 Module Manifest 目录卡片；插件不得自行查询或修改 ChatRaw DOM 来移动入口。
 
 不要使用 `querySelector` 定位 ChatRaw 内部按钮，也不要读取 `_x_dataStack` 等框架内部状态。
 
 ### 7. Hook
 
-使用：
+当前产品发送链路只调用 `before_send`：
 
 ```js
-ChatRawPlugin.hooks.register('send_intercept', {
+ChatRawPlugin.hooks.register('before_send', {
     priority: 100,
     async handler(context) {
-        return null;
+        return {
+            success: true,
+            body: { use_rag: true }
+        };
     }
 });
 ```
 
-已公开的 hook 名称由 `ChatRawPlugin.hooks.available()` 返回。插件必须处理“不接管”的情况：
-
-- 返回 `null`，或
-- 返回 `{ success: false }`。
-
-只有明确返回 `{ success: true, handled: true }` 时，`send_intercept` 才接管发送。异常不能被当作成功；除 `AbortError` 外，ChatRaw 会记录错误并继续尝试安全路径。
-
-ChatRaw 在调用 `send_intercept` 前会确保当前聊天已经创建，因此 `context.currentChatId` 是可用于同源任务绑定的非空聊天 ID。插件不得自行创建聊天或伪造该值。
+`ChatRawPlugin.hooks.available()` 仍列出历史 hook 名称，供旧插件完成注册和卸载，但四页式产品 UI
+不会执行 `send_intercept`、`transform_input`、`route_message` 或 `after_receive`。Agent 对
+`before_send` 的结果只读取白名单中的 `use_rag`、`web_content` 和 `web_url`；Host 随后重写
+`chat_id`、`message` 和技能身份，并固定发送到 `/api/agent/chat`。插件不得依赖未执行的 hook，
+也不得把 `before_send` 当作身份、路由或权限入口。
 
 ### 8. Module SDK
 
@@ -389,8 +394,8 @@ await window.ChatRaw.modules.downloadTaskResource(
 - `conversation`：要求 `chat_id` 和 `user_message`，由 Core 在对话内展示、订阅和恢复，不打开任务中心。
 
 每次 `startTask` 都会登记一个独立任务。插件不要自己复制任务列表、执行时间线、审批界面或产物凭证。
-使用 `conversation` 的 `send_intercept` 成功后必须返回 `userMessage: false`，因为任务接受事务已经
-持久化用户消息。conversation 消息只有 `content` 是可渲染、可复制的答案正文：流式 task output
+`conversation` 只适用于已经拥有真实 `chat_id` 与 `user_message` 的显式 Module SDK 调用；当前
+Agent 输入链路不会通过 hook 自动创建它。conversation 消息只有 `content` 是可渲染、可复制的答案正文：流式 task output
 更新 Core 管理的虚拟助手消息，终态 projection 持久化后再按消息 ID 替换它。插件不得把
 `task.result` 或 `chat_projection` 再渲染成第二份答案。
 
@@ -481,8 +486,8 @@ Use `ChatRawPlugin.hooks`, `ChatRawPlugin.ui`, `ChatRawPlugin.utils`, and docume
 renders `top` and `bottom` as `main`. The plugin receives a real DOM container. `mount`
 must synchronously return one cleanup function, and that function must synchronously return
 `undefined`. It must not fall back to the legacy fullscreen modal when registration or
-mounting fails. The Host focuses its close button only when the `onClick` callback of that plugin's
-Host-rendered toolbar or sidebar entry synchronously opens its own workspace during click or keyboard
+mounting fails. The Host focuses the Workspace title only when the `onClick` callback of that plugin's
+Host-rendered Agent composer toolbar entry synchronously opens its own workspace during click or keyboard
 activation. Closing, mount failure, or replacement failure then restores the connected Host entry;
 overflow entries return to the stable More button. Direct API calls, opens after `await`, module
 callbacks, timers, and cross-plugin opens preserve the current focus. Plugins cannot override this
@@ -493,12 +498,18 @@ Host decision with an option. If data is asynchronous, open synchronously, rende
 
 Related panels that render only in `main` may declare the same optional
 `collection` object with `id`, localized `title`, `icon`, `order`, and
-`tabOrder`. The Host renders one sidebar entry for the collection and a tab for
-each enabled panel. Collection panels must include `main` and use it as
+`tabOrder`. A collection does not create a separate entry; after a catalog card opens one member,
+the Host renders a tab for each enabled panel. Collection panels must include `main` and use it as
 `defaultPlacement`. Panels from different plugins may share an ID only when
 their title, icon, and collection order are identical. Collection order and tab
 order are deterministic, and switching tabs still disposes the old panel
 before mounting the new one.
+
+For a catalog-backed panel, `frontend_integration.catalog.icon` is the canonical
+icon across the Host card, content navigator, Workspace heading, and collection
+tab. `WorkspacePanelDefinition.icon` is used only as the fallback for a panel
+without a catalog entry. Keep both icons semantically aligned, but do not rely
+on the registered panel icon to override the Host catalog.
 
 The Host consumes horizontal wheel, trackpad, and Magic Mouse gestures at the page root to prevent
 Safari history rubber-banding. A plugin-owned horizontal region must explicitly use
@@ -506,9 +517,15 @@ Safari history rubber-banding. A plugin-owned horizontal region must explicitly 
 and keeps consuming it at either edge. Do not depend on horizontal `body` overflow or intercept
 ordinary vertical scrolling and `Ctrl`+wheel zoom.
 
-Before `send_intercept` runs, ChatRaw ensures that the current chat exists, so `context.currentChatId` is a non-empty chat ID suitable for same-origin task binding. Plugins must not create chats themselves or invent this value.
+The four-page product UI executes only `before_send`. Historical hook names remain available for registration and cleanup compatibility, but the Agent does not invoke `send_intercept`, `transform_input`, `route_message`, or `after_receive`. From `before_send`, the Host accepts only whitelisted non-identity context, rewrites chat, message, and skill identity, and always posts to `/api/agent/chat`.
 
 Companion plugins use only `window.ChatRaw.modules`. The machine-readable contract is [module-plugin-sdk-v1.json](../backend/contracts/module-plugin-sdk-v1.json). They must never fetch a module URL directly, retain module credentials, use the legacy proxy as a module tunnel, or invent actor/capability identity.
+
+Module SDK 1.6 exposes the validated `workspace_panel_id` and `catalog` metadata in feature status. The browser must still compute Plugin runtime readiness from the current tab's actual Workspace registration; service readiness alone never makes a card openable.
+
+The product activates only the light theme. The Host retains unactivated public `[data-theme="dark"]` CSS token aliases so existing plugins do not lose public variable references. Plugins must not treat those aliases as a user-facing theme option or switch the root theme themselves.
+
+Plugin and Resident visual work must also follow the [frontend color requirements](frontend-color-requirements.md). Use the public semantic variables as read-only fallbacks and keep all selectors below the assigned root.
 
 SDK 1.5 adds the `conversation` presentation. It requires `chat_id` and
 `user_message`; Core owns the inline activity timeline, subscription, recovery,

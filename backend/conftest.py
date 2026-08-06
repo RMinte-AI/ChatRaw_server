@@ -1,4 +1,5 @@
 import os
+import importlib
 import shutil
 import sys
 import tempfile
@@ -12,7 +13,7 @@ os.environ["CHATRAW_TEST_MODE"] = "1"
 # Import before test-module collection. Several legacy unittest modules set
 # their own DATA_DIR at import time; the suite-level directory must remain the
 # single authoritative location for the shared backend.main module.
-from backend import main as _main  # noqa: E402,F401
+importlib.import_module("backend.main")
 
 
 def _is_system_temporary(path: Path) -> bool:

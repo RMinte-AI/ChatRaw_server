@@ -1539,6 +1539,63 @@ class HermesBridgeTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(data["success"])
         self.assertEqual(fake_session.posts, [])
 
+    async def test_hermes_approval_does_not_grant_admin_override(self):
+        self.enable_hermes(api_mode=main.HERMES_API_MODE_RUNS)
+        with main.db.connection(write=True) as connection:
+            connection.execute(
+                """
+                INSERT OR IGNORE INTO users (
+                    id, username, password_hash, role, enabled,
+                    created_at, updated_at, password_changed_at
+                ) VALUES (?, ?, ?, 'admin', 1, ?, ?, ?)
+                """,
+                (
+                    "__direct_test__",
+                    "direct-test",
+                    "test-only-password-hash",
+                    "2026-08-05T00:00:00Z",
+                    "2026-08-05T00:00:00Z",
+                    "2026-08-05T00:00:00Z",
+                ),
+            )
+        main.register_active_hermes_run(
+            "run-private-owner",
+            "chat-private-owner",
+            {
+                "base_url": "http://127.0.0.1:8642/v1",
+                "model": "hermes-agent",
+                "api_key": "",
+                "session_key": "",
+                "api_mode": main.HERMES_API_MODE_RUNS,
+            },
+            actor_user_id="another-user",
+            entrypoint="agent",
+            chat_kind="hermes_agent",
+        )
+        main.update_active_hermes_run(
+            "run-private-owner",
+            status="pending_approval",
+            pending_approval={
+                "type": "approval.request",
+                "run_id": "run-private-owner",
+            },
+        )
+        fake_session = self.patch_session(FakeHermesSession())
+        result = await main.hermes_run_approval(
+            "run-private-owner",
+            JsonRequest(
+                {"chat_id": "chat-private-owner", "choice": "once"},
+                url=(
+                    "http://testserver/api/hermes/runs/"
+                    "run-private-owner/approval"
+                ),
+            ),
+        )
+        status, data = self.decode_result(result)
+        self.assertEqual(status, 403)
+        self.assertFalse(data["success"])
+        self.assertEqual(fake_session.posts, [])
+
     async def test_hermes_approval_endpoint_blocks_origin_disabled_plugin_and_stale_runs(self):
         main.register_active_hermes_run("run-stale", "chat-stale", {
             "base_url": "http://127.0.0.1:8642/v1",

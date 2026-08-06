@@ -23,7 +23,6 @@ import threading
 import tempfile
 import zipfile
 import ipaddress
-import socket
 import stat
 import hashlib
 from yarl import URL as YarlURL
@@ -125,9 +124,8 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.middleware.gzip import GZipMiddleware
 from starlette.datastructures import UploadFile as StarletteUploadFile
 from starlette.formparsers import MultiPartException, MultiPartParser
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 from pydantic.json_schema import SkipJsonSchema
-import sqlite3
 import math
 from collections import defaultdict
 import time as time_module
@@ -301,9 +299,16 @@ class UISettings(BaseModel):
     logo_data: str = ""
     logo_text: str = "ChatRaw"
     subtitle: str = ""
-    theme_mode: str = "light"
+    theme_mode: Literal["light"] = "light"
     user_avatar: str = ""
     assistant_avatar: str = ""
+
+    @field_validator("theme_mode", mode="before")
+    @classmethod
+    def normalize_light_theme(cls, value):
+        if value in (None, "light", "dark"):
+            return "light"
+        raise ValueError("theme_mode must be light")
 
 class Settings(BaseModel):
     chat_settings: ChatSettings = ChatSettings()
@@ -562,7 +567,7 @@ class ModuleTaskListApiResponse(BaseModel):
 class ModuleFeatureApiResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    sdk_version: Literal["1.5.0"]
+    sdk_version: Literal["1.6.0"]
     module_id: str
     name: str
     module_version: Optional[str]
@@ -574,6 +579,57 @@ class ModuleFeatureApiResponse(BaseModel):
     frontend_integration: Optional[Dict[str, Any]]
     companion_plugin: Optional[Dict[str, Any]]
     actions: List[Dict[str, Any]]
+
+
+class LocalizedTextApiView(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    en: str
+    zh: str
+
+
+class ModuleFeatureCatalogCategoryApiView(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: Literal["data-hub", "knowledge-hub", "business-hub"]
+    title: LocalizedTextApiView
+    order: int
+
+
+class ModuleFeatureCatalogCardApiView(BaseModel):
+    model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
+
+    id: str
+    category_id: Literal["data-hub", "knowledge-hub", "business-hub"]
+    order: float
+    title: LocalizedTextApiView
+    description: LocalizedTextApiView
+    icon: str
+    module_id: str
+    plugin_id: str
+    panel_id: str
+    service_ready: bool
+    service_reason: Optional[Dict[str, Any]]
+    runtime_ready: bool
+    available: bool
+    state: Literal[
+        "loading",
+        "module_unavailable",
+        "plugin_missing",
+        "plugin_disabled",
+        "plugin_version_mismatch",
+        "panel_not_registered",
+        "main_placement_required",
+        "available",
+    ]
+
+
+class ModuleFeatureCatalogApiResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    schema_version: Literal["2"]
+    categories: List[ModuleFeatureCatalogCategoryApiView]
+    cards: List[ModuleFeatureCatalogCardApiView]
 
 
 class ResidentIntegrationCatalogApiResponse(BaseModel):
@@ -885,7 +941,10 @@ class Database:
                 ("global",),
             ).fetchone()
         if row:
-            return Settings.model_validate_json(row["value"])
+            payload = json.loads(row["value"])
+            ui_settings = payload.setdefault("ui_settings", {})
+            ui_settings["theme_mode"] = "light"
+            return Settings.model_validate(payload)
         return Settings()
     
     def save_settings(self, settings: Settings):
@@ -996,6 +1055,7 @@ class Database:
                 """
                 SELECT *
                 FROM chats
+                WHERE kind = 'classic'
                 ORDER BY COALESCE(updated_at, '') DESC, id DESC
                 """
             ).fetchall()
@@ -1007,21 +1067,45 @@ class Database:
             updated_at=row["updated_at"]
         ) for row in rows]
 
+    def get_agent_chats(self, owner_user_id: str) -> List[Chat]:
+        with self.connection() as connection:
+            rows = connection.execute(
+                """
+                SELECT *
+                FROM chats
+                WHERE kind = 'hermes_agent' AND owner_user_id = ?
+                ORDER BY COALESCE(updated_at, '') DESC, id DESC
+                """,
+                (owner_user_id,),
+            ).fetchall()
+        return [
+            Chat(
+                id=row["id"],
+                title=row["title"],
+                created_at=row["created_at"],
+                updated_at=row["updated_at"],
+            )
+            for row in rows
+        ]
+
     def get_chats_page(
         self,
         limit: int,
         cursor: Optional[Tuple[str, str]] = None,
     ) -> Tuple[List[Chat], Optional[Tuple[str, str]]]:
         parameters: list[Any] = []
-        where = ""
+        where = "WHERE kind = 'classic'"
         if cursor is not None:
             cursor_updated_at, cursor_id = cursor
             where = """
-                WHERE COALESCE(updated_at, '') < ?
-                   OR (
-                       COALESCE(updated_at, '') = ?
-                       AND id < ?
-                   )
+                WHERE kind = 'classic'
+                  AND (
+                      COALESCE(updated_at, '') < ?
+                      OR (
+                          COALESCE(updated_at, '') = ?
+                          AND id < ?
+                      )
+                  )
             """
             parameters.extend(
                 [cursor_updated_at, cursor_updated_at, cursor_id]
@@ -1064,17 +1148,20 @@ class Database:
         self,
         title: str = DEFAULT_CHAT_TITLE,
         owner_user_id: Optional[str] = None,
+        kind: str = "classic",
     ) -> Chat:
+        if kind not in {"classic", "hermes_agent"}:
+            raise ValueError("Unsupported chat kind")
         chat_id = str(uuid.uuid4())
         now = datetime.now().isoformat()
         with self.connection(write=True) as connection:
             connection.execute(
                 """
                 INSERT INTO chats
-                    (id, title, created_at, updated_at, owner_user_id)
-                VALUES (?, ?, ?, ?, ?)
+                    (id, title, created_at, updated_at, owner_user_id, kind)
+                VALUES (?, ?, ?, ?, ?, ?)
                 """,
-                (chat_id, title, now, now, owner_user_id),
+                (chat_id, title, now, now, owner_user_id, kind),
             )
         
         return Chat(id=chat_id, title=title, created_at=now, updated_at=now)
@@ -1112,6 +1199,41 @@ class Database:
         if row is None:
             raise HTTPException(status_code=404, detail="Chat not found")
         return row["owner_user_id"]
+
+    def get_chat_kind(self, chat_id: str) -> Optional[str]:
+        with self.connection() as connection:
+            row = connection.execute(
+                "SELECT kind FROM chats WHERE id = ?",
+                (chat_id,),
+            ).fetchone()
+        return row["kind"] if row is not None else None
+
+    def get_classic_chat_owner(self, chat_id: str) -> Optional[str]:
+        with self.connection() as connection:
+            row = connection.execute(
+                """
+                SELECT owner_user_id FROM chats
+                WHERE id = ? AND kind = 'classic'
+                """,
+                (chat_id,),
+            ).fetchone()
+        if row is None:
+            raise HTTPException(status_code=404, detail="Chat not found")
+        return row["owner_user_id"]
+
+    def agent_chat_owned_by(self, chat_id: str, owner_user_id: str) -> bool:
+        with self.connection() as connection:
+            row = connection.execute(
+                """
+                SELECT 1 FROM chats
+                WHERE id = ?
+                  AND kind = 'hermes_agent'
+                  AND owner_user_id = ?
+                LIMIT 1
+                """,
+                (chat_id, owner_user_id),
+            ).fetchone()
+        return row is not None
 
     def chat_can_auto_title(self, chat_id: str) -> bool:
         with self.connection() as connection:
@@ -2752,10 +2874,13 @@ PUBLIC_EXACT_PATHS = {
     "/setup",
     "/auth.js",
     "/auth.css",
+    "/brand-mark.svg",
+    "/landing-field.svg",
     "/favicon.ico",
     "/api/setup/status",
     "/api/setup/admin",
     "/api/auth/login",
+    "/api/settings/logo",
 }
 STATE_CHANGING_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
 
@@ -3762,6 +3887,8 @@ def _release_chat_generation(chat_id: str) -> None:
 async def prepare_chat_submission(
     body: dict,
     principal: Optional[Principal] = None,
+    *,
+    expected_kind: Optional[str] = None,
 ) -> dict:
     chat_id = body.get("chat_id", "") or ""
     message = body.get("message", "") or ""
@@ -3780,10 +3907,17 @@ async def prepare_chat_submission(
         raise HTTPException(status_code=400, detail="Skill Manager plugin is not enabled")
     active_skill_context, skill_activations = build_active_skill_context(active_skill_names)
 
-    if not chat_id or not db.chat_exists(chat_id):
+    existing_kind = db.get_chat_kind(chat_id) if chat_id else None
+    if chat_id and expected_kind == "hermes_agent":
+        if principal is None or not db.agent_chat_owned_by(chat_id, principal.id):
+            raise HTTPException(status_code=404, detail="Agent chat not found")
+    elif chat_id and existing_kind == "hermes_agent":
+        raise HTTPException(status_code=404, detail="Chat not found")
+    if not chat_id or existing_kind is None:
         chat_obj = db.create_chat(
             DEFAULT_CHAT_TITLE,
             owner_user_id=principal.id if principal else None,
+            kind=expected_kind or "classic",
         )
         chat_id = chat_obj.id
 
@@ -4684,9 +4818,12 @@ async def get_settings(include_logo: bool = False):
 
 @app.get("/api/settings/logo")
 async def get_settings_logo():
-    """Get logo_data separately for lazy loading."""
+    """Return public visual identity used by login and workspace shells."""
     settings = db.get_settings()
-    return {"logo_data": settings.ui_settings.logo_data}
+    return {
+        "logo_data": settings.ui_settings.logo_data,
+        "logo_text": settings.ui_settings.logo_text,
+    }
 
 @app.post("/api/settings")
 async def save_settings(settings: Settings):
@@ -4852,6 +4989,83 @@ async def create_chat(request: Request):
     return chat.model_dump()
 
 
+def _require_private_agent_chat(principal: Principal, chat_id: str) -> None:
+    if not db.agent_chat_owned_by(chat_id, principal.id):
+        raise HTTPException(status_code=404, detail="Agent chat not found")
+
+
+@app.get("/api/agent/chats")
+async def get_agent_chats(request: Request):
+    principal = current_principal(request)
+    return [chat.model_dump() for chat in db.get_agent_chats(principal.id)]
+
+
+@app.post("/api/agent/chats")
+async def create_agent_chat(request: Request):
+    principal = current_principal(request)
+    chat = db.create_chat(
+        DEFAULT_CHAT_TITLE,
+        owner_user_id=principal.id,
+        kind="hermes_agent",
+    )
+    return chat.model_dump()
+
+
+@app.patch("/api/agent/chats/{chat_id}")
+async def rename_agent_chat(chat_id: str, request: Request):
+    principal = current_principal(request)
+    _require_private_agent_chat(principal, chat_id)
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    title = body.get("title") if isinstance(body, dict) else None
+    if not isinstance(title, str) or not title.strip() or len(title.strip()) > 200:
+        raise HTTPException(status_code=400, detail="Invalid chat title")
+    db.update_chat_title(chat_id, title.strip())
+    auth_service.audit(
+        principal.id,
+        "agent_chat.rename",
+        "chat",
+        chat_id,
+        "success",
+        {"private": True, "kind": "hermes_agent"},
+    )
+    return {"success": True, "title": title.strip()}
+
+
+@app.delete("/api/agent/chats/{chat_id}")
+async def delete_agent_chat(chat_id: str, request: Request):
+    principal = current_principal(request)
+    _require_private_agent_chat(principal, chat_id)
+    task_service = globals().get("module_task_service")
+    if task_service is not None and task_service.has_active_chat_task(chat_id):
+        raise HTTPException(
+            status_code=409,
+            detail="Chat is referenced by an active module task",
+        )
+    db.delete_chat(chat_id)
+    auth_service.audit(
+        principal.id,
+        "agent_chat.delete",
+        "chat",
+        chat_id,
+        "success",
+        {"private": True, "kind": "hermes_agent"},
+    )
+    return {"success": True}
+
+
+@app.get("/api/agent/chats/{chat_id}/messages")
+async def get_agent_messages(chat_id: str, request: Request):
+    principal = current_principal(request)
+    _require_private_agent_chat(principal, chat_id)
+    task_service = globals().get("module_task_service")
+    if task_service is not None:
+        await task_service.reconcile_chat(chat_id)
+    return [message.model_dump() for message in db.get_messages(chat_id)]
+
+
 def _require_resource_manager(
     principal: Principal,
     owner_user_id: Optional[str],
@@ -4874,7 +5088,7 @@ def _require_resource_manager(
 @app.patch("/api/chats/{chat_id}")
 async def rename_chat(chat_id: str, request: Request):
     principal = current_principal(request)
-    owner_user_id = db.get_chat_owner(chat_id)
+    owner_user_id = db.get_classic_chat_owner(chat_id)
     try:
         body = await request.json()
     except Exception:
@@ -4909,7 +5123,7 @@ async def rename_chat(chat_id: str, request: Request):
 @app.delete("/api/chats/{chat_id}")
 async def delete_chat(chat_id: str, request: Request):
     principal = current_principal(request)
-    owner_user_id = db.get_chat_owner(chat_id)
+    owner_user_id = db.get_classic_chat_owner(chat_id)
     try:
         _require_resource_manager(principal, owner_user_id, "chat")
     except HTTPException:
@@ -4943,7 +5157,10 @@ async def delete_chat(chat_id: str, request: Request):
     }
 
 @app.get("/api/chats/{chat_id}/messages")
-async def get_messages(chat_id: str):
+async def get_messages(chat_id: str, request: Request):
+    current_principal(request)
+    if db.get_chat_kind(chat_id) != "classic":
+        raise HTTPException(status_code=404, detail="Chat not found")
     task_service = globals().get("module_task_service")
     if task_service is not None:
         await task_service.reconcile_chat(chat_id)
@@ -4951,7 +5168,10 @@ async def get_messages(chat_id: str):
     return [m.model_dump() for m in messages]
 
 @app.post("/api/chats/{chat_id}/compact")
-async def compact_chat_context(chat_id: str):
+async def compact_chat_context(chat_id: str, request: Request):
+    current_principal(request)
+    if db.get_chat_kind(chat_id) != "classic":
+        raise HTTPException(status_code=404, detail="Chat not found")
     compressor_config = get_context_compressor_config()
     if not compressor_config["enabled"]:
         return {
@@ -6734,6 +6954,9 @@ def register_active_hermes_run(
     chat_id: str,
     config: dict,
     actor_user_id: Optional[str] = None,
+    *,
+    entrypoint: Literal["agent", "legacy"] = "legacy",
+    chat_kind: str = "legacy",
 ) -> dict:
     if not run_id:
         raise HermesBridgeError("Hermes run id is required", status_code=502)
@@ -6746,6 +6969,8 @@ def register_active_hermes_run(
             "run_id": run_id,
             "chat_id": chat_id,
             "actor_user_id": actor_user_id,
+            "entrypoint": entrypoint,
+            "chat_kind": chat_kind,
             "config": _copy_hermes_config_snapshot(config),
             "status": "running",
             "pending_approval": None,
@@ -7384,6 +7609,8 @@ async def _consume_hermes_run(submission: dict, config: dict, request: Request, 
             submission["chat_id"],
             config,
             principal.id,
+            entrypoint=submission["entrypoint"],
+            chat_kind=submission["chat_kind"],
         )
         registered = True
         if stream:
@@ -7804,7 +8031,10 @@ async def hermes_run_approval(run_id: str, request: Request):
         if (
             record.get("actor_user_id") is not None
             and record.get("actor_user_id") != principal.id
-            and not principal.is_admin
+            and (
+                record.get("entrypoint") == "agent"
+                or not principal.is_admin
+            )
         ):
             auth_service.audit(
                 principal.id,
@@ -7812,14 +8042,23 @@ async def hermes_run_approval(run_id: str, request: Request):
                 "hermes_run",
                 run_id,
                 "denied",
-                {},
+                {
+                    "reason": "owner_mismatch",
+                    "entrypoint": record.get("entrypoint", "legacy"),
+                },
             )
             raise HermesBridgeError(
-                "Only the run initiator or an administrator may approve",
+                "Only the run initiator may approve",
                 status_code=403,
             )
         if record.get("chat_id") != approval["chat_id"]:
             raise HermesBridgeError("Hermes approval chat_id does not match active run", status_code=403)
+        if (
+            record.get("entrypoint") == "agent"
+            or record.get("chat_kind") == "hermes_agent"
+            or db.get_chat_kind(record["chat_id"]) == "hermes_agent"
+        ):
+            _require_private_agent_chat(principal, record["chat_id"])
         status = str(record.get("status") or "").lower()
         if status in HERMES_RUN_TERMINAL_STATUSES:
             raise HermesBridgeError("Hermes run is no longer active", status_code=409)
@@ -7871,8 +8110,12 @@ async def hermes_run_approval(run_id: str, request: Request):
         return JSONResponse({"success": False, "error": str(e)}, status_code=500)
 
 
-@app.post("/api/hermes/chat")
-async def hermes_chat(request: Request):
+async def _serve_hermes_chat(
+    request: Request,
+    *,
+    expected_kind: Optional[str] = None,
+    entrypoint: Literal["agent", "legacy"] = "legacy",
+):
     try:
         principal = current_principal(request)
         validate_hermes_request_origin(request)
@@ -7882,7 +8125,19 @@ async def hermes_chat(request: Request):
             body = {}
         validate_hermes_chat_body(body)
         config = get_hermes_config(require_enabled=True)
-        submission = await prepare_chat_submission(body, principal)
+        submission = await prepare_chat_submission(
+            body,
+            principal,
+            expected_kind=expected_kind,
+        )
+        chat_kind = db.get_chat_kind(submission["chat_id"])
+        if entrypoint == "legacy" and chat_kind == "hermes_agent":
+            raise HermesBridgeError(
+                "Agent conversations require the Agent entrypoint",
+                status_code=403,
+            )
+        submission["entrypoint"] = entrypoint
+        submission["chat_kind"] = chat_kind or "legacy"
     except HTTPException as e:
         return _hermes_error_response(e)
     except HermesBridgeError as e:
@@ -7932,6 +8187,20 @@ async def hermes_chat(request: Request):
         return _hermes_error_response(e)
     finally:
         _release_chat_generation(submission["chat_id"])
+
+
+@app.post("/api/hermes/chat")
+async def hermes_chat(request: Request):
+    return await _serve_hermes_chat(request)
+
+
+@app.post("/api/agent/chat")
+async def agent_chat(request: Request):
+    return await _serve_hermes_chat(
+        request,
+        expected_kind="hermes_agent",
+        entrypoint="agent",
+    )
 
 
 def _runtime_plugin_manifest(
@@ -8242,7 +8511,6 @@ async def get_market_plugin_icon(plugin_folder: str):
 @app.post("/api/plugins/install")
 async def install_plugin(request: PluginInstallRequest):
     """Install a plugin from URL"""
-    import zipfile
     import shutil
     import tempfile
     
@@ -9746,7 +10014,7 @@ async def get_module_feature_status(module_id: str, request: Request):
     except ModuleRegistryError as error:
         if error.code == "module_not_found":
             return {
-                "sdk_version": "1.5.0",
+                "sdk_version": "1.6.0",
                 "module_id": module_id,
                 "name": module_id,
                 "module_version": None,
@@ -9760,6 +10028,93 @@ async def get_module_feature_status(module_id: str, request: Request):
                 "actions": [],
             }
         return _module_error_response(error)
+
+
+HOST_FEATURE_CATEGORIES = [
+    {
+        "id": "data-hub",
+        "title": {"en": "Data Hub", "zh": "数据中枢"},
+        "order": 10,
+    },
+    {
+        "id": "knowledge-hub",
+        "title": {"en": "Knowledge Hub", "zh": "知识中枢"},
+        "order": 20,
+    },
+    {
+        "id": "business-hub",
+        "title": {"en": "Operations Hub", "zh": "业务中枢"},
+        "order": 30,
+    },
+]
+
+
+def _feature_catalog_service_state(feature: Dict[str, Any]) -> str:
+    if feature.get("available"):
+        return "available"
+    reason = feature.get("reason")
+    code = reason.get("code") if isinstance(reason, dict) else None
+    return {
+        "plugin_missing": "plugin_missing",
+        "plugin_disabled": "plugin_disabled",
+        "plugin_incompatible": "plugin_version_mismatch",
+    }.get(code, "module_unavailable")
+
+
+@app.get(
+    "/api/module-feature-catalog",
+    response_model=ModuleFeatureCatalogApiResponse,
+    responses=MODULE_API_ERROR_RESPONSES,
+    openapi_extra={"security": [{"ChatRawSession": []}]},
+)
+async def get_module_feature_catalog(request: Request):
+    current_principal(request)
+    cards = []
+    for summary in module_registry.list():
+        detail = module_registry.get(summary["id"])
+        manifest = detail["manifest"]
+        integration = manifest.get("frontend_integration")
+        if not isinstance(integration, dict) or integration.get("mode") != "plugin":
+            continue
+        catalog = integration.get("catalog")
+        panel_id = integration.get("workspace_panel_id")
+        if not isinstance(catalog, dict) or not isinstance(panel_id, str):
+            continue
+        try:
+            feature = module_registry.feature_status(summary["module_id"])
+        except ModuleRegistryError as error:
+            feature = {
+                "visible": False,
+                "available": False,
+                "state": "hidden",
+                "reason": {
+                    "code": error.code,
+                    "message": error.public_message,
+                },
+            }
+        service_ready = bool(feature.get("available"))
+        cards.append({
+            "id": summary["module_id"],
+            **catalog,
+            "module_id": summary["module_id"],
+            "plugin_id": integration["id"],
+            "panel_id": panel_id,
+            "service_ready": service_ready,
+            "service_reason": feature.get("reason"),
+            "runtime_ready": False,
+            "available": False,
+            "state": _feature_catalog_service_state(feature),
+        })
+    cards.sort(key=lambda item: (
+        item["category_id"],
+        item["order"],
+        item["module_id"],
+    ))
+    return {
+        "schema_version": "2",
+        "categories": HOST_FEATURE_CATEGORIES,
+        "cards": cards,
+    }
 
 
 def _module_capability_bearer(request: Request) -> str:

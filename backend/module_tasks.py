@@ -2226,7 +2226,7 @@ class ModuleTaskService:
                         )
                         await self._apply_projection(task_id, action, summary)
                 yield event
-        except ModuleTransportError as error:
+        except ModuleTransportError:
             terminal, fallback = known_terminal_event()
             if terminal:
                 if fallback is not None:

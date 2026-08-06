@@ -300,6 +300,25 @@
         "title": "HTTPValidationError",
         "type": "object"
       },
+      "LocalizedTextApiView": {
+        "additionalProperties": false,
+        "properties": {
+          "en": {
+            "title": "En",
+            "type": "string"
+          },
+          "zh": {
+            "title": "Zh",
+            "type": "string"
+          }
+        },
+        "required": [
+          "en",
+          "zh"
+        ],
+        "title": "LocalizedTextApiView",
+        "type": "object"
+      },
       "ModelCapability": {
         "properties": {
           "reasoning": {
@@ -758,7 +777,7 @@
             "title": "Reason"
           },
           "sdk_version": {
-            "const": "1.5.0",
+            "const": "1.6.0",
             "title": "Sdk Version",
             "type": "string"
           },
@@ -791,6 +810,165 @@
           "actions"
         ],
         "title": "ModuleFeatureApiResponse",
+        "type": "object"
+      },
+      "ModuleFeatureCatalogApiResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "cards": {
+            "items": {
+              "$ref": "#/components/schemas/ModuleFeatureCatalogCardApiView"
+            },
+            "title": "Cards",
+            "type": "array"
+          },
+          "categories": {
+            "items": {
+              "$ref": "#/components/schemas/ModuleFeatureCatalogCategoryApiView"
+            },
+            "title": "Categories",
+            "type": "array"
+          },
+          "schema_version": {
+            "const": "2",
+            "title": "Schema Version",
+            "type": "string"
+          }
+        },
+        "required": [
+          "schema_version",
+          "categories",
+          "cards"
+        ],
+        "title": "ModuleFeatureCatalogApiResponse",
+        "type": "object"
+      },
+      "ModuleFeatureCatalogCardApiView": {
+        "additionalProperties": false,
+        "properties": {
+          "available": {
+            "title": "Available",
+            "type": "boolean"
+          },
+          "category_id": {
+            "enum": [
+              "data-hub",
+              "knowledge-hub",
+              "business-hub"
+            ],
+            "title": "Category Id",
+            "type": "string"
+          },
+          "description": {
+            "$ref": "#/components/schemas/LocalizedTextApiView"
+          },
+          "icon": {
+            "title": "Icon",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "module_id": {
+            "title": "Module Id",
+            "type": "string"
+          },
+          "order": {
+            "title": "Order",
+            "type": "number"
+          },
+          "panel_id": {
+            "title": "Panel Id",
+            "type": "string"
+          },
+          "plugin_id": {
+            "title": "Plugin Id",
+            "type": "string"
+          },
+          "runtime_ready": {
+            "title": "Runtime Ready",
+            "type": "boolean"
+          },
+          "service_ready": {
+            "title": "Service Ready",
+            "type": "boolean"
+          },
+          "service_reason": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Service Reason"
+          },
+          "state": {
+            "enum": [
+              "loading",
+              "module_unavailable",
+              "plugin_missing",
+              "plugin_disabled",
+              "plugin_version_mismatch",
+              "panel_not_registered",
+              "main_placement_required",
+              "available"
+            ],
+            "title": "State",
+            "type": "string"
+          },
+          "title": {
+            "$ref": "#/components/schemas/LocalizedTextApiView"
+          }
+        },
+        "required": [
+          "id",
+          "category_id",
+          "order",
+          "title",
+          "description",
+          "icon",
+          "module_id",
+          "plugin_id",
+          "panel_id",
+          "service_ready",
+          "service_reason",
+          "runtime_ready",
+          "available",
+          "state"
+        ],
+        "title": "ModuleFeatureCatalogCardApiView",
+        "type": "object"
+      },
+      "ModuleFeatureCatalogCategoryApiView": {
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "enum": [
+              "data-hub",
+              "knowledge-hub",
+              "business-hub"
+            ],
+            "title": "Id",
+            "type": "string"
+          },
+          "order": {
+            "title": "Order",
+            "type": "integer"
+          },
+          "title": {
+            "$ref": "#/components/schemas/LocalizedTextApiView"
+          }
+        },
+        "required": [
+          "id",
+          "title",
+          "order"
+        ],
+        "title": "ModuleFeatureCatalogCategoryApiView",
         "type": "object"
       },
       "ModuleModelCapabilityApiResponse": {
@@ -1474,6 +1652,7 @@
             "type": "string"
           },
           "theme_mode": {
+            "const": "light",
             "default": "light",
             "title": "Theme Mode",
             "type": "string"
@@ -2604,6 +2783,161 @@
           }
         },
         "summary": "Toggle Agent Skill"
+      }
+    },
+    "/api/agent/chat": {
+      "post": {
+        "operationId": "agent_chat_api_agent_chat_post",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Agent Chat"
+      }
+    },
+    "/api/agent/chats": {
+      "get": {
+        "operationId": "get_agent_chats_api_agent_chats_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Get Agent Chats"
+      },
+      "post": {
+        "operationId": "create_agent_chat_api_agent_chats_post",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Create Agent Chat"
+      }
+    },
+    "/api/agent/chats/{chat_id}": {
+      "delete": {
+        "operationId": "delete_agent_chat_api_agent_chats__chat_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "chat_id",
+            "required": true,
+            "schema": {
+              "title": "Chat Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Delete Agent Chat"
+      },
+      "patch": {
+        "operationId": "rename_agent_chat_api_agent_chats__chat_id__patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "chat_id",
+            "required": true,
+            "schema": {
+              "title": "Chat Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Rename Agent Chat"
+      }
+    },
+    "/api/agent/chats/{chat_id}/messages": {
+      "get": {
+        "operationId": "get_agent_messages_api_agent_chats__chat_id__messages_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "chat_id",
+            "required": true,
+            "schema": {
+              "title": "Chat Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Agent Messages"
       }
     },
     "/api/auth/login": {
@@ -4520,6 +4854,109 @@
           }
         ],
         "summary": "Module Capability Skill"
+      }
+    },
+    "/api/module-feature-catalog": {
+      "get": {
+        "operationId": "get_module_feature_catalog_api_module_feature_catalog_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModuleFeatureCatalogApiResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModuleErrorResponse"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModuleErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModuleErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModuleErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModuleErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModuleErrorResponse"
+                }
+              }
+            },
+            "description": "Content Too Large"
+          },
+          "502": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModuleErrorResponse"
+                }
+              }
+            },
+            "description": "Bad Gateway"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModuleErrorResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "security": [
+          {
+            "ChatRawSession": []
+          }
+        ],
+        "summary": "Get Module Feature Catalog"
       }
     },
     "/api/module-features/{module_id}": {
@@ -7037,7 +7474,7 @@
     },
     "/api/settings/logo": {
       "get": {
-        "description": "Get logo_data separately for lazy loading.",
+        "description": "Return public visual identity used by login and workspace shells.",
         "operationId": "get_settings_logo_api_settings_logo_get",
         "responses": {
           "200": {

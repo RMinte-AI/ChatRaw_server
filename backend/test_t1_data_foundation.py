@@ -246,6 +246,7 @@ class MigrationTests(unittest.TestCase):
                         "created_at",
                         "updated_at",
                         "owner_user_id",
+                        "kind",
                     },
                 )
             finally:
@@ -1045,7 +1046,7 @@ class MigrationTests(unittest.TestCase):
                         """
                     )
                 connection.execute(
-                    "DELETE FROM schema_migrations WHERE version = 16"
+                    "DELETE FROM schema_migrations WHERE version >= 16"
                 )
                 connection.commit()
 

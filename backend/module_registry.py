@@ -942,6 +942,16 @@ class ModuleRegistry:
         return {
             "mode": mode,
             "id": integration["id"],
+            **(
+                {
+                    "workspace_panel_id": integration[
+                        "workspace_panel_id"
+                    ],
+                    "catalog": integration["catalog"],
+                }
+                if "catalog" in integration
+                else {}
+            ),
             "plugin_id": (
                 integration["id"] if mode == "plugin" else None
             ),
@@ -1151,10 +1161,18 @@ class ModuleRegistry:
             reason = None
         public_integration = {
             key: integration[key]
-            for key in ("mode", "id", "required_version", "status")
+            for key in (
+                "mode",
+                "id",
+                "required_version",
+                "status",
+                "workspace_panel_id",
+                "catalog",
+            )
+            if key in integration
         }
         return {
-            "sdk_version": "1.5.0",
+            "sdk_version": "1.6.0",
             "module_id": summary["module_id"],
             "name": summary["name"],
             "module_version": summary["module_version"],
@@ -1165,7 +1183,15 @@ class ModuleRegistry:
             "reason": reason,
             "frontend_integration": public_integration,
             "companion_plugin": (
-                {"status": integration["status"]}
+                {
+                    key: integration[key]
+                    for key in (
+                        "status",
+                        "workspace_panel_id",
+                        "catalog",
+                    )
+                    if key in integration
+                }
                 if integration["mode"] == "plugin"
                 else None
             ),

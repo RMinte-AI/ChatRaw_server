@@ -119,7 +119,15 @@ my-module/
   "frontend_integration": {
     "mode": "plugin",
     "id": "example-echo-companion",
-    "version_range": ">=1.0.0,<2.0.0"
+    "version_range": ">=1.0.0,<2.0.0",
+    "workspace_panel_id": "example-echo-workbench",
+    "catalog": {
+      "category_id": "data-hub",
+      "order": 10,
+      "title": {"en": "Example Echo", "zh": "示例回显"},
+      "description": {"en": "Run an example task.", "zh": "运行示例任务。"},
+      "icon": "ri-pulse-line"
+    }
   }
 }
 ```
@@ -136,7 +144,9 @@ my-module/
 }
 ```
 
-`companion_plugin` 和 `frontend_integration` 必须且只能出现一个。旧字段会规范化为 plugin 模式，不要求已有模块修改 manifest。
+`companion_plugin` 和 `frontend_integration` 必须且只能出现一个。旧字段会规范化为 plugin 模式；两种 plugin 写法都可携带 `workspace_panel_id` 与 `catalog`。
+
+首页分类由 Host 固定为 `data-hub`、`knowledge-hub`、`business-hub`，卡片则只从已注册 Module Manifest 的 `frontend_integration.catalog` 汇聚。`catalog` 出现时必须同时声明 `workspace_panel_id`；中英文 `title`、`description`、有限数值 `order`、Remix Icon 类名都必须通过严格 Schema。配套 Plugin 必须用相同 ID 注册包含 `main` 的 Workspace 面板。缺字段、版本不兼容、面板未注册或不支持 `main` 都会只禁用该卡片，不使用 Server 硬编码业务映射兜底。展示元数据不进入权限摘要，但 Manifest 摘要变化仍会按既有刷新流程被记录。
 
 规则：
 
@@ -150,6 +160,7 @@ my-module/
 - 配置必须是 `additionalProperties: false` 的闭合对象。
 - 秘密字段使用 `"x-chatraw-secret": true`。
 - manifest 不包含模块地址、密钥、前端代码或私有依赖细节。
+- `catalog` 只声明一个 Module 的首页入口；Plugin 不得自行插入首页 DOM。
 
 权限相关变化会改变 permission digest，包括：
 
@@ -767,6 +778,14 @@ Module Protocol v1 covers only the ChatRaw-to-module northbound interface. Inter
 Use the committed manifest, management, task, and Resident JSON Schemas; the Module SDK contracts; both reference manifests and the implementation; and the conformance commands listed above. Documentation cannot add behavior absent from those sources. See the [Resident Module Integration Guide](resident-module-integration-guide.md) for persistent Server-owned frontend entries.
 
 ### Required behavior
+
+For a plugin-backed home card, add `workspace_panel_id` and strict bilingual
+`catalog` metadata to `frontend_integration` (or the legacy
+`companion_plugin` form). The Host fixes the category IDs to `data-hub`,
+`knowledge-hub`, and `business-hub`; registered manifests provide card order,
+copy, icon, and panel identity. The Companion Plugin must register that panel
+with `main` placement. Missing or invalid runtime integration disables only
+that card and never falls back to a hardcoded Server mapping.
 
 - Stable module ID and installation instance ID.
 - One-time, expiring pairing code.

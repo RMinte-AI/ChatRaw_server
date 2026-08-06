@@ -79,6 +79,7 @@
       "sidebar",
       "composer"
     ],
+    "placement_behavior": "composer is the current Agent composer mount; legacy sidebar declarations are accepted and rendered in composer because the four-page shell has no sidebar",
     "workspace_owner": "ChatRaw core",
     "mount_return": "cleanup function | absent",
     "unavailable_behavior": "entry remains visible and disabled for eligible users",

@@ -64,6 +64,9 @@ ChatRaw 不提供公开的用户自助注册。管理员在“设置 → Users�
 “设置 → Account”。系统始终要求至少保留一个已启用管理员。操作前确认目标用户名和当前角色。
 当前权限模型只有 `admin` 与 `member`，不提供自定义权限组或更细粒度角色。
 
+插件管理入口位于“设置 → 插件”，不在首页新增独立图标。只有管理员能看到该导航项；其中可以
+浏览插件市场、查看已安装插件、启停或删除插件，以及上传本地插件包。
+
 管理界面支持 `English` 和 `中文`。语言选择保存在浏览器中，Users、Modules、Account、
 插件、Resident Integration、任务状态以及操作结果应统一使用当前语言。认证和用户管理
 API 会同时返回稳定的错误 `code` 与英文诊断 `detail`；前端按 `code` 显示本地化消息，
@@ -83,6 +86,14 @@ API 会同时返回稳定的错误 `code` 与英文诊断 `detail`；前端按 `
 
 普通用户能使用已启用插件，但不能安装、停用或删除。禁用或删除插件会移除前端入口，不会自动删除模块数据。
 
+管理员安装、升级、启用、停用或删除插件后，其他已打开的 ChatRaw 标签页会同步清理旧运行时并加载当前版本。若旧插件工作台正在打开，ChatRaw 会先执行其清理函数并关闭旧工作台，避免旧版界面继续提交任务；用户可以从当前入口重新打开新版工作台。
+
+首页保留三个 Host 固定分类，业务卡片从已注册 Module Manifest 的 `frontend_integration.catalog` 动态汇聚。卡片只有在 Module 服务就绪、配套 Plugin 已安装启用且版本兼容、声明的 Workspace 面板已在当前浏览器注册并支持 `main` 时才能打开。缺失或不兼容只影响对应卡片，不使用硬编码业务目录兜底。Plugin 不得自行插入首页 DOM。
+
+旧版聊天侧栏已从 DOM 和运行状态中移除。历史 Plugin `placement: 'sidebar'` 会归一到 Agent 输入区工具栏，历史 Resident `sidebar` 入口会归一到 `composer`；新集成应直接声明当前入口，不得依赖旧侧栏。
+
+通用主聊天界面已从产品 UI 移除。右下角 Hermes Agent 浮窗固定调用 `/api/agent/chat`；其历史会话按登录用户私有，管理员也不能借经典 `/api/chats` 接口读取。原 `/api/chat`、`/api/hermes/chat` 和经典聊天接口仅为现有集成保留，不是新 UI 的回退路径。
+
 ### 4.1 系统默认 Agent 规则
 
 管理员可以在 Agent 配套插件中把新规则作用域选为“系统默认”或“个人”；新版插件对
@@ -99,14 +110,15 @@ Compiled 内容并二次确认激活后，才会进入所有用户后续创建�
 或超限会在激活事务中失败，不会静默截断。
 
 规则变更只影响后续新任务。任务创建时已经冻结的作用域、版本和哈希不会漂移。升级到
-Schema 16 前必须停止写入并备份；旧 Server 不能直接打开迁移后的数据库，回滚代码时
+Schema 17 前必须停止写入并备份；旧 Server 不能直接打开迁移后的数据库，回滚代码时
 必须同时恢复匹配的迁移前快照。
 
 未激活规则可由个人所有者或系统规则管理员删除；激活规则必须先明确停用，Server 不会
 在删除时自动停用。删除只写入墓碑，普通列表和后续任务不再选择该规则，但历史及在途任务
-仍可读取冻结版本；删除后可以新建同名规则。Compiled Rule v1.2 的
-`deterministic_pagination` 只接受 Source 明确给出的准确工具名、页码参数、页大小与空页
-终止契约，同一作用域内同一工具只能激活一条。
+仍可读取冻结版本；删除后可以新建同名规则。旧的 Compiled Rule v1.2
+`deterministic_pagination` 与 v1 `tools[].iteration` 快照仍可读取，但不得新编译或重新
+激活。回退 Agent 只支持聚合摘要或用户明确指定的一页明细；全量明细与导出必须交给独立的
+批处理工作流。规则不能提高 Agent 固定的调用、并发、页大小或超时上限。
 
 ### 5. 连接和启用模块
 
@@ -375,6 +387,16 @@ beyond `admin` and `member`.
 
 Plugins execute in the ChatRaw page JavaScript context. Review their source, manifest hooks, proxy declarations, dependencies, and companion-module compatibility before installation. Disabling a plugin removes its frontend entry point; it does not delete module data.
 
+Installing, upgrading, enabling, disabling, or removing a plugin synchronizes its runtime across other open ChatRaw tabs. An open workspace owned by the previous runtime is disposed and closed before the current version becomes available, so stale plugin code cannot continue submitting tasks.
+
+The Host owns the three home categories. Cards are aggregated from `frontend_integration.catalog` in registered Module manifests. A card opens only when the Module service is ready, its Companion Plugin is installed, enabled, version-compatible, and the declared Workspace panel is registered in the current browser with `main` support. There is no hardcoded business-card fallback, and plugins must not inject home-page DOM.
+
+The legacy chat sidebar has been removed from both DOM and runtime state. Historical Plugin `placement: 'sidebar'` declarations normalize to the Agent composer toolbar, and historical Resident `sidebar` entries normalize to `composer`; new integrations must declare the current surface directly.
+
+The generic main-chat UI has been removed. The bottom-right Hermes Agent popup always calls `/api/agent/chat`; its sessions are private to the signed-in user, including from administrators and classic `/api/chats` routes. `/api/chat`, `/api/hermes/chat`, and classic chat endpoints remain compatibility APIs, not UI fallback routes.
+
+The product UI is light-only. Saved legacy `dark` values are normalized to `light`, and administrators are not offered a theme selector.
+
 ### System-default Agent rules
 
 Administrators may create a personal or system-default Agent rule; the new
@@ -391,15 +413,17 @@ take precedence over conflicting system defaults. The combined limit remains
 10 rules per task; conflicts and over-capacity activation fail transactionally
 without truncation. Existing task snapshots never drift.
 
-Back up the quiesced Server database before Schema 16. Inactive personal rules
+Back up the quiesced Server database before Schema 17. Inactive personal rules
 may be deleted by their owner and inactive system rules by an administrator.
 Server never deactivates a rule as a side effect of deletion. Deletion writes a
 tombstone: ordinary lists and future tasks omit it, frozen in-flight and
-historical snapshots remain readable, and the name may be reused. Compiled Rule
-v1.2 accepts `deterministic_pagination` only with an exact Source-stated tool,
-cursor, page-size, and empty-page termination contract; one scope may activate
-only one such rule per tool. Rolling back to older Server code requires the
-matching pre-migration data snapshot.
+historical snapshots remain readable, and the name may be reused. Legacy
+Compiled Rule v1.2 `deterministic_pagination` and v1 `tools[].iteration`
+snapshots remain readable, but cannot be compiled or reactivated. The fallback
+Agent supports aggregate summaries or one explicitly requested detail page
+only; bulk details and exports belong to a separate workflow. Rules cannot
+raise fixed Agent call, concurrency, page-size, or timeout limits. Rolling back
+to older Server code requires the matching pre-migration data snapshot.
 
 ### Module onboarding
 

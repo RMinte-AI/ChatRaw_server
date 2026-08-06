@@ -101,7 +101,16 @@
           "type": "string",
           "minLength": 1,
           "maxLength": 120
+        },
+        "workspace_panel_id": {
+          "$ref": "#/$defs/workspacePanelId"
+        },
+        "catalog": {
+          "$ref": "#/$defs/catalog"
         }
+      },
+      "dependentRequired": {
+        "catalog": ["workspace_panel_id"]
       }
     },
     "frontend_integration": {
@@ -128,7 +137,16 @@
           "type": "string",
           "minLength": 1,
           "maxLength": 120
+        },
+        "workspace_panel_id": {
+          "$ref": "#/$defs/workspacePanelId"
+        },
+        "catalog": {
+          "$ref": "#/$defs/catalog"
         }
+      },
+      "dependentRequired": {
+        "catalog": ["workspace_panel_id"]
       }
     },
     "administration": {
@@ -145,6 +163,42 @@
     }
   },
   "$defs": {
+    "localizedText": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["en", "zh"],
+      "properties": {
+        "en": {"type": "string", "minLength": 1, "maxLength": 160},
+        "zh": {"type": "string", "minLength": 1, "maxLength": 160}
+      }
+    },
+    "workspacePanelId": {
+      "type": "string",
+      "pattern": "^[a-z0-9](?:[a-z0-9._-]{0,62}[a-z0-9])?$"
+    },
+    "catalog": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "category_id",
+        "order",
+        "title",
+        "description",
+        "icon"
+      ],
+      "properties": {
+        "category_id": {
+          "enum": ["data-hub", "knowledge-hub", "business-hub"]
+        },
+        "order": {"type": "number"},
+        "title": {"$ref": "#/$defs/localizedText"},
+        "description": {"$ref": "#/$defs/localizedText"},
+        "icon": {
+          "type": "string",
+          "pattern": "^ri-[a-z0-9-]+$"
+        }
+      }
+    },
     "semver": {
       "type": "string",
       "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)(?:-[0-9A-Za-z.-]+)?(?:\\+[0-9A-Za-z.-]+)?$",

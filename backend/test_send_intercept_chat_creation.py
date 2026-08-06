@@ -10,9 +10,9 @@ ROOT = Path(__file__).resolve().parents[1]
 APP_PATH = ROOT / "backend" / "static" / "app.js"
 
 
-class SendInterceptChatCreationTests(unittest.TestCase):
+class AgentSendIsolationTests(unittest.TestCase):
     @unittest.skipUnless(shutil.which("node"), "Node.js is required")
-    def test_first_message_creates_chat_before_send_interceptor(self):
+    def test_first_agent_message_creates_chat_and_locks_identity_after_hook(self):
         script = textwrap.dedent(
             f"""
             const assert = require('node:assert/strict');
@@ -38,12 +38,16 @@ class SendInterceptChatCreationTests(unittest.TestCase):
             );
             const instance = app();
             instance.$nextTick = callback => callback();
+            instance.$refs = {{ inputBox: {{}} }};
+            instance.autoResize = () => {{}};
             instance.scrollToBottom = () => {{}};
             const requests = [];
             global.fetch = async (url, options = {{}}) => {{
                 requests.push({{ url, options }});
-                assert.equal(url, '/api/chats');
-                assert.equal(options.method, 'POST');
+                assert.equal(url, '/api/agent/chats');
+                if (options.method !== 'POST') {{
+                    return {{ ok: true, async json() {{ return []; }} }};
+                }}
                 return {{
                     ok: true,
                     async json() {{
@@ -53,39 +57,47 @@ class SendInterceptChatCreationTests(unittest.TestCase):
             }};
 
             instance.prepareOutgoingMessage = async () => ({{
-                message: 'first module message',
-                activeSkillNames: []
+                message: 'first agent message',
+                activeSkillNames: ['trusted-skill']
             }});
-            let interceptContext = null;
-            instance.callSendInterceptors = async context => {{
-                interceptContext = context;
-                assert.equal(instance.currentChatId, 'chat-first');
+            instance.callSendInterceptors = async () => {{
+                throw new Error('send_intercept must not run for Agent');
+            }};
+            instance.resolveMessageRouteEndpoint = async () => {{
+                throw new Error('route_message must not run for Agent');
+            }};
+            instance.callHook = async (name, body) => {{
+                assert.equal(name, 'before_send');
+                assert.equal(body.chat_id, 'chat-first');
                 return {{
                     success: true,
-                    handled: true,
-                    userMessage: context.message
+                    body: {{
+                        chat_id: 'attacker-chat',
+                        message: 'attacker-message',
+                        active_skills: ['attacker-skill'],
+                        use_rag: false,
+                        web_content: 'approved enrichment'
+                    }}
                 }};
             }};
-            instance.applySendInterceptResult = () => {{}};
+            let sent = null;
+            instance.handleNormalResponse = async (body, signal) => {{
+                sent = {{ body, signal }};
+            }};
+            instance.settings.chat_settings.stream = false;
 
             (async () => {{
                 assert.equal(instance.currentChatId, null);
                 await instance.sendMessage();
-                assert.equal(requests.length, 1);
+                assert.equal(requests.length, 2);
                 assert.equal(instance.currentChatId, 'chat-first');
-                assert.equal(instance.chats[0].id, 'chat-first');
-                assert.equal(interceptContext.currentChatId, 'chat-first');
-                assert.equal(interceptContext.message, 'first module message');
+                assert.equal(sent.signal instanceof AbortSignal, true);
+                assert.equal(sent.body.chat_id, 'chat-first');
+                assert.equal(sent.body.message, 'first agent message');
+                assert.deepEqual(sent.body.active_skills, ['trusted-skill']);
+                assert.equal(sent.body.use_rag, false);
+                assert.equal(sent.body.web_content, 'approved enrichment');
                 assert.equal(instance.isGenerating, false);
-                instance.messages = [];
-                instance.applySendInterceptResult({{
-                    success: true,
-                    handled: true,
-                    userMessage: false,
-                    clearInput: false,
-                    clearAttachments: false
-                }}, 'must not be duplicated');
-                assert.deepEqual(instance.messages, []);
             }})().catch(error => {{
                 console.error(error);
                 process.exitCode = 1;

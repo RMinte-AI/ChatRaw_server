@@ -35,6 +35,8 @@ export default defineConfig({
             command: [
                 'T6_FRONTEND_MODE=resident',
                 'T6_SOURCE_HOLD_AFTER_BOOTSTRAP=1',
+                'T6_HERMES_PLUGIN_DIR=Plugins/Plugin_market/hermes',
+                `T6_HERMES_BASE_URL=http://127.0.0.1:${modelPort}/v1`,
                 'RATE_LIMIT_ENABLED=false',
                 `T6_SOURCE_SERVER_PORT=${serverPort}`,
                 `T6_SOURCE_MODULE_PORT=${modulePort}`,

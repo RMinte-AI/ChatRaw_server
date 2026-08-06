@@ -89,13 +89,13 @@ def _plugin_archive(plugin_dir: Path) -> bytes:
     return buffer.getvalue()
 
 
-def _upload_plugin(client: Client, plugin_dir: Path) -> None:
+def _upload_plugin(client: Client, plugin_dir: Path) -> str:
     boundary = f"chatraw-t6-{uuid.uuid4().hex}"
     archive = _plugin_archive(plugin_dir)
     body = (
         f"--{boundary}\r\n"
         'Content-Disposition: form-data; name="file"; '
-        'filename="reference-module-companion.zip"\r\n'
+        f'filename="{plugin_dir.name}.zip"\r\n'
         "Content-Type: application/zip\r\n\r\n"
     ).encode("ascii")
     body += archive + f"\r\n--{boundary}--\r\n".encode("ascii")
@@ -105,8 +105,10 @@ def _upload_plugin(client: Client, plugin_dir: Path) -> None:
         headers={"Content-Type": f"multipart/form-data; boundary={boundary}"},
         body=body,
     )
-    if result.get("plugin_id") != "reference-module-companion":
-        raise AcceptanceError("Reference companion plugin was not installed")
+    plugin_id = result.get("plugin_id")
+    if not isinstance(plugin_id, str) or not plugin_id:
+        raise AcceptanceError(f"Plugin was not installed from {plugin_dir}")
+    return plugin_id
 
 
 def _wait_task(client: Client, task_id: str, expected, timeout=30):
@@ -267,8 +269,27 @@ def bootstrap(arguments) -> None:
             flush=True,
         )
     if arguments.frontend_mode == "plugin":
-        _upload_plugin(client, arguments.plugin_dir)
+        plugin_id = _upload_plugin(client, arguments.plugin_dir)
+        if plugin_id != "reference-module-companion":
+            raise AcceptanceError("Reference companion plugin was not installed")
         print("T6 bootstrap: plugin installed", flush=True)
+    if arguments.hermes_plugin_dir:
+        plugin_id = _upload_plugin(client, arguments.hermes_plugin_dir)
+        if plugin_id != "hermes":
+            raise AcceptanceError("Hermes browser fixture plugin was not installed")
+        client.request(
+            "POST",
+            "/api/plugins/hermes/settings",
+            payload={
+                "settings": {
+                    "baseUrl": arguments.hermes_base_url,
+                    "model": "hermes-agent",
+                    "apiMode": "chat_completions",
+                    "requestTimeoutSeconds": 30,
+                }
+            },
+        )
+        print("T6 bootstrap: Hermes browser fixture configured", flush=True)
     paired = client.request(
         "POST",
         "/api/admin/modules/pair",
@@ -478,6 +499,11 @@ def main() -> int:
         default=Path(
             "Plugins/Plugin_market/reference-module-companion"
         ),
+    )
+    parser.add_argument("--hermes-plugin-dir", type=Path)
+    parser.add_argument(
+        "--hermes-base-url",
+        default="http://127.0.0.1:8642/v1",
     )
     arguments = parser.parse_args()
     if arguments.phase == "bootstrap":

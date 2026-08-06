@@ -12,8 +12,8 @@
     
     <!-- Performance: Preload Critical Resources -->
     <link rel="preload" href="fonts/remixicon/remixicon.woff2?t=1769685282643" as="font" type="font/woff2" crossorigin>
-    <link rel="preload" href="styles.min.css?v=371cc475d2a77656c6495b9c77adaa42093eab97f3ccbbdd13657f0b11894632" as="style">
-    <link rel="preload" href="app.min.js?v=72bbda0602badac4cd291a5f6da0c784a924b57078a469b3026f34a49c340143" as="script">
+    <link rel="preload" href="styles.min.css?v=4b44e8ca7db1ff0d21b33d9533f8c8429519d9321f072bbfcf29ad3c2dd3bb41" as="style">
+    <link rel="preload" href="app.min.js?v=0071bcbd2e8680f985df7d9e8f048fb6d19abfa1021d2da0b1be6e16b64ee76d" as="script">
     <link rel="preload" href="vendor/alpine.min.js?v=c8fa8ff457abdcd212f37a07ef2f292c999011dffabcaa577fb1e1e0076ca658" as="script">
     <link rel="preload" href="vendor/marked.min.js?v=6002af63485b043fa60ddaba1b34363b98d2a8b2c63b607004f3a2405a8a053a" as="script">
     <link rel="preload" href="vendor/purify.min.js?v=c45ba939765574f96cbf35ee9b6d89f73756a17921814425e74b82f7c54603ce" as="script">
@@ -23,7 +23,7 @@
         /* RemixIcon - Inline to avoid render blocking */
         @font-face{font-family:"remixicon";src:url('fonts/remixicon/remixicon.woff2?t=1769685282643') format("woff2"),url('fonts/remixicon/remixicon.woff?t=1769685282643') format("woff");font-display:swap}
         [class^="ri-"],[class*=" ri-"]{font-family:'remixicon'!important;font-style:normal;-webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale}
-        .ri-add-line:before{content:"\ea13"}.ri-arrow-down-s-line:before{content:"\ea4e"}.ri-arrow-left-s-line:before{content:"\ea64"}.ri-arrow-right-s-line:before{content:"\ea6e"}.ri-close-circle-fill:before{content:"\eb96"}.ri-close-line:before{content:"\eb99"}.ri-computer-line:before{content:"\ebca"}.ri-delete-bin-line:before{content:"\ec2a"}.ri-error-warning-line:before{content:"\eca1"}.ri-external-link-line:before{content:"\ecaf"}.ri-file-text-line:before{content:"\ed0f"}.ri-flashlight-line:before{content:"\ed3d"}.ri-image-line:before{content:"\ee4b"}.ri-lightbulb-line:before{content:"\eea9"}.ri-link:before{content:"\eeb2"}.ri-loader-4-line:before{content:"\eec6"}.ri-menu-line:before{content:"\ef3e"}.ri-message-3-line:before{content:"\ef46"}.ri-robot-2-line:before{content:"\f3d8"}.ri-send-plane-2-line:before{content:"\f0d8"}.ri-settings-3-line:before{content:"\f0e6"}.ri-stop-circle-line:before{content:"\f19f"}.ri-tools-line:before{content:"\f21b"}.ri-upload-2-line:before{content:"\f24a"}.ri-user-3-line:before{content:"\f256"}.ri-file-copy-line:before{content:"\ecd5"}.ri-check-line:before{content:"\eb7b"}.ri-information-line:before{content:"\ee59"}.ri-download-2-line:before{content:"\ec54"}.ri-search-line:before{content:"\f0d1"}
+        .ri-add-line:before{content:"\ea13"}.ri-arrow-down-s-line:before{content:"\ea4e"}.ri-arrow-left-s-line:before{content:"\ea64"}.ri-arrow-right-s-line:before{content:"\ea6e"}.ri-close-circle-fill:before{content:"\eb96"}.ri-close-line:before{content:"\eb99"}.ri-collapse-diagonal-line:before{content:"\f4cb"}.ri-computer-line:before{content:"\ebca"}.ri-delete-bin-line:before{content:"\ec2a"}.ri-error-warning-line:before{content:"\eca1"}.ri-expand-diagonal-line:before{content:"\f4d1"}.ri-external-link-line:before{content:"\ecaf"}.ri-file-text-line:before{content:"\ed0f"}.ri-flashlight-line:before{content:"\ed3d"}.ri-image-line:before{content:"\ee4b"}.ri-lightbulb-line:before{content:"\eea9"}.ri-link:before{content:"\eeb2"}.ri-loader-4-line:before{content:"\eec6"}.ri-menu-line:before{content:"\ef3e"}.ri-message-3-line:before{content:"\ef46"}.ri-robot-2-line:before{content:"\f3d8"}.ri-send-plane-2-line:before{content:"\f0d8"}.ri-settings-3-line:before{content:"\f0e6"}.ri-stop-circle-line:before{content:"\f19f"}.ri-tools-line:before{content:"\f21b"}.ri-upload-2-line:before{content:"\f24a"}.ri-user-3-line:before{content:"\f256"}.ri-file-copy-line:before{content:"\ecd5"}.ri-check-line:before{content:"\eb7b"}.ri-information-line:before{content:"\ee59"}.ri-download-2-line:before{content:"\ec54"}.ri-search-line:before{content:"\f0d1"}
         
         :root {
             --background: 0 0% 100%;
@@ -61,19 +61,6 @@
             --duration-normal: 200ms;
             --transition: all var(--duration-normal) var(--ease);
         }
-        [data-theme="dark"] {
-            --background: 0 0% 0%;
-            --foreground: 0 0% 100%;
-            --muted: 0 0% 8.6%;
-            --muted-foreground: 0 0% 62.7%;
-            --accent: 0 0% 10.2%;
-            --border: 0 0% 15.7%;
-            --bg-secondary: #0a0a0a;
-            --text-muted: #737373;
-            --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3);
-            --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.4);
-            --shadow-lg: 0 20px 40px -10px rgba(0, 0, 0, 0.7);
-        }
         * { margin: 0; padding: 0; box-sizing: border-box; }
         html { height: 100%; height: 100dvh; overflow: hidden; }
         body {
@@ -88,19 +75,6 @@
             -webkit-font-smoothing: antialiased;
         }
         [x-cloak] { display: none !important; }
-        .sidebar {
-            width: 280px;
-            min-width: 280px;
-            height: 100%;
-            background: var(--bg-secondary);
-            border-right: 1px solid var(--border-color);
-            display: flex;
-            flex-direction: column;
-            transition: width 0.3s cubic-bezier(0.16, 1, 0.3, 1);
-            z-index: 10;
-            flex-shrink: 0;
-        }
-        .sidebar.collapsed { width: 72px; min-width: 72px; }
         .main-content {
             flex: 1;
             display: flex;
@@ -132,10 +106,6 @@
             font-size: 1.1rem;
             margin-bottom: 40px;
         }
-        @media (max-width: 768px), (max-height: 500px) and (max-width: 900px) and (pointer: coarse) {
-            .sidebar { position: fixed; left: 0; top: 0; transform: translateX(0); }
-            .sidebar.collapsed { transform: translateX(-100%); }
-        }
     </style>
     
     <!-- Locally pinned frontend runtime -->
@@ -146,209 +116,151 @@
     <script defer src="vendor/alpine.min.js?v=c8fa8ff457abdcd212f37a07ef2f292c999011dffabcaa577fb1e1e0076ca658"></script>
     <!-- highlight.js is lazy-loaded in app.min.js when needed -->
     <link rel="stylesheet" href="fonts/remixicon/remixicon.css">
-    <link rel="stylesheet" href="styles.min.css?v=371cc475d2a77656c6495b9c77adaa42093eab97f3ccbbdd13657f0b11894632">
+    <link rel="stylesheet" href="styles.min.css?v=4b44e8ca7db1ff0d21b33d9533f8c8429519d9321f072bbfcf29ad3c2dd3bb41">
 </head>
 <body x-data="app()" :data-theme="settings.ui_settings.theme_mode">
-    <!-- Sidebar Overlay for Mobile -->
-    <div class="sidebar-overlay" x-show="isMobileView && !sidebarCollapsed" @click="closeSidebar()" x-transition:enter="fade-enter" x-transition:leave="fade-leave"></div>
-    
-    <!-- Sidebar -->
-    <aside class="sidebar" :class="{ 'collapsed': sidebarCollapsed }">
-        <div class="sidebar-header">
-            <div class="logo" x-show="!sidebarCollapsed">
-                <img x-show="settings.ui_settings.logo_data" :src="settings.ui_settings.logo_data" :alt="t('logoAlt')" class="logo-img" width="32" height="32">
-                <span class="logo-text" x-text="settings.ui_settings.logo_text || 'JustChat'"></span>
-            </div>
-            <button class="btn-icon" @click="toggleSidebar()" :title="sidebarCollapsed ? t('expand') : t('collapse')" :aria-expanded="String(!sidebarCollapsed)" :aria-label="t('toggleSidebar')">
-                <i class="ri-arrow-left-s-line" x-show="!sidebarCollapsed"></i>
-                <i class="ri-arrow-right-s-line" x-show="sidebarCollapsed"></i>
-            </button>
-        </div>
-        
-        <!-- Stable sidebar mount for Host-rendered feature entries. -->
-        <div class="sidebar-feature-section"
-             x-show="hasSidebarFeatureEntries"
+    <section class="hub-home"
+             x-show="!showSettings && !pluginWorkspace.show"
              x-cloak>
-            <button class="sidebar-feature-toggle"
-                    type="button"
-                    x-show="!sidebarCollapsed"
-                    @click="toggleSidebarFeatures()"
-                    :title="sidebarFeaturesCollapsed
-                        ? t('expandSidebarFeatures')
-                        : t('collapseSidebarFeatures')"
-                    :aria-label="sidebarFeaturesCollapsed
-                        ? t('expandSidebarFeatures')
-                        : t('collapseSidebarFeatures')"
-                    :aria-expanded="String(!sidebarFeaturesCollapsed)"
-                    aria-controls="sidebar-feature-entries">
-                <span class="sidebar-feature-toggle-label">
-                    <i class="ri-apps-2-line"></i>
-                    <span x-text="t('sidebarFeatures')"></span>
-                </span>
-                <span class="sidebar-feature-toggle-action">
-                    <span x-text="sidebarFeaturesCollapsed
-                        ? t('expand')
-                        : t('collapse')"></span>
-                    <i class="ri-arrow-down-s-line sidebar-feature-toggle-chevron"></i>
-                </span>
-            </button>
-
-            <div id="sidebar-feature-entries"
-                 class="sidebar-feature-area"
-                 x-show="sidebarCollapsed || !sidebarFeaturesCollapsed">
-                <div class="resident-sidebar-entries"
-                     x-show="!sidebarCollapsed">
-                    <template x-for="entry in residentEntries('sidebar')"
-                              :key="entry.integration.id + ':' + entry.id">
-                        <button class="resident-entry"
-                                type="button"
-                                :disabled="!entry.integration.feature?.available"
-                                :title="entry.integration.feature?.available
-                                    ? residentText(entry.label)
-                                    : t('unavailable')"
-                                @click="openResidentIntegration(entry.integration)">
-                            <i :class="entry.icon"></i>
-                            <span x-text="residentText(entry.label)"></span>
-                            <small x-show="!entry.integration.feature?.available" x-text="t('unavailable')"></small>
-                        </button>
-                    </template>
-                    <template x-for="collection in pluginWorkspaceCollections"
-                              :key="'workspace-collection:' + collection.id">
-                        <button class="plugin-sidebar-entry"
-                                type="button"
-                                :title="getLocalizedText(collection.title, collection.id)"
-                                :class="{ 'active': pluginWorkspace.show && pluginWorkspace.collectionId === collection.id }"
-                                @click="openPluginWorkspaceCollection(collection.id)">
-                            <i :class="collection.icon"></i>
-                            <span x-text="getLocalizedText(collection.title, collection.id)"></span>
-                            <small x-text="collection.panels.length"></small>
-                        </button>
-                    </template>
-                    <template x-for="btn in sidebarPluginButtons" :key="btn.fullId">
-                        <button class="plugin-sidebar-entry"
-                                type="button"
-                                :disabled="btn.loading || btn.disabled"
-                                :title="getPluginButtonLabel(btn)"
-                                :class="{ 'active': btn.active, 'loading': btn.loading }"
-                                @click="handlePluginButtonClick(btn, $event.currentTarget)">
-                            <i :class="btn.loading ? 'ri-loader-4-line spin' : btn.icon"></i>
-                            <span x-text="getPluginButtonLabel(btn)"></span>
-                            <small x-show="getPluginButtonStatus(btn)" x-text="getPluginButtonStatus(btn)"></small>
-                        </button>
-                    </template>
+        <header class="hub-header">
+            <div></div>
+            <div class="hub-account">
+                <div class="hub-user" :title="me?.username || ''">
+                    <span class="hub-avatar">
+                        <img x-show="settings.ui_settings.user_avatar"
+                             :src="settings.ui_settings.user_avatar"
+                             :alt="t('userAvatarAlt')">
+                        <i class="ri-user-3-line" x-show="!settings.ui_settings.user_avatar"></i>
+                    </span>
+                    <span class="hub-user-copy">
+                        <strong x-text="me?.username || ''"></strong>
+                        <small x-text="t('online')"></small>
+                    </span>
                 </div>
-                <div class="resident-sidebar-collapsed"
-                     x-show="sidebarCollapsed">
-                    <template x-for="entry in residentEntries('sidebar')"
-                              :key="entry.integration.id + ':' + entry.id">
-                        <button class="btn-icon"
-                                type="button"
-                                :disabled="!entry.integration.feature?.available"
-                                :title="residentText(entry.label)"
-                                @click="openResidentIntegration(entry.integration)">
-                            <i :class="entry.icon"></i>
-                        </button>
-                    </template>
-                    <template x-for="collection in pluginWorkspaceCollections"
-                              :key="'workspace-collection-collapsed:' + collection.id">
-                        <button class="btn-icon plugin-sidebar-entry-collapsed"
-                                type="button"
-                                :title="getLocalizedText(collection.title, collection.id)"
-                                :class="{ 'active': pluginWorkspace.show && pluginWorkspace.collectionId === collection.id }"
-                                @click="openPluginWorkspaceCollection(collection.id)">
-                            <i :class="collection.icon"></i>
-                        </button>
-                    </template>
-                    <template x-for="btn in sidebarPluginButtons" :key="btn.fullId">
-                        <button class="btn-icon plugin-sidebar-entry-collapsed"
-                                type="button"
-                                :disabled="btn.loading || btn.disabled"
-                                :title="getPluginButtonLabel(btn)"
-                                :class="{ 'active': btn.active, 'loading': btn.loading }"
-                                @click="handlePluginButtonClick(btn, $event.currentTarget)">
-                            <i :class="btn.loading ? 'ri-loader-4-line spin' : btn.icon"></i>
-                        </button>
-                    </template>
-                </div>
+                <button class="hub-icon-button" type="button" @click="openSettingsPanel()" :aria-label="t('settings')">
+                    <i class="ri-settings-3-line"></i>
+                </button>
+                <button class="hub-icon-button" type="button" @click="logout()" :aria-label="t('signOut')">
+                    <i class="ri-logout-box-r-line"></i>
+                </button>
             </div>
-        </div>
-
-        <div class="sidebar-section-divider"
-             x-show="hasSidebarFeatureEntries"
-             x-cloak></div>
-
-        <button class="btn-new-chat" @click="createNewChat()" x-show="!sidebarCollapsed">
-            <i class="ri-add-line"></i>
-            <span x-text="t('newChat')"></span>
-        </button>
-
-        <button class="btn-new-chat-collapsed" @click="createNewChat()" x-show="sidebarCollapsed" :title="t('newChat')" :aria-label="t('newChat')">
-            <i class="ri-add-line"></i>
-        </button>
-
-        <div class="chat-list" x-show="!sidebarCollapsed">
-            <template x-for="chat in chats" :key="chat.id">
-                <div class="chat-item" :class="{ 'active': currentChatId === chat.id }" @click="selectChat(chat.id)">
-                    <i class="ri-message-3-line"></i>
-                    <span class="chat-title" x-text="chat.title"></span>
-                    <button class="btn-delete" @click.stop="renameChat(chat)" :title="t('rename')">
-                        <i class="ri-edit-line"></i>
+        </header>
+        <main class="hub-main">
+            <div class="hub-brand-block">
+                <img class="hub-brand" :src="settings.ui_settings.logo_data || 'brand-mark.svg'" :alt="t('logoAlt')" @error="handleLogoImageError($event)">
+                <p class="hub-subtitle"
+                   x-cloak
+                   x-show="settings.ui_settings.subtitle?.trim()"
+                   x-text="settings.ui_settings.subtitle"></p>
+            </div>
+            <nav class="hub-tabs" :aria-label="t('featureCategories')" role="tablist">
+                <template x-for="(category, index) in featureCatalog.categories" :key="category.id">
+                    <button type="button"
+                            role="tab"
+                            :aria-selected="String(activeFeatureCategory === category.id)"
+                            :class="{ active: activeFeatureCategory === category.id }"
+                            @click="activeFeatureCategory = category.id">
+                        <span x-text="String(index + 1).padStart(2, '0')"></span>
+                        <strong x-text="getLocalizedText(category.title)"></strong>
                     </button>
-                    <button class="btn-delete" @click.stop="deleteChat(chat.id)" :title="t('delete')">
+                </template>
+            </nav>
+            <section class="hub-card-grid" aria-live="polite">
+                <template x-if="featureCatalogLoading">
+                    <p class="hub-empty" x-text="t('loadingFeatureCatalog')"></p>
+                </template>
+                <template x-for="card in activeFeatureCards" :key="card.id">
+                    <article class="hub-card" :class="{ unavailable: !card.available }">
+                        <div class="hub-card-top">
+                            <span class="hub-card-icon"><i :class="card.icon"></i></span>
+                            <span class="hub-card-status" x-text="featureStateLabel(card.state)"></span>
+                        </div>
+                        <div>
+                            <h2 x-text="getLocalizedText(card.title)"></h2>
+                            <p x-text="getLocalizedText(card.description)"></p>
+                        </div>
+                        <button type="button"
+                                :disabled="!card.available"
+                                @click="openFeatureCard(card, $event.currentTarget)">
+                            <span x-text="card.available ? t('openFeature') : t('featureUnavailable')"></span>
+                            <i class="ri-arrow-right-line"></i>
+                        </button>
+                    </article>
+                </template>
+                <p class="hub-empty" x-show="!featureCatalogLoading && activeFeatureCards.length === 0" x-text="t('noFeatures')"></p>
+            </section>
+        </main>
+    </section>
+
+    <!-- Main Content -->
+    <main class="main-content" x-show="pluginWorkspace.show || agentOpen" x-cloak>
+        <div class="plugin-workspace-layout"
+             :class="pluginWorkspace.show ? 'workspace-' + pluginWorkspace.placement : ''">
+        <aside class="content-navigator" x-show="pluginWorkspace.show" x-cloak>
+            <button class="content-back" type="button" @click="returnHome()" :aria-label="t('backHome')">
+                <i class="ri-arrow-left-line"></i>
+            </button>
+            <img :src="settings.ui_settings.logo_data || 'brand-mark.svg'" :alt="t('logoAlt')" @error="handleLogoImageError($event)">
+            <nav :aria-label="t('featureNavigation')">
+                <template x-for="card in featureCatalog.cards" :key="card.id">
+                    <button type="button"
+                            :disabled="!card.available"
+                            :class="{ active: pluginWorkspace.pluginId === card.plugin_id && pluginWorkspace.panelId === card.panel_id }"
+                            :title="getLocalizedText(card.title)"
+                            @click="openFeatureCard(card, $event.currentTarget)">
+                        <i :class="card.icon"></i>
+                    </button>
+                </template>
+            </nav>
+        </aside>
+        <div class="agent-modal-backdrop"
+             x-show="agentOpen && agentExpanded"
+             x-cloak
+             @click="agentExpanded = false"
+             aria-hidden="true"></div>
+        <div class="chat-container" :class="{ 'agent-expanded': agentExpanded }" x-show="agentOpen" x-cloak>
+            <header class="agent-header">
+                <div>
+                    <span class="agent-mark"><i class="ri-robot-2-line"></i></span>
+                    <div><strong>SDHS Agent</strong><small x-text="t('currentConversation')"></small></div>
+                </div>
+                <div>
+                    <button type="button" @click="agentHistoryOpen = !agentHistoryOpen" :aria-label="t('conversationHistory')">
+                        <i class="ri-history-line"></i>
+                    </button>
+                    <button type="button" @click="createNewChat()" :aria-label="t('newConversation')">
+                        <i class="ri-add-line"></i>
+                    </button>
+                    <button type="button"
+                            class="agent-window-toggle"
+                            @click="toggleAgentExpanded()"
+                            :aria-label="agentExpanded ? t('restoreAgent') : t('expandAgent')"
+                            :title="agentExpanded ? t('restoreAgent') : t('expandAgent')">
+                        <i :class="agentExpanded ? 'ri-collapse-diagonal-line' : 'ri-expand-diagonal-line'"></i>
+                    </button>
+                    <button type="button" @click="toggleAgent()" :aria-label="t('closeAgent')">
                         <i class="ri-close-line"></i>
                     </button>
                 </div>
-            </template>
-        </div>
-        
-        <button class="btn-clear-all" x-show="!sidebarCollapsed && chats.length > 0 && isAdmin()" @click="clearAllChats()" :title="t('clearAllChats')">
-            <i class="ri-delete-bin-line"></i>
-            <span x-text="t('clearAllChats')"></span>
-        </button>
-
-        <div class="sidebar-footer" x-show="!sidebarCollapsed">
-            <button class="btn-plugins" x-show="isAdmin()" @click="openPluginsPanel()">
-                <i class="ri-tools-line"></i>
-                <span x-text="t('plugins')"></span>
-            </button>
-            <button class="btn-settings" @click="openSettingsPanel()">
-                <i class="ri-settings-3-line"></i>
-                <span x-text="t('settings')"></span>
-            </button>
-            <button class="btn-settings" @click="logout()">
-                <i class="ri-logout-box-r-line"></i>
-                <span x-text="me ? me.username : t('account')"></span>
-            </button>
-        </div>
-        
-        <button class="btn-icon sidebar-plugins-collapsed" @click="openPluginsPanel()" x-show="sidebarCollapsed && isAdmin()" :title="t('plugins')">
-            <i class="ri-tools-line"></i>
-        </button>
-        <button class="btn-icon sidebar-settings-collapsed" @click="openSettingsPanel()" x-show="sidebarCollapsed" :title="t('settings')">
-            <i class="ri-settings-3-line"></i>
-        </button>
-    </aside>
-
-    <!-- Main Content -->
-    <main class="main-content">
-        <!-- Mobile Header -->
-        <div class="mobile-header" x-show="isMobileView">
-            <button class="btn-icon" @click="openSidebar()">
-                <i class="ri-menu-line"></i>
-            </button>
-            <span class="mobile-title">ChatRaw</span>
-        </div>
-
-        <div class="plugin-workspace-layout"
-             :class="pluginWorkspace.show ? 'workspace-' + pluginWorkspace.placement : ''">
-        <div class="chat-container">
+            </header>
+            <aside class="agent-history" x-show="agentHistoryOpen" x-cloak @click.outside="agentHistoryOpen = false">
+                <header><strong x-text="t('conversationHistory')"></strong><button type="button" @click="createNewChat()" :aria-label="t('newConversation')"><i class="ri-add-line"></i></button></header>
+                <template x-for="chat in chats" :key="chat.id">
+                    <div :class="{ active: currentChatId === chat.id }">
+                        <button type="button" @click="selectChat(chat.id); agentHistoryOpen = false" x-text="chat.title"></button>
+                        <button type="button" @click="renameChat(chat)" :aria-label="t('renameConversation')"><i class="ri-edit-line"></i></button>
+                        <button type="button" @click="deleteChat(chat.id)" :aria-label="t('deleteConversation')"><i class="ri-delete-bin-line"></i></button>
+                    </div>
+                </template>
+                <p x-show="chats.length === 0" x-text="t('noConversationHistory')"></p>
+            </aside>
             <!-- Welcome - Pre-rendered for LCP optimization -->
             <div class="welcome" x-show="messages.length === 0">
                 <div class="welcome-logo">
-                    <img x-show="settings.ui_settings.logo_data" :src="settings.ui_settings.logo_data" :alt="t('logoAlt')" class="welcome-logo-img" width="80" height="80">
+                    <img x-show="settings.ui_settings.logo_data" :src="settings.ui_settings.logo_data" :alt="t('logoAlt')" @error="handleLogoImageError($event)" class="welcome-logo-img" width="80" height="80">
                 </div>
-                <h1 x-text="settings.ui_settings.logo_text || 'ChatRaw'">ChatRaw</h1>
-                <p class="welcome-subtitle" x-text="settings.ui_settings.subtitle || t('defaultSubtitle')">Your minimalist AI assistant</p>
+                <h1>SDHS Agent</h1>
+                <p class="welcome-subtitle" x-text="t('agentSubtitle')"></p>
                 
                 <div class="welcome-features">
                     <div class="feature">
@@ -749,13 +661,6 @@
                         ></textarea>
                         
                         <div class="input-toolbar">
-                            <!-- Thinking Mode Toggle -->
-                            <div class="thinking-toggle" :class="{ 'active': useThinking }" @click="useThinking = !useThinking" :title="t('thinkingMode')">
-                                <i class="ri-lightbulb-line"></i>
-                                <div class="thinking-slider">
-                                    <div class="thinking-slider-handle"></div>
-                                </div>
-                            </div>
                             <template x-if="chatModelSupportsVision()">
                                 <label class="btn-tool btn-tool-upload" :title="t('uploadImage')">
                                     <input type="file" @change="handleImageUpload($event)" accept="image/*" class="file-input-hidden">
@@ -851,21 +756,19 @@
                  @keydown.escape.stop="closeActivePluginWorkspace()">
             <header class="plugin-workspace-header">
                 <div class="plugin-workspace-heading">
-                    <i :class="pluginWorkspace.collectionIcon || pluginWorkspace.icon"
+                    <i :class="pluginWorkspacePanelIcon(
+                           pluginWorkspace.pluginId,
+                           pluginWorkspace.panelId,
+                           pluginWorkspace.icon
+                       )"
                        aria-hidden="true"></i>
                     <h2 id="plugin-workspace-title"
+                        tabindex="-1"
                         x-text="getLocalizedText(
                             pluginWorkspace.collectionTitle || pluginWorkspace.title,
                             pluginWorkspace.collectionId || pluginWorkspace.panelId || ''
                         )"></h2>
                 </div>
-                <button id="plugin-workspace-close"
-                        class="btn-icon"
-                        type="button"
-                        :aria-label="t('close')"
-                        @click="closeActivePluginWorkspace()">
-                    <i class="ri-close-line"></i>
-                </button>
             </header>
             <nav class="plugin-workspace-tabs"
                  x-show="pluginWorkspace.collectionId"
@@ -903,18 +806,31 @@
         <div class="toast" x-show="toast.show" x-text="toast.message" :class="toast.type" x-transition></div>
     </main>
 
+    <button class="agent-launcher"
+            type="button"
+            x-show="!showSettings && !agentOpen"
+            x-cloak
+            @click="toggleAgent()"
+            :aria-label="t('openAgent')">
+        <i class="ri-robot-2-line"></i>
+    </button>
+
     <!-- New Settings Modal -->
     <div class="modal-overlay" x-show="showSettings" x-cloak @click.self="showSettings = false" @keydown.escape.window="showSettings && (showSettings = false)" x-transition role="dialog" aria-modal="true" aria-labelledby="settings-modal-title">
         <div class="settings-modal">
+            <button class="settings-page-back" type="button" @click="returnHome()">
+                <i class="ri-arrow-left-line"></i><span x-text="t('backHome')"></span>
+            </button>
             <!-- Left Nav -->
             <div class="settings-nav" role="tablist" :aria-label="t('settingsNavigation')">
                 <div class="settings-title" id="settings-modal-title" x-text="t('settings')"></div>
-                <div class="nav-item" x-show="isAdmin()" role="tab" :aria-selected="settingsTab === 'models'" :class="{ 'active': settingsTab === 'models' }" @click="settingsTab = 'models'" x-text="t('modelConfig')"></div>
-                <div class="nav-item" x-show="isAdmin()" role="tab" :aria-selected="settingsTab === 'chat'" :class="{ 'active': settingsTab === 'chat' }" @click="settingsTab = 'chat'" x-text="t('chatSettings')"></div>
-                <div class="nav-item" x-show="isAdmin()" role="tab" :aria-selected="settingsTab === 'ui'" :class="{ 'active': settingsTab === 'ui' }" @click="settingsTab = 'ui'" x-text="t('uiSettings')"></div>
-                <div class="nav-item" x-show="isAdmin()" role="tab" :aria-selected="settingsTab === 'users'" :class="{ 'active': settingsTab === 'users' }" @click="settingsTab = 'users'; loadAdminUsers()" x-text="t('users')"></div>
-                <div class="nav-item" x-show="isAdmin()" role="tab" :aria-selected="settingsTab === 'modules'" :class="{ 'active': settingsTab === 'modules' }" @click="settingsTab = 'modules'; loadModules()" x-text="t('modules')"></div>
-                <div class="nav-item" role="tab" :aria-selected="settingsTab === 'account'" :class="{ 'active': settingsTab === 'account' }" @click="settingsTab = 'account'" x-text="t('account')"></div>
+                <button class="nav-item" type="button" x-show="isAdmin()" role="tab" :aria-selected="settingsTab === 'models'" :class="{ 'active': settingsTab === 'models' }" @click="settingsTab = 'models'" x-text="t('modelConfig')"></button>
+                <button class="nav-item" type="button" x-show="isAdmin()" role="tab" :aria-selected="settingsTab === 'chat'" :class="{ 'active': settingsTab === 'chat' }" @click="settingsTab = 'chat'" x-text="t('chatSettings')"></button>
+                <button class="nav-item" type="button" x-show="isAdmin()" role="tab" :aria-selected="settingsTab === 'ui'" :class="{ 'active': settingsTab === 'ui' }" @click="settingsTab = 'ui'" x-text="t('uiSettings')"></button>
+                <button class="nav-item" type="button" x-show="isAdmin()" role="tab" :aria-selected="settingsTab === 'users'" :class="{ 'active': settingsTab === 'users' }" @click="settingsTab = 'users'; loadAdminUsers()" x-text="t('users')"></button>
+                <button class="nav-item" type="button" x-show="isAdmin()" role="tab" :aria-selected="settingsTab === 'modules'" :class="{ 'active': settingsTab === 'modules' }" @click="settingsTab = 'modules'; loadModules()" x-text="t('modules')"></button>
+                <button class="nav-item" type="button" x-show="isAdmin()" @click="openPluginsPanel()" x-text="t('plugins')"></button>
+                <button class="nav-item" type="button" role="tab" :aria-selected="settingsTab === 'account'" :class="{ 'active': settingsTab === 'account' }" @click="settingsTab = 'account'" x-text="t('account')"></button>
                 <div class="settings-footer">
                     © 2026 ChatRaw by massif-01<br>
                     <a href="https://opensource.org/licenses/MIT" target="_blank" rel="noopener" class="settings-footer-link" x-text="t('mitLicense')"></a>
@@ -1051,34 +967,14 @@
                         </div>
 
                         <div class="form-group form-group-lg">
-                            <label class="form-label" x-text="t('theme')"></label>
-                            <div class="theme-grid">
-                                <div class="theme-option" :class="{ 'active': settings.ui_settings.theme_mode === 'light' }" @click="settings.ui_settings.theme_mode = 'light'; applyTheme()">
-                                    <span x-text="t('light')"></span>
-                                </div>
-                                <div class="theme-option" :class="{ 'active': settings.ui_settings.theme_mode === 'dark' }" @click="settings.ui_settings.theme_mode = 'dark'; applyTheme()">
-                                    <span x-text="t('dark')"></span>
-                                </div>
-                            </div>
-                        </div>
-
-                        <div class="form-group form-group-lg">
-                            <label class="form-label" x-text="t('language')"></label>
-                            <div class="theme-grid">
-                                <div class="theme-option" :class="{ 'active': lang === 'en' }" @click="setLanguage('en')" x-text="t('english')"></div>
-                                <div class="theme-option" :class="{ 'active': lang === 'zh' }" @click="setLanguage('zh')" x-text="t('chinese')"></div>
-                            </div>
-                        </div>
-
-                        <div class="form-group form-group-lg">
                             <label class="form-label" x-text="t('logoName')"></label>
                             <div class="logo-upload-area upload-row">
-                                <img x-show="settings.ui_settings.logo_data" :src="settings.ui_settings.logo_data" :alt="t('logoAlt')" class="logo-preview-img" width="48" height="48">
+                                <img x-show="settings.ui_settings.logo_data" :src="settings.ui_settings.logo_data" :alt="t('logoAlt')" @error="handleLogoImageError($event)" class="logo-preview-img" width="48" height="48">
                                 <label class="btn-secondary btn-compact">
                                     <input type="file" @change="handleLogoUpload($event)" accept="image/*" class="file-input-hidden">
                                     <span x-text="t('uploadLogo')"></span>
                                 </label>
-                                <button class="btn-delete btn-delete-inline" x-show="settings.ui_settings.logo_data" @click="settings.ui_settings.logo_data = ''" :aria-label="t('removeLogo')"><i class="ri-close-circle-fill"></i></button>
+                                <button class="btn-delete btn-delete-inline" x-show="settings.ui_settings.logo_data" @click="removeCustomLogo()" :aria-label="t('removeLogo')"><i class="ri-close-circle-fill"></i></button>
                                 <input type="text" x-model="settings.ui_settings.logo_text" placeholder="JustChat" class="input-minimal input-flex">
                             </div>
                         </div>
@@ -1452,6 +1348,13 @@
                             <p class="section-desc"><span x-text="me?.username"></span> · <span x-text="roleLabel(me?.role)"></span></p>
                         </div>
                         <div class="model-card">
+                            <div class="form-group form-group-lg">
+                                <label class="form-label" x-text="t('language')"></label>
+                                <div class="theme-grid">
+                                    <div class="theme-option" :class="{ 'active': lang === 'en' }" @click="setLanguage('en')" x-text="t('english')"></div>
+                                    <div class="theme-option" :class="{ 'active': lang === 'zh' }" @click="setLanguage('zh')" x-text="t('chinese')"></div>
+                                </div>
+                            </div>
                             <div class="form-group">
                                 <label class="form-label" x-text="t('currentPassword')"></label>
                                 <input class="input-minimal" type="password" x-model="passwordForm.current_password" autocomplete="current-password">
@@ -1576,10 +1479,15 @@
                         <div class="plugin-grid" x-show="installedPlugins.length > 0">
                             <template x-for="plugin in installedPlugins" :key="plugin.id">
                                 <div class="plugin-card plugin-card-market" x-data="{ infoOpen: false }" @click.outside="infoOpen = false">
-                                    <img :src="'/api/plugins/' + encodeURIComponent(plugin.id) + '/icon'" 
-                                         class="plugin-icon plugin-icon-market"
-                                         width="36" height="36"
-                                         @error="$el.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 24 24%22 fill=%22none%22 stroke=%22%23666%22 stroke-width=%222%22><path d=%22M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z%22/></svg>'">
+                                    <template x-if="plugin.icon">
+                                        <img :src="'/api/plugins/' + encodeURIComponent(plugin.id) + '/icon'"
+                                             class="plugin-icon plugin-icon-market"
+                                             width="36" height="36"
+                                             @error="$el.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 24 24%22 fill=%22none%22 stroke=%22%23666%22 stroke-width=%222%22><path d=%22M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z%22/></svg>'">
+                                    </template>
+                                    <span class="plugin-icon plugin-icon-market" x-show="!plugin.icon" aria-hidden="true">
+                                        <i class="ri-plug-line"></i>
+                                    </span>
                                     <div class="plugin-card-market-body">
                                         <span class="plugin-name plugin-name-market" x-text="plugin.name?.[lang] || plugin.name?.en || plugin.name || plugin.id"></span>
                                     </div>
@@ -1959,6 +1867,6 @@
         <div class="plugin-fullscreen-content" x-html="pluginFullscreenModal.content"></div>
     </div>
 
-    <script src="app.min.js?v=72bbda0602badac4cd291a5f6da0c784a924b57078a469b3026f34a49c340143"></script>
+    <script src="app.min.js?v=0071bcbd2e8680f985df7d9e8f048fb6d19abfa1021d2da0b1be6e16b64ee76d"></script>
 </body>
 </html>

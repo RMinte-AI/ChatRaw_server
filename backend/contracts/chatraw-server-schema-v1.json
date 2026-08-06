@@ -1,5 +1,5 @@
 {
-  "latest_schema_version": 16,
+  "latest_schema_version": 17,
   "migrations": [
     {
       "version": 1,
@@ -64,6 +64,10 @@
     {
       "version": 16,
       "name": "structured_model_capability"
+    },
+    {
+      "version": 17,
+      "name": "private_agent_chats"
     }
   ],
   "new_tables": {
@@ -301,7 +305,8 @@
   },
   "added_columns": {
     "chats": [
-      "owner_user_id"
+      "owner_user_id",
+      "kind"
     ],
     "messages": [
       "author_user_id",
@@ -341,7 +346,8 @@
     "idx_agent_rule_sources_document",
     "idx_agent_compiled_rules_document",
     "idx_module_task_rule_activations_task",
-    "idx_module_task_rule_scope"
+    "idx_module_task_rule_scope",
+    "idx_chats_kind_owner_updated"
   ],
   "legacy_invariants": {
     "ownership_fields_remain_null": true,

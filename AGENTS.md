@@ -15,6 +15,7 @@
 |---|---|---|
 | `README.md` | 产品定位、架构边界、启动方式和文档总入口 | **所有任务必读；产品能力变化时同步** |
 | `docs/human-ai-development-guide.md` | 人与 AI 的开发顺序、边界、验收和禁止事项 | **所有代码修改必读** |
+| `docs/frontend-color-requirements.md` | 四页式界面的浅色语义色板、对比度和 Plugin/Resident 配色边界 | **修改前端视觉、CSS 或 Workspace UI 时必读并同步** |
 | `SECURITY.md` | 登录、权限、秘密、漏洞报告和安全要求 | **安全相关修改必读** |
 | `docs/user-guide.md` | 普通用户可见功能和使用体验 | 用户行为变化时同步 |
 | `docs/admin-guide.md` | 用户、插件、模块、备份和权限管理 | 管理行为变化时同步 |

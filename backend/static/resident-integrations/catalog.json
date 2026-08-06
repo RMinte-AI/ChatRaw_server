@@ -1,6 +1,6 @@
 {
   "schema_version": "1",
-  "bundle_version": "aa3a2f7d2340db6392d29921709dbb1c29f5ce6393778126437ea9db50a708b4",
+  "bundle_version": "734d69feed0fdb278d96c3fe7437afb41852e576c70fb85738e9f147dbade0ce",
   "integrations": [
     {
       "schema_version": "1",
@@ -19,7 +19,7 @@
       "entrypoints": [
         {
           "id": "open-workbench",
-          "placement": "sidebar",
+          "placement": "composer",
           "icon": "ri-layout-grid-line",
           "label": {
             "en": "Reference",

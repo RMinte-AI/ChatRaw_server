@@ -6,6 +6,7 @@ import vm from 'node:vm';
 import { JSDOM } from 'jsdom';
 
 const authScript = fs.readFileSync('backend/static/auth.js', 'utf8');
+const authStyles = fs.readFileSync('backend/static/auth.css', 'utf8');
 
 function response(payload, ok = true) {
     return {
@@ -35,16 +36,19 @@ async function flushAsyncWork() {
     await new Promise(resolve => setImmediate(resolve));
 }
 
-test('login initializes from justchat_lang and localizes the complete page', () => {
+test('login initializes from justchat_lang and localizes the complete page', async () => {
     const window = createAuthWindow(
         'login',
         'zh',
-        async () => response({setup_required: false})
+        async path => path === '/api/settings/logo'
+            ? response({logo_data: 'data:image/png;base64,AA==', logo_text: '站务智枢'})
+            : response({setup_required: false})
     );
+    await flushAsyncWork();
 
     assert.equal(window.document.documentElement.lang, 'zh-CN');
     assert.equal(window.document.title, '登录 · ChatRaw Server');
-    assert.equal(window.document.querySelector('h1').textContent, '欢迎回来。');
+    assert.equal(window.document.querySelector('h1').textContent, '继续你的工作');
     assert.equal(
         window.document.querySelector('label[for="username"]').textContent,
         '用户名'
@@ -54,6 +58,17 @@ test('login initializes from justchat_lang and localizes the complete page', () 
         '登录'
     );
     assert.equal(
+        window.document.querySelector('.login-cancel').textContent,
+        '取消'
+    );
+    assert.equal(
+        window.document.querySelector('#public-logo-text').textContent,
+        '站务智枢'
+    );
+    const logo = window.document.querySelector('#public-logo');
+    logo.dispatchEvent(new window.Event('error'));
+    assert.equal(logo.getAttribute('src'), '/brand-mark.svg');
+    assert.equal(
         window.document.querySelector('.language-switch').ariaLabel,
         '语言'
     );
@@ -61,6 +76,15 @@ test('login initializes from justchat_lang and localizes the complete page', () 
         window.document.querySelector('[data-language="zh"]').ariaPressed,
         'true'
     );
+});
+
+test('login actions share the main shell button hierarchy', () => {
+    assert.match(authStyles, /\.login-actions button\s*\{[^}]*min-height:\s*44px/s);
+    assert.match(authStyles, /\.login-actions button\s*\{[^}]*border-radius:\s*8px/s);
+    assert.match(authStyles, /\.login-actions button\s*\{[^}]*font-weight:\s*550/s);
+    assert.match(authStyles, /button\[type="submit"\]\s*\{[^}]*background:\s*#111/s);
+    assert.match(authStyles, /\.login-cancel\s*\{[^}]*background:\s*transparent/s);
+    assert.match(authStyles, /\.login-actions button:focus-visible\s*\{[^}]*outline:\s*2px solid #315f3a/s);
 });
 
 test('language switch updates text, document metadata, and storage', () => {
@@ -89,6 +113,9 @@ test('login localizes a known authentication error', async () => {
         if (path === '/api/setup/status') {
             return response({setup_required: false});
         }
+        if (path === '/api/settings/logo') {
+            return response({logo_data: '', logo_text: 'ChatRaw'});
+        }
         return response({
             detail: 'opaque server fallback',
             code: 'invalid_credentials'
@@ -102,7 +129,7 @@ test('login localizes a known authentication error', async () => {
     );
     await flushAsyncWork();
 
-    assert.equal(requestCount, 2);
+    assert.equal(requestCount, 3);
     assert.equal(
         window.document.querySelector('.message').textContent,
         '用户名或密码错误'

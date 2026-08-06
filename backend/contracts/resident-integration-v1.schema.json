@@ -126,7 +126,8 @@
           "enum": [
             "sidebar",
             "composer"
-          ]
+          ],
+          "description": "composer is the current mount; sidebar is a legacy alias normalized to composer"
         },
         "icon": {
           "type": "string",

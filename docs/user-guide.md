@@ -27,30 +27,27 @@ ChatRaw Server 的所有用户使用同一个平台。聊天、文档、模型�
 - 退出登录。
 
 登录页和首次初始化页右上角可直接选择 `English` 或 `中文`。进入主界面后，
-只有管理员可以在“设置 → 界面设置”中切换语言；选择会保存在当前浏览器中，并应用到核心界面的
+所有登录用户都可以在“设置 → Account”中切换语言；选择会保存在当前浏览器中，并应用到核心界面的
 标签、按钮、状态、确认提示、警告和错误消息。插件或 Resident Integration 提供的功能也应跟随
 同一语言设置；模块协议返回的机器状态值不会直接作为界面文案显示。
 
+当前产品只提供浅色界面，不提供深色模式开关。
+
 修改密码后现有会话会失效，需要使用新密码重新登录。不要共享账号，不要把浏览器 Cookie 当作 API Token 保存。
 
-### 3. 聊天与共享数据
+### 3. 首页、内容页与 Agent
 
-基本聊天流程与经典 ChatRaw 相同：
+登录后首页只展示三个固定分类：`数据中枢`、`知识中枢`、`业务中枢`。切换分类会显示对应的业务卡片；卡片只有在配套 Module 可用且 Companion Plugin 已安装启用时才能打开。点击卡片进入独立内容页，左侧内容导航高亮当前卡片，返回按钮回到首页。设置按钮打开单独的全页设置界面。旧版聊天侧栏已经移除，不再承载会话、Plugin 或 Resident 入口。
 
-1. 新建或打开聊天。
-2. 选择管理员配置好的模型。
-3. 按需附加图片、文档、网页内容或知识库。
-4. 发送消息。
+右下角 Hermes Agent 浮窗是当前产品唯一的通用对话入口：
 
-首轮回复成功保存后，Server 会使用管理员配置的聊天模型为对话生成简短标题。
-普通聊天与模块任务使用同一命名流程；模型不可用或返回无效标题时会回退到首条消息摘要。
-如果你已经手动改名，自动命名不会覆盖该标题。
+1. 点击 Agent 圆形按钮打开当前对话；
+2. 点击浮窗顶部的历史按钮查看会话列表；
+3. 可以新建、切换、改名或删除自己的会话；
+4. 输入区不再提供 Hermes Agent 选择按钮或思考模式开关；发送消息即固定进入 Hermes Agent；
+5. 点击浮窗顶部的窗口扩展按钮，可在不离开当前页面的情况下打开全屏浮动对话窗口，便于查看宽表格和模型渲染内容。
 
-平台用户可以看到共享聊天和文档。你可以管理自己创建的聊天和文档；经典版导入的无归属数据只能由管理员管理。
-
-模型消息和所有模块 conversation 结果显示在左侧，模型头像位于正文左边。用户消息显示在右侧，
-用户头像位于正文右边；多行 Markdown 和代码仍在各自消息内部左对齐。刷新或重新打开聊天后，
-正文从 Server 已保存的消息恢复，模块执行过程不会复制最终答案。
+Hermes Agent 会话只对创建它的登录用户可见，其他普通用户和管理员都不能通过 Agent 或经典聊天接口枚举、读取、改名或删除。业务模块数据、文档以及保留的经典聊天仍遵循共享平台边界。
 
 消息中的宽 Markdown 表格会限制在消息区域内，并提供独立的横向滚动。可以在表格上使用触控板、
 Magic Mouse 的横向手势，或按住 Shift 使用鼠标滚轮。ChatRaw 会在整个页面接管横向手势：
@@ -67,29 +64,22 @@ Magic Mouse 的横向手势，或按住 Shift 使用鼠标滚轮。ChatRaw 会�
 
 普通用户不需要分别配置它们。管理员完成安装和连接后，功能入口会自动可用。
 
-已启用的侧边栏功能入口位于对话区顶部，并由分隔线与“新对话”和对话列表分开。没有可用的
-侧边栏功能时，不显示空功能区或分隔线，侧栏直接从“新对话”开始。功能入口较多时，仅顶部
-功能区独立滚动，“新对话”、对话列表和底部操作保持可访问。点击功能区标题栏中的“收起”
-可以隐藏功能入口并把空间让给对话历史；标题栏会保留，点击“展开”即可恢复。该选择保存在
-当前浏览器中，与整个侧栏的展开或收起互不影响。
+业务入口由首页卡片统一承载。界面设置中的副标题显示在首页中央 Logo 下方；空副标题不会占据
+首页空间。三个分类由 Host 固定，卡片名称、顺序、说明、图标和目标面板来自已注册 Module 的
+严格 Manifest；当前浏览器还会确认配套 Plugin 面板已经加载并支持主内容区。单个入口配置错误
+只会禁用该卡片。
 
 配套插件可以在主内容区打开交互工作台。工作台可能出现在聊天右侧、上侧、下侧，或占据整个
 主区域；右、上、下模式不会阻止继续操作聊天。窄屏设备会统一显示为主区域；高度很低时，
 上、下模式也会显示为主区域。工作台关闭后，
-当前聊天和消息不会丢失；刷新页面后工作台保持关闭。标题栏和关闭按钮由 ChatRaw 提供，
-用户点击或用键盘激活 ChatRaw 提供的所属插件入口时，键盘焦点会进入工作台关闭按钮，关闭后
+当前聊天和消息不会丢失；刷新页面后工作台保持关闭。标题栏由 ChatRaw 提供，
+用户点击或用键盘激活 ChatRaw 提供的所属插件入口时，键盘焦点会进入工作台标题，关闭后
 返回原入口。模块任务、定时器、插件内其他控件或其他后台流程打开工作台时，当前焦点保持不变。
 工作台内的表单、列表和业务状态由对应插件提供。
 
-以 Agent 为例：
+管理员升级、启停或删除插件时，已打开标签页中的旧插件工作台会被关闭并切换到当前版本。正在编辑但尚未提交的插件表单不会跨版本保留；请从最新入口重新打开工作台后继续操作。
 
-1. 聊天工具栏显示 Agent 图标。
-2. 点击图标启用 Agent 模式。
-3. 发送消息后，插件通过 ChatRaw Module SDK 创建任务。
-4. ChatRaw 在同一条助手消息中展示执行计划、工具调用和脱敏结果。
-5. 成功后执行过程默认折叠，最终 Markdown 只在当前聊天中出现一次。
-
-插件不会直接连接 Agent，也拿不到 Agent、LinkDB 或其他模块的地址和凭证。
+Plugin 不会直连 Module 或 Hermes，也拿不到 Module、Hermes、LinkDB 的地址和凭证；所有调用仍经过 ChatRaw 后端的同源接口和权限检查。
 
 #### Agent 规则作用域
 
@@ -142,7 +132,7 @@ Resident 工作区中展示的任务不会重复出现在这个全局入口中�
 
 普通用户不应尝试修改模块地址。把界面显示的状态和发生时间提供给管理员即可。
 
-当 Agent 模块不可用时，Agent 插件不会劫持消息；关闭 Agent 模式后，普通聊天仍然可以使用。
+当 Hermes Agent 不可用时，浮窗显示错误并保留当前会话；系统不会把消息改送到普通聊天或其他模型。
 
 ### 7. 安全注意事项
 
@@ -160,7 +150,7 @@ Resident 工作区中展示的任务不会重复出现在这个全局入口中�
 - 使用的功能名称；
 - 当前聊天 ID（如可见）；
 - 页面显示的公开错误码；
-- 是否能正常使用普通聊天。
+- Hermes Agent 浮窗或具体业务卡片是否可用。
 
 不要发送密码、Cookie、模块 Token、模型 API Key 或 LinkDB 凭证。
 
@@ -184,6 +174,10 @@ If separate companies or customers require strong data isolation, deploy separat
 
 Use the Server URL supplied by your administrator. After signing in, open **Settings → Account** to view your role, change your password, or sign out.
 
+Every signed-in user can switch between English and Chinese under **Settings → Account**. The selection is stored in the current browser and updates the Host shell without reloading or discarding the active category, Agent session, or Workspace.
+
+The current product exposes only the light interface and has no dark-mode control.
+
 ChatRaw has no public self-registration; an administrator creates accounts. Administrators can
 change an account's role, disable or re-enable it, and reset another user's password. A role change,
 account disable, or administrator password reset invalidates existing sessions and requires a new
@@ -191,34 +185,19 @@ sign-in.
 
 Changing your password invalidates the current session. Sign in again with the new password. Do not share accounts or retain browser cookies as API tokens.
 
-### 3. Chats and shared data
+### 3. Home, content, and Agent
 
-The chat flow remains familiar:
+After sign-in, the home page has three fixed categories: **Data Hub**, **Knowledge Hub**, and **Operations Hub**. Switching category changes the business cards. A card opens only when its Module is available and its Companion Plugin is enabled. Selecting a card opens a dedicated content view with a highlighted content-navigator entry and a return control. Settings is a separate full-page view. The legacy chat sidebar has been removed and no longer hosts conversations, Plugin entries, or Resident entries.
 
-1. Create or open a chat.
-2. Use a model configured by the administrator.
-3. Attach images, documents, web content, or knowledge-base context as needed.
-4. Send the message.
+The bottom-right Hermes Agent popup is the only generic conversation UI:
 
-After the first assistant reply is saved, the Server uses the administrator-configured
-chat model to generate a concise title. Normal chats and module tasks use the same
-title flow. If the model is unavailable or returns an invalid title, ChatRaw falls
-back to a summary of the first message. Automatic naming never overwrites a manual
-rename.
+1. Open the popup to continue the current conversation.
+2. Use the history button in its header to reveal the session list.
+3. Create, switch, rename, or delete your own sessions.
+4. The composer has no Hermes selection button or thinking-mode switch; every message goes directly to Hermes Agent.
+5. Use the window-expand button in the popup header to open a full-screen floating conversation window without leaving the current page. This gives wide tables and rendered model content enough room.
 
-Platform users can see shared chats and documents. You can manage resources you created; only administrators can manage ownerless classic resources.
-
-Model messages and module conversation results appear on the left, with the
-model avatar before the content. User messages appear on the right, with the
-user avatar after the content. Multiline Markdown and code remain left-aligned
-inside each message. Reopening a chat restores persisted message bodies without
-duplicating a module's final answer.
-
-Wide Markdown tables stay inside the message surface and provide their own horizontal scroll.
-Use a trackpad or Magic Mouse horizontal gesture, or hold Shift while using a mouse wheel. ChatRaw
-owns horizontal gestures across the page: a horizontally scrollable region moves, while the home
-surface and ordinary content consume the gesture. Continuing at an edge or over blank space therefore
-does not reveal Safari history navigation. Normal vertical scrolling and pinch zoom remain unchanged.
+Hermes Agent sessions are private to their creator. Other members and administrators cannot enumerate, read, rename, or delete them through either Agent or classic chat APIs. Module-owned business data, documents, and retained classic chats continue to use the shared-platform boundary.
 
 ### 4. Feature suites
 
@@ -229,27 +208,26 @@ A large feature has a backend module and one frontend integration:
 
 Members do not connect these pieces manually. Once the administrator completes installation and pairing, the feature entry point becomes available.
 
-Enabled sidebar feature entries appear above the chat controls, separated from **New Chat** and
-the chat list by a divider. When no sidebar feature is available, ChatRaw omits the empty feature
-section and divider, so the sidebar starts with **New Chat**. When feature entries exceed the
-available space, only the feature section scrolls; **New Chat**, the chat list, and footer actions
-remain accessible. Use **Collapse** in the feature-section header to hide those entries and give
-the space to chat history; the header remains available so **Expand** can restore them. This
-browser-local preference is independent from collapsing the whole sidebar.
+Business entry points live on the home card grid. The subtitle from Interface settings appears
+below the centered home logo; an empty subtitle occupies no space. The Host fixes the three
+categories; each registered Module manifest supplies its localized card metadata and target panel.
+The current browser also verifies that the Companion Plugin registered that panel with `main`
+support. A broken declaration disables only its card.
 
 A companion plugin may open an interactive workspace in the main content area. It can appear to
 the right, above, below, or in place of the visible chat surface. Right, top, and bottom workspaces
 leave chat interactive. Narrow screens use the main presentation; short screens also use it for
 top and bottom workspaces. Closing a workspace preserves the current chat and messages; reloading
 the page starts with the workspace closed. When a user activates that plugin's ChatRaw-provided entry
-with a click or keyboard, focus moves to the Host close button and returns to the entry on close.
+with a click or keyboard, focus moves to the Host workspace title and returns to the entry on close.
 Opens from module tasks, timers, controls inside plugin content, or other background flows preserve
 the current focus.
 
-For Agent, the plugin uses the ChatRaw Module SDK. It never connects directly to Agent or receives Agent, LinkDB, or other private module credentials.
-Agent execution appears inside one assistant message: explicit plans, tool calls,
-redacted results, and one final Markdown answer. Successful timelines collapse by
-default and can be expanded again.
+When an administrator upgrades, enables, disables, or removes a plugin, open tabs dispose and close
+the previous plugin workspace before switching to the current runtime. Unsaved plugin form input is
+not carried across versions; reopen the workspace from the current entry before continuing.
+
+Plugins never connect directly to Modules or Hermes and never receive Module, Hermes, LinkDB, or other private credentials. Calls continue through same-origin ChatRaw APIs and authorization checks.
 
 #### Agent rule scopes
 
@@ -264,6 +242,11 @@ so later activation changes do not alter in-flight or historical tasks. The
 next send in the same chat is a new task and reads the latest active rules.
 Personal rules take precedence over conflicting system defaults, while platform
 security controls remain non-overridable.
+
+The fallback Agent supports aggregate summaries and one explicitly requested
+detail page. It does not walk pages for all details or exports in chat. A
+single-page result remains explicitly partial, and neither a personal nor a
+system rule can raise the fixed safety limits.
 
 An inactive personal rule may be deleted; an active rule must first be
 deactivated. It disappears from ordinary lists and its name may be reused, but
@@ -306,7 +289,7 @@ Common reasons include:
 
 Report the visible status and time to an administrator. Do not attempt to discover or edit the private module address.
 
-If Agent is unavailable, its plugin does not take over message sending. Disable Agent mode and continue with normal chat.
+If Hermes Agent is unavailable, the popup reports the failure and preserves the current session. It never reroutes the message to normal chat or another model.
 
 ### 7. Security
 
@@ -318,4 +301,4 @@ If Agent is unavailable, its plugin does not take over message sending. Disable 
 
 ### 8. Support information
 
-Provide the time, feature name, public error code, chat ID when available, and whether normal chat still works. Never send passwords, cookies, module credentials, model API keys, or LinkDB credentials.
+Provide the time, feature name, public error code, chat ID when available, and whether the Hermes Agent popup or affected business card is available. Never send passwords, cookies, module credentials, model API keys, or LinkDB credentials.

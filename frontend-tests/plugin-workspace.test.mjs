@@ -349,7 +349,7 @@ test('workspace collections group, order, open, switch, and filter panels', () =
         ),
         ['plugin-two:video', 'plugin-one:finance']
     );
-    assert.equal(host.openPluginWorkspaceCollection('operations'), true);
+    ui.openWorkspacePanel('video', { placement: 'main' }, 'plugin-two');
     assert.equal(host.pluginWorkspace.pluginId, 'plugin-two');
     assert.equal(host.pluginWorkspace.panelId, 'video');
     assert.equal(host.pluginWorkspace.collectionId, 'operations');
@@ -369,7 +369,6 @@ test('workspace collections group, order, open, switch, and filter panels', () =
         ),
         ['plugin-one:finance']
     );
-    assert.equal(host.openPluginWorkspaceCollection('missing'), false);
 });
 
 test('workspace collection definitions and tab switches fail closed', () => {
@@ -451,7 +450,7 @@ test('workspace collection runtime and machine contract stay aligned', () => {
         /dispose-before-mount/
     );
     assert.match(appHtml, /class="plugin-workspace-tabs"/);
-    assert.match(appHtml, /openPluginWorkspaceCollection\(collection\.id\)/);
+    assert.doesNotMatch(appHtml, /openPluginWorkspaceCollection\(/);
     assert.match(appCss, /\.plugin-workspace-tabs button\.active/);
 });
 
@@ -1176,7 +1175,7 @@ test('workspace layout is non-modal, responsive, and isolated from Alpine', () =
 test('focus contract and Host entry wiring describe the same authorization boundary', () => {
     assert.match(
         pluginUiContract.focus.host_focus_authorization,
-        /Host-rendered toolbar or sidebar entry/
+        /Host-rendered Agent composer toolbar entry/
     );
     assert.match(
         pluginUiContract.focus.host_focus_authorization,

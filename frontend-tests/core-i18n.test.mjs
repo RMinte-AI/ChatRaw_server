@@ -103,11 +103,10 @@ test('module configuration performs a bounded readiness recheck', () => {
     );
 });
 
-test('plugins can opt into the stable sidebar mount without DOM injection', () => {
-    assert.match(appScript, /config\.placement === 'sidebar' \? 'sidebar' : 'toolbar'/);
-    assert.match(appScript, /get sidebarPluginButtons\(\)/);
-    assert.match(appHtml, /x-for="btn in sidebarPluginButtons"/);
-    assert.match(appHtml, /class="plugin-sidebar-entry"/);
+test('legacy sidebar plugin buttons normalize to the remaining toolbar surface', () => {
+    assert.match(appScript, /placement: 'toolbar'/);
+    assert.doesNotMatch(appScript, /get sidebarPluginButtons\(\)/);
+    assert.doesNotMatch(appHtml, /class="plugin-sidebar-entry"/);
     assert.match(appHtml, /getSortedPluginButtons\('toolbar'\)/);
     assert.match(appHtml, /app\.min\.js\?v=[0-9a-f]{64}/);
     assert.match(appHtml, /styles\.min\.css\?v=[0-9a-f]{64}/);
@@ -129,4 +128,13 @@ test('unconfigured Resident entries stay hidden until their feature is visible',
         /\.filter\(integration => integration\.feature\?\.visible === true\)/
     );
     assert.match(appScript, /visible: false,\s+available: false,\s+state: 'hidden'/);
+});
+
+test('legacy Resident sidebar entries render in the composer surface', () => {
+    assert.match(
+        appScript,
+        /placement === 'composer'[\s\S]*entrypoint\.placement === 'sidebar'/
+    );
+    assert.doesNotMatch(appHtml, /residentEntries\('sidebar'\)/);
+    assert.match(appHtml, /residentEntries\('composer'\)/);
 });

@@ -60,9 +60,6 @@ const i18n = {
         delete: 'Delete',
         expand: 'Expand',
         collapse: 'Collapse',
-        sidebarFeatures: 'Features',
-        expandSidebarFeatures: 'Expand features',
-        collapseSidebarFeatures: 'Collapse features',
         defaultSubtitle: 'Minimalist AI Assistant, Ready to Use',
         fastResponse: 'Fast Response',
         multiModel: 'Multi-Model',
@@ -254,9 +251,6 @@ const i18n = {
         delete: '删除',
         expand: '展开',
         collapse: '收起',
-        sidebarFeatures: '功能入口',
-        expandSidebarFeatures: '展开功能入口',
-        collapseSidebarFeatures: '收起功能入口',
         defaultSubtitle: '极简AI助手，开箱即用',
         fastResponse: '极速响应',
         multiModel: '多模型支持',
@@ -452,7 +446,6 @@ Object.assign(i18n.en, {
     authenticationRequired: 'Authentication required',
     settingsNavigation: 'Settings navigation',
     pluginNavigation: 'Plugin navigation',
-    toggleSidebar: 'Toggle sidebar',
     preview: 'Preview',
     logoAlt: 'Logo',
     userAvatarAlt: 'User avatar',
@@ -682,7 +675,6 @@ Object.assign(i18n.zh, {
     authenticationRequired: '需要登录',
     settingsNavigation: '设置导航',
     pluginNavigation: '插件导航',
-    toggleSidebar: '切换侧边栏',
     preview: '预览',
     logoAlt: 'Logo',
     userAvatarAlt: '用户头像',
@@ -925,27 +917,11 @@ marked.setOptions({
     gfm: true
 });
 
-const MOBILE_VIEW_MEDIA_QUERY = '(max-width: 768px), (max-height: 500px) and (max-width: 900px) and (pointer: coarse)';
-
-function isMobileViewport() {
-    return window.matchMedia(MOBILE_VIEW_MEDIA_QUERY).matches;
-}
-
 const SKILL_MANAGER_PLUGIN_ID = 'skill-manager';
 const COMPOSER_COMPLETION_LIMIT = 20;
 const SKILL_CATALOG_CACHE_MS = 30000;
 const MAX_ACTIVE_SKILLS_PER_REQUEST = 5;
-const DEFAULT_CHAT_ENDPOINT = '/api/chat';
 const AGENT_CHAT_ENDPOINT = '/api/agent/chat';
-const CHAT_ROUTE_ENDPOINTS = Object.freeze({
-    hermes: '/api/hermes/chat'
-});
-const ALLOWED_CHAT_ENDPOINTS = new Set([
-    DEFAULT_CHAT_ENDPOINT,
-    AGENT_CHAT_ENDPOINT,
-    ...Object.values(CHAT_ROUTE_ENDPOINTS)
-]);
-const ROUTE_MESSAGE_RESULT_KEYS = new Set(['success', 'route']);
 const RESERVED_SLASH_COMMANDS = new Set(['plugins', 'settings', 'help', 'clear', 'compact', 'api']);
 const COMMON_PATH_ROOTS = new Set(['tmp', 'var', 'usr', 'etc', 'home', 'users', 'opt', 'private', 'volumes', 'mnt']);
 const SKILL_NAME_PATTERN = /^[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?$/;
@@ -962,21 +938,11 @@ const PLUGIN_WORKSPACE_PANEL_ID_PATTERN = /^[a-z0-9](?:[a-z0-9._-]{0,62}[a-z0-9]
 const MODULE_ACTIVITY_LIMIT = 512;
 
 function app() {
-    const initialDesktopCollapsed = localStorage.getItem('chatraw_sidebar_collapsed') === '1';
-    const initialSidebarFeaturesCollapsed =
-        localStorage.getItem('chatraw_sidebar_features_collapsed') === '1';
-    const initialIsMobile = isMobileViewport();
-    
     return {
         // Language
         lang: localStorage.getItem('justchat_lang') || 'en',
         
         // State
-        isMobileView: initialIsMobile,
-        desktopSidebarCollapsed: initialDesktopCollapsed,
-        sidebarCollapsed: initialIsMobile ? true : initialDesktopCollapsed,
-        sidebarFeaturesCollapsed: initialSidebarFeaturesCollapsed,
-        _resizeRaf: null,
         showSettings: false,
         agentOpen: false,
         agentExpanded: false,
@@ -1091,7 +1057,7 @@ function app() {
         pluginApiKeyActions: {},
         
         // Plugin toolbar extension state
-        pluginToolbarButtons: [],  // Generic plugin entries for toolbar or sidebar placement.
+        pluginToolbarButtons: [],  // Generic plugin entries for the Agent composer toolbar.
         showPluginMoreMenu: false,
         pluginFullscreenModal: {
             show: false,
@@ -1293,10 +1259,6 @@ function app() {
             return this.t(fallbackKey);
         },
 
-        localizedApiError(error, fallbackKey = 'requestFailed') {
-            return this.localizeError(error, fallbackKey);
-        },
-        
         // Get model type display name
         getModelTypeName(type) {
             const names = {
@@ -1325,7 +1287,6 @@ function app() {
         async init() {
             this.setLanguage(this.lang);
             this.installRootWheelGuard();
-            this.initResponsiveLayout();
             await this.loadMe();
             await this.loadSettings();
             await this.loadModels();
@@ -2179,13 +2140,6 @@ function app() {
             this.moduleTaskUi = view;
         },
 
-        showModuleTask(task) {
-            this.upsertModuleTask(task, {
-                select: true,
-                presentation: 'task_center'
-            });
-        },
-
         openModuleTaskCenter() {
             const attentionViews = this.moduleTaskAttentionViews();
             const currentTaskId = this.moduleTaskUi.task?.task_id;
@@ -2347,7 +2301,13 @@ function app() {
                 .filter(integration => integration.feature?.visible === true)
                 .flatMap(integration => (
                     (integration.entrypoints || [])
-                        .filter(entrypoint => entrypoint.placement === placement)
+                        .filter(entrypoint => (
+                            entrypoint.placement === placement
+                            || (
+                                placement === 'composer'
+                                && entrypoint.placement === 'sidebar'
+                            )
+                        ))
                         .map(entrypoint => ({
                             ...entrypoint,
                             integration
@@ -2768,66 +2728,6 @@ function app() {
             }
         },
         
-        // Responsive layout sync (mobile drawer + desktop collapse)
-        initResponsiveLayout() {
-            this.syncSidebarForViewport(true);
-            const onViewportChange = () => {
-                if (this._resizeRaf) {
-                    cancelAnimationFrame(this._resizeRaf);
-                }
-                this._resizeRaf = requestAnimationFrame(() => {
-                    this.syncSidebarForViewport(false);
-                });
-            };
-            window.addEventListener('resize', onViewportChange, { passive: true });
-            window.addEventListener('orientationchange', onViewportChange, { passive: true });
-        },
-        
-        syncSidebarForViewport(isInitial) {
-            const isMobileNow = isMobileViewport();
-            const switchedToMobile = !this.isMobileView && isMobileNow;
-            const switchedToDesktop = this.isMobileView && !isMobileNow;
-            this.isMobileView = isMobileNow;
-            
-            if (isMobileNow && (isInitial || switchedToMobile)) {
-                // Mobile: default closed drawer, open via top menu.
-                this.sidebarCollapsed = true;
-            } else if (!isMobileNow && (isInitial || switchedToDesktop)) {
-                // Desktop: restore persisted collapse preference.
-                this.sidebarCollapsed = this.desktopSidebarCollapsed;
-            }
-        },
-        
-        toggleSidebar() {
-            this.sidebarCollapsed = !this.sidebarCollapsed;
-            if (!this.isMobileView) {
-                this.desktopSidebarCollapsed = this.sidebarCollapsed;
-                localStorage.setItem('chatraw_sidebar_collapsed', this.sidebarCollapsed ? '1' : '0');
-            }
-        },
-
-        toggleSidebarFeatures() {
-            this.sidebarFeaturesCollapsed = !this.sidebarFeaturesCollapsed;
-            localStorage.setItem(
-                'chatraw_sidebar_features_collapsed',
-                this.sidebarFeaturesCollapsed ? '1' : '0'
-            );
-        },
-        
-        openSidebar() {
-            this.sidebarCollapsed = false;
-        },
-        
-        closeSidebar() {
-            this.sidebarCollapsed = true;
-        },
-        
-        closeSidebarOnMobile() {
-            if (this.isMobileView) {
-                this.closeSidebar();
-            }
-        },
-        
         openSettingsPanel() {
             this.showPlugins = false;
             this.settingsTab = this.isAdmin() ? 'models' : 'account';
@@ -2841,14 +2741,12 @@ function app() {
                 this.loadAdminUsers();
                 this.loadModules();
             }
-            this.closeSidebarOnMobile();
         },
         
         async openPluginsPanel() {
             if (!this.isAdmin()) return;
             this.showSettings = false;
             this.showPlugins = true;
-            this.closeSidebarOnMobile();
             await this.loadInstalledPlugins();
             this.loadPluginMarket();
         },
@@ -2964,7 +2862,6 @@ function app() {
                     await this.selectChat(chat.id);
                     this.agentHistoryOpen = false;
                     this.announceAgentChatChange('created', chat.id);
-                    this.closeSidebarOnMobile();
                 }
             } catch (e) {
                 this.showToast(this.t('createChatFailed'), 'error');
@@ -2995,7 +2892,6 @@ function app() {
         async selectChat(chatId) {
             if (this.currentChatId === chatId) {
                 this.agentHistoryOpen = false;
-                this.closeSidebarOnMobile();
                 return;
             }
             if (this.isGenerating) {
@@ -3005,7 +2901,6 @@ function app() {
             this.messages = [];
             await this.loadMessages(chatId);
             this.agentHistoryOpen = false;
-            this.closeSidebarOnMobile();
         },
         
         // Load messages
@@ -3705,137 +3600,6 @@ function app() {
             };
         },
 
-        buildSendInterceptContext(message, activeSkillNames, signal = this.abortController?.signal) {
-            return {
-                message,
-                activeSkillNames: [...activeSkillNames],
-                parsedUrl: this.parsedUrl ? {
-                    url: this.parsedUrl.url,
-                    title: this.parsedUrl.title
-                } : null,
-                attachedDocument: this.attachedDocument ? {
-                    filename: this.attachedDocument.filename
-                } : null,
-                hasImage: Boolean(this.uploadedImageBase64),
-                currentChatId: this.currentChatId,
-                signal
-            };
-        },
-
-        applySendInterceptResult(result, originalMessage) {
-            const userMessage = result.userMessage === false ? null : (result.userMessage || originalMessage);
-            if (userMessage) {
-                this.messages.push({
-                    role: 'user',
-                    content: String(userMessage)
-                });
-            }
-
-            if (result.assistantMessage) {
-                this.messages.push({
-                    role: 'assistant',
-                    content: String(result.assistantMessage)
-                });
-            }
-
-            if (result.clearInput !== false) {
-                this.inputMessage = '';
-                this.closeCompletionMenu();
-                this.$nextTick(() => this.autoResize(this.$refs.inputBox));
-            }
-
-            if (result.clearAttachments !== false) {
-                this.removeUploadedImage();
-                this.removeParsedUrl();
-                this.removeAttachedDocument();
-            }
-
-            if (result.refreshSkillCatalog) {
-                this.invalidateSkillCatalog();
-            }
-
-            this.$nextTick(() => this.scrollToBottom());
-        },
-
-        normalizeChatEndpoint(endpoint) {
-            if (ALLOWED_CHAT_ENDPOINTS.has(endpoint)) {
-                return endpoint;
-            }
-            console.warn('[Route] Ignored non-allowlisted chat endpoint:', endpoint);
-            return DEFAULT_CHAT_ENDPOINT;
-        },
-
-        buildRouteMessageBody(body) {
-            const routeBody = { ...body };
-            if (Array.isArray(body.active_skills)) {
-                routeBody.active_skills = Object.freeze([...body.active_skills]);
-            }
-            return Object.freeze(routeBody);
-        },
-
-        isValidRouteMessageResult(result) {
-            if (!result || typeof result !== 'object' || Array.isArray(result)) {
-                return false;
-            }
-
-            const symbolKeys = Object.getOwnPropertySymbols(result);
-            if (symbolKeys.length > 0) {
-                console.warn('[Route] Ignored route_message result with unsupported symbol fields');
-                return false;
-            }
-
-            const resultKeys = Object.getOwnPropertyNames(result);
-            const extraKeys = resultKeys.filter(key => !ROUTE_MESSAGE_RESULT_KEYS.has(key));
-            if (extraKeys.length > 0) {
-                console.warn('[Route] Ignored route_message result with unsupported fields:', extraKeys.join(', '));
-                return false;
-            }
-
-            if (!Object.prototype.hasOwnProperty.call(result, 'success') || result.success !== true) {
-                console.warn('[Route] Ignored route_message result without success: true');
-                return false;
-            }
-
-            if (!Object.prototype.hasOwnProperty.call(result, 'route') || typeof result.route !== 'string') {
-                console.warn('[Route] Ignored route_message result without a string route');
-                return false;
-            }
-
-            return true;
-        },
-
-        async resolveMessageRouteEndpoint(body) {
-            const handlers = this.pluginHooks.route_message || [];
-            if (!handlers.length) {
-                return DEFAULT_CHAT_ENDPOINT;
-            }
-
-            const routeBody = this.buildRouteMessageBody(body);
-            for (const handler of handlers) {
-                if (handler._pluginId) {
-                    const plugin = this.installedPlugins.find(p => p.id === handler._pluginId);
-                    if (plugin && !plugin.enabled) continue;
-                }
-
-                try {
-                    const result = await handler.handler(routeBody);
-                    if (!result?.success) continue;
-                    if (!this.isValidRouteMessageResult(result)) continue;
-
-                    const endpoint = CHAT_ROUTE_ENDPOINTS[result.route];
-                    if (endpoint) {
-                        return this.normalizeChatEndpoint(endpoint);
-                    }
-
-                    console.warn('[Route] Ignored unknown chat route:', result.route);
-                } catch (e) {
-                    console.error('[Hook route_message] Error:', e);
-                }
-            }
-
-            return DEFAULT_CHAT_ENDPOINT;
-        },
-        
         // Send message
         async sendMessage() {
             if (this.isGenerating) return;
@@ -3918,7 +3682,6 @@ function app() {
                     delete body.active_skills;
                 }
 
-                const endpoint = AGENT_CHAT_ENDPOINT;
                 if (sendController.signal.aborted) return;
                 
                 this.removeUploadedImage();
@@ -3926,9 +3689,9 @@ function app() {
                 this.removeAttachedDocument();
                 
                 if (this.settings.chat_settings.stream) {
-                    await this.handleStreamResponse(body, endpoint, sendController.signal);
+                    await this.handleStreamResponse(body, sendController.signal);
                 } else {
-                    await this.handleNormalResponse(body, endpoint, sendController.signal);
+                    await this.handleNormalResponse(body, sendController.signal);
                 }
                 await this.loadChats();
                 
@@ -4267,9 +4030,8 @@ function app() {
         },
         
         // Handle stream response (NDJSON format) - TRUE STREAMING
-        async handleStreamResponse(body, endpoint = DEFAULT_CHAT_ENDPOINT, signal = this.abortController?.signal) {
-            const chatEndpoint = this.normalizeChatEndpoint(endpoint);
-            const res = await fetch(chatEndpoint, {
+        async handleStreamResponse(body, signal = this.abortController?.signal) {
+            const res = await fetch(AGENT_CHAT_ENDPOINT, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(body),
@@ -4372,9 +4134,8 @@ function app() {
         },
         
         // Handle normal response
-        async handleNormalResponse(body, endpoint = DEFAULT_CHAT_ENDPOINT, signal = this.abortController?.signal) {
-            const chatEndpoint = this.normalizeChatEndpoint(endpoint);
-            const res = await fetch(chatEndpoint, {
+        async handleNormalResponse(body, signal = this.abortController?.signal) {
+            const res = await fetch(AGENT_CHAT_ENDPOINT, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(body),
@@ -4398,187 +4159,6 @@ function app() {
                 references: data.references || []
             });
             this.$nextTick(() => this.scrollToBottom());
-        },
-        
-        // Handle file upload (documents) with progress
-        async handleFileUpload(event) {
-            const file = event.target.files[0];
-            if (!file) return;
-            
-            const formData = new FormData();
-            formData.append('file', file);
-            
-            // Show progress
-            this.uploadProgress = { show: true, filename: file.name, progress: 0, status: 'uploading' };
-            
-            try {
-                const res = await fetch('/api/documents', {
-                    method: 'POST',
-                    body: formData
-                });
-                
-                if (!res.ok) {
-                    const error = await res.text();
-                    throw new Error(error);
-                }
-                
-                // Read progress stream
-                const reader = res.body.getReader();
-                const decoder = new TextDecoder();
-                let buffer = '';
-                
-                while (true) {
-                    const { done, value } = await reader.read();
-                    if (done) break;
-                    
-                    buffer += decoder.decode(value, { stream: true });
-                    
-                    let newlineIdx;
-                    while ((newlineIdx = buffer.indexOf('\n')) !== -1) {
-                        const line = buffer.slice(0, newlineIdx).trim();
-                        buffer = buffer.slice(newlineIdx + 1);
-                        
-                        if (!line) continue;
-                        
-                        try {
-                            const data = JSON.parse(line);
-                            
-                            if (data.status === 'chunking') {
-                                this.uploadProgress.status = 'chunking';
-                                this.uploadProgress.total = data.total;
-                            } else if (data.status === 'embedding') {
-                                this.uploadProgress.status = 'embedding';
-                                this.uploadProgress.progress = data.progress;
-                                this.uploadProgress.current = data.current;
-                                this.uploadProgress.total = data.total;
-                            } else if (data.status === 'done') {
-                                this.uploadProgress.show = false;
-                                this.showToast(`"${file.name}" ${this.t('uploadSuccess')}`, 'success');
-                                await this.loadDocuments();
-                            }
-                        } catch (e) {
-                            // ignore parse errors
-                        }
-                    }
-                }
-            } catch (e) {
-                this.uploadProgress.show = false;
-                this.showToast(this.t('uploadFailed'), 'error');
-            }
-            
-            event.target.value = '';
-        },
-        
-        // Check if browser supports WebP encoding
-        supportsWebP() {
-            const canvas = document.createElement('canvas');
-            canvas.width = 1;
-            canvas.height = 1;
-            return canvas.toDataURL('image/webp').startsWith('data:image/webp');
-        },
-        
-        // Compress image using Canvas API, target 500KB, max 1120px long edge
-        async compressImage(file, targetSizeMB = 0.5) {
-            const targetSize = targetSizeMB * 1024 * 1024; // 500KB default
-            const maxLongEdge = 1120; // Maximum long edge dimension
-            
-            return new Promise((resolve, reject) => {
-                const img = new Image();
-                const url = URL.createObjectURL(file);
-                
-                img.onload = async () => {
-                    URL.revokeObjectURL(url);
-                    
-                    // Detect format support
-                    const useWebP = this.supportsWebP();
-                    const mimeType = useWebP ? 'image/webp' : 'image/jpeg';
-                    const ext = useWebP ? '.webp' : '.jpg';
-                    
-                    let { width, height } = img;
-                    const originalWidth = width;
-                    const originalHeight = height;
-                    
-                    // Resize to max 1120px on long edge while maintaining aspect ratio
-                    const longEdge = Math.max(width, height);
-                    if (longEdge > maxLongEdge) {
-                        const ratio = maxLongEdge / longEdge;
-                        width = Math.round(width * ratio);
-                        height = Math.round(height * ratio);
-                    }
-                    
-                    const canvas = document.createElement('canvas');
-                    const ctx = canvas.getContext('2d');
-                    
-                    // Helper to create blob
-                    const createBlob = (w, h, quality) => {
-                        return new Promise((res) => {
-                            canvas.width = w;
-                            canvas.height = h;
-                            ctx.fillStyle = '#FFFFFF';
-                            ctx.fillRect(0, 0, w, h);
-                            ctx.drawImage(img, 0, 0, w, h);
-                            canvas.toBlob((blob) => res(blob), mimeType, quality);
-                        });
-                    };
-                    
-                    // Try compression with different quality levels until under target size
-                    const qualityLevels = [0.92, 0.85, 0.75, 0.65, 0.55, 0.45, 0.35, 0.25];
-                    
-                    let bestBlob = null;
-                    
-                    // Try different quality levels with the resized dimensions
-                    for (const quality of qualityLevels) {
-                        const blob = await createBlob(width, height, quality);
-                        if (blob && blob.size <= targetSize) {
-                            bestBlob = blob;
-                            break;
-                        }
-                        // Keep the smallest one we've seen
-                        if (!bestBlob || (blob && blob.size < bestBlob.size)) {
-                            bestBlob = blob;
-                        }
-                    }
-                    
-                    // If still too large, try scaling down further
-                    if (bestBlob && bestBlob.size > targetSize) {
-                        const scaleLevels = [0.9, 0.8, 0.7, 0.6, 0.5];
-                        for (const scale of scaleLevels) {
-                            const w = Math.round(width * scale);
-                            const h = Math.round(height * scale);
-                            
-                            for (const quality of qualityLevels) {
-                                const blob = await createBlob(w, h, quality);
-                                if (blob && blob.size <= targetSize) {
-                                    bestBlob = blob;
-                                    break;
-                                }
-                                if (blob && blob.size < bestBlob.size) {
-                                    bestBlob = blob;
-                                }
-                            }
-                            
-                            if (bestBlob && bestBlob.size <= targetSize) {
-                                break;
-                            }
-                        }
-                    }
-                    
-                    if (!bestBlob) {
-                        reject(new Error('Compression failed'));
-                        return;
-                    }
-                    
-                    const newName = file.name.replace(/\.[^.]+$/, ext);
-                    resolve(new File([bestBlob], newName, { type: mimeType }));
-                };
-                
-                img.onerror = () => {
-                    URL.revokeObjectURL(url);
-                    reject(new Error('Failed to load image'));
-                };
-                
-                img.src = url;
-            });
         },
         
         // Handle image upload
@@ -4897,22 +4477,6 @@ function app() {
             this.urlInputValue = '';
         },
         
-        // Delete document
-        async deleteDocument(id) {
-            if (!confirm(this.t('deleteSharedDocument'))) return;
-            try {
-                const response = await fetch(`/api/documents/${id}`, { method: 'DELETE' });
-                if (!response.ok) {
-                    const result = await response.json();
-                    throw new Error(result.detail || this.t('deleteFailed'));
-                }
-                this.documents = this.documents.filter(d => d.id !== id);
-                this.showToast(this.t('documentDeleted'), 'success');
-            } catch (e) {
-                this.showToast(this.t('deleteFailed'), 'error');
-            }
-        },
-        
         // Save and verify model
         async saveAndVerifyModel(model, index) {
             model.status = 'loading';
@@ -5196,16 +4760,6 @@ function app() {
             return this.getSortedPluginButtons('toolbar').slice(5);
         },
 
-        get sidebarPluginButtons() {
-            return this.getSortedPluginButtons('sidebar');
-        },
-
-        get hasSidebarFeatureEntries() {
-            return this.residentEntries('sidebar').length > 0
-                || this.pluginWorkspaceCollections.length > 0
-                || this.sidebarPluginButtons.length > 0;
-        },
-
         get pluginWorkspaceCollections() {
             const collections = new Map();
             for (const definition of Object.values(this.pluginWorkspaceDefinitions)) {
@@ -5255,12 +4809,6 @@ function app() {
             return btn.label?.[lang] || btn.label?.en || btn.id;
         },
 
-        getPluginButtonStatus(btn) {
-            const lang = this.lang || 'en';
-            if (typeof btn.status === 'string') return btn.status;
-            return btn.status?.[lang] || btn.status?.en || '';
-        },
-
         getPluginWorkspaceCollection(collectionId) {
             return this.pluginWorkspaceCollections.find(
                 collection => collection.id === collectionId
@@ -5271,21 +4819,6 @@ function app() {
             return this.getPluginWorkspaceCollection(
                 this.pluginWorkspace.collectionId
             )?.panels || [];
-        },
-
-        openPluginWorkspaceCollection(collectionId) {
-            const collection = this.getPluginWorkspaceCollection(collectionId);
-            if (!collection?.panels.length) return false;
-            const active = collection.panels.find(panel => (
-                panel.pluginId === this.pluginWorkspace.pluginId
-                && panel.panelId === this.pluginWorkspace.panelId
-            ));
-            const panel = active || collection.panels[0];
-            return this.openPluginWorkspacePanel(
-                panel.panelId,
-                { placement: 'main' },
-                panel.pluginId
-            );
         },
 
         switchPluginWorkspaceCollectionPanel(panel) {
@@ -6750,7 +6283,10 @@ function app() {
                             label: config.label || { en: config.id },
                             onClick: config.onClick,
                             order: config.order ?? 100,
-                            placement: config.placement === 'sidebar' ? 'sidebar' : 'toolbar',
+                            // The four-page shell has no sidebar. Keep accepting
+                            // legacy declarations, but render them in the only
+                            // generic Plugin entry surface that still exists.
+                            placement: 'toolbar',
                             status: config.status || null,
                             disabled: config.disabled === true,
                             active: false,
@@ -7129,26 +6665,6 @@ function app() {
             delete this.pluginHookRegistry[pluginId];
         },
 
-        // Call pre-send interceptors. Only handled=true cancels the normal send path.
-        async callSendInterceptors(context) {
-            const handlers = this.pluginHooks.send_intercept || [];
-            for (const handler of handlers) {
-                if (handler._pluginId) {
-                    const plugin = this.installedPlugins.find(p => p.id === handler._pluginId);
-                    if (plugin && !plugin.enabled) continue;
-                }
-
-                try {
-                    const result = await handler.handler(context);
-                    if (result?.success && result.handled === true) return result;
-                } catch (e) {
-                    if (e?.name === 'AbortError') throw e;
-                    console.error('[Hook send_intercept] Error:', e);
-                }
-            }
-            return null;
-        },
-        
         // Call hook handlers
         async callHook(hookName, ...args) {
             const handlers = this.pluginHooks[hookName] || [];

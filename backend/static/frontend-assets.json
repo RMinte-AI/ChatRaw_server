@@ -3,12 +3,12 @@
   "entrypoint": "index.html",
   "assets": {
     "app.js": {
-      "sha256": "dd0d5fadb58ef3826d0851cdb62aef597a9f516dd985463095dbcd46965f42d8",
-      "version": "dd0d5fadb58ef3826d0851cdb62aef597a9f516dd985463095dbcd46965f42d8"
+      "sha256": "808891b1e56f6d9baae926a2c15b19c686f5ef4d819ab6c48627a3d053c4299c",
+      "version": "808891b1e56f6d9baae926a2c15b19c686f5ef4d819ab6c48627a3d053c4299c"
     },
     "app.min.js": {
-      "sha256": "ff25cb8f1e67e64dbc49cc12e0a32fb5ed0042aec0fddccbe41e383600e100c7",
-      "version": "ff25cb8f1e67e64dbc49cc12e0a32fb5ed0042aec0fddccbe41e383600e100c7"
+      "sha256": "0071bcbd2e8680f985df7d9e8f048fb6d19abfa1021d2da0b1be6e16b64ee76d",
+      "version": "0071bcbd2e8680f985df7d9e8f048fb6d19abfa1021d2da0b1be6e16b64ee76d"
     },
     "auth.css": {
       "sha256": "f07a31c703b40bdf18566936d997d1ea574d9757113bbeb714040bf7663ee6fe",
@@ -59,8 +59,8 @@
       "version": "e92dc38bfb1d15dbb9d9ca9e645754f68e7c5b224e33c45a17048bd0cf2407a6"
     },
     "index.html": {
-      "sha256": "cb73d33b1e6870ea18ae60faf0f099d65b12fda0946407fbd55a3eb79c8c9208",
-      "version": "cb73d33b1e6870ea18ae60faf0f099d65b12fda0946407fbd55a3eb79c8c9208"
+      "sha256": "4a64b0fc7b283958e90183df2094c15b68c9078ca23f6312b3ba89d2d9fe53f0",
+      "version": "4a64b0fc7b283958e90183df2094c15b68c9078ca23f6312b3ba89d2d9fe53f0"
     },
     "landing-field.svg": {
       "sha256": "b44d1d8b331f8b7d22bb1127a2c49e4e5d76fd38769fb7ce60c5d533b7f71378",
@@ -71,28 +71,28 @@
       "version": "8d8681a0e52b851a13570a04dde43114bd0166bb1d1be3c59a69975826bb97ca"
     },
     "resident-integrations/catalog.json": {
-      "sha256": "762e43d75b1429d219c66e0fa021afe90dd70963e8406f1a1b37cdc1f24d44c5",
-      "version": "762e43d75b1429d219c66e0fa021afe90dd70963e8406f1a1b37cdc1f24d44c5"
+      "sha256": "6c903a106ef64e4a9d9ac6a5420fb3b89da6423690ea51b104d53a9af4ffbd83",
+      "version": "6c903a106ef64e4a9d9ac6a5420fb3b89da6423690ea51b104d53a9af4ffbd83"
     },
     "resident-integrations/resident-integrations.min.css": {
       "sha256": "6459f7944bb03b7cd6d9a9a43c09b48147d4ddf57b3eb34c0d9da2fbde4b2a84",
-      "version": "aa3a2f7d2340db6392d29921709dbb1c29f5ce6393778126437ea9db50a708b4"
+      "version": "734d69feed0fdb278d96c3fe7437afb41852e576c70fb85738e9f147dbade0ce"
     },
     "resident-integrations/resident-integrations.min.js": {
       "sha256": "4cc65c9ca6f0cc45cb8fca96e62d9ebda1b4b22dada234325ea2b983405dd69c",
-      "version": "aa3a2f7d2340db6392d29921709dbb1c29f5ce6393778126437ea9db50a708b4"
+      "version": "734d69feed0fdb278d96c3fe7437afb41852e576c70fb85738e9f147dbade0ce"
     },
     "setup.html": {
       "sha256": "71e248dc1dd85929e4e313847d73cd43d26bc104b3f000b9d403be079a0556eb",
       "version": "71e248dc1dd85929e4e313847d73cd43d26bc104b3f000b9d403be079a0556eb"
     },
     "styles.css": {
-      "sha256": "27f20b5ec4bac10b31fecdc52637aaa925cdc95be0c0053f2def2e7f1c2febe9",
-      "version": "27f20b5ec4bac10b31fecdc52637aaa925cdc95be0c0053f2def2e7f1c2febe9"
+      "sha256": "e1e8f37f8f459ffc3d9a43b0fb34dc709a0eb58a6f98ac9906f9ed14ef6eed4f",
+      "version": "e1e8f37f8f459ffc3d9a43b0fb34dc709a0eb58a6f98ac9906f9ed14ef6eed4f"
     },
     "styles.min.css": {
-      "sha256": "320d82b4745ab6ae042970d5abe37c8927b871c23b507ceaf4885198c4197d77",
-      "version": "320d82b4745ab6ae042970d5abe37c8927b871c23b507ceaf4885198c4197d77"
+      "sha256": "4b44e8ca7db1ff0d21b33d9533f8c8429519d9321f072bbfcf29ad3c2dd3bb41",
+      "version": "4b44e8ca7db1ff0d21b33d9533f8c8429519d9321f072bbfcf29ad3c2dd3bb41"
     },
     "vendor/alpine-collapse.min.js": {
       "sha256": "2bd5d9719b537cdd83b80e171fd725da9cddaf9943d510fcb4ac0140db39a47a",

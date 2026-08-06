@@ -28,6 +28,16 @@ test('home preserves the approved asymmetric bento card rhythm', () => {
     assert.match(styles, /@media \(max-width:\s*760px\)[\s\S]*?\.hub-card:nth-of-type\(n\)\s*\{[^}]*grid-column:\s*1 \/ -1/);
 });
 
+test('home color tokens preserve the warm light palette and readable muted text', () => {
+    assert.match(styles, /--hub-paper:\s*#f7f6f3/);
+    assert.match(styles, /--hub-surface:\s*#ffffff/);
+    assert.match(styles, /--hub-ink:\s*#111111/);
+    assert.match(styles, /--hub-muted:\s*#726f69/);
+    assert.match(styles, /--hub-green:\s*#dde9db/);
+    assert.match(styles, /--hub-blue:\s*#dcecf4/);
+    assert.match(styles, /--hub-sand:\s*#f3e6c4/);
+});
+
 test('home keeps the brand, category tabs, and cards in a compact upper rhythm', () => {
     assert.match(styles, /\.hub-main\s*\{[^}]*margin:\s*-14px auto 0/s);
     assert.match(styles, /\.hub-brand-block\s*\{[^}]*margin:\s*10px auto 24px/s);
@@ -61,7 +71,7 @@ test('the only conversation surface is the SDHS Agent popup', () => {
     assert.doesNotMatch(html, /class="thinking-toggle"/);
     assert.match(html, /<h1>SDHS Agent<\/h1>/);
     assert.match(app, /const AGENT_CHAT_ENDPOINT = '\/api\/agent\/chat'/);
-    assert.match(app, /const endpoint = AGENT_CHAT_ENDPOINT/);
+    assert.match(app, /fetch\(AGENT_CHAT_ENDPOINT/);
     assert.match(app, /agentExpanded: false/);
     assert.match(app, /toggleAgentExpanded\(\)/);
     assert.doesNotMatch(app, /useThinking/);
@@ -78,7 +88,8 @@ test('settings and Plugin Workspace are independent full-page views', () => {
     assert.match(html, /class="settings-page-back"/);
     assert.match(html, /class="content-navigator"/);
     assert.match(html, /x-show="pluginWorkspace\.show \|\| agentOpen"/);
-    assert.match(styles, /Four-page shell wins the final cascade/);
+    assert.match(styles, /Four-page shell layout/);
+    assert.doesNotMatch(html, /class="sidebar"/);
     assert.doesNotMatch(html, /theme_mode = 'dark'/);
     assert.match(styles, /Public compatibility tokens only/);
     assert.match(app, /setAttribute\('data-theme', 'light'\)/);
@@ -98,6 +109,14 @@ test('settings and Plugin Workspace are independent full-page views', () => {
         styles,
         /body > \.modal-overlay\[aria-labelledby="settings-modal-title"\] \.settings-modal\s*\{[^}]*background:\s*#fff/s
     );
+});
+
+test('every Plugin Workspace title is centered within its own module header', () => {
+    assert.match(
+        styles,
+        /\.plugin-workspace-header\s*\{[^}]*justify-content:\s*center/s
+    );
+    assert.match(html, /class="plugin-workspace-heading"/);
 });
 
 test('settings controls use the shell button hierarchy and keyboard focus', () => {
@@ -134,7 +153,7 @@ test('installed plugins without a declared icon do not request a missing resourc
 
 test('all shell logo surfaces fall back to the bundled mark after an image error', () => {
     assert.match(app, /handleLogoImageError\(event\)/);
-    assert.equal((html.match(/@error="handleLogoImageError\(\$event\)"/g) || []).length, 5);
+    assert.equal((html.match(/@error="handleLogoImageError\(\$event\)"/g) || []).length, 4);
 });
 
 test('Agent response handlers preserve the dedicated endpoint at the network boundary', async () => {
@@ -159,7 +178,7 @@ test('Agent response handlers preserve the dedicated endpoint at the network bou
     host.$nextTick = callback => callback();
     host.$refs = {};
 
-    await host.handleNormalResponse({}, '/api/agent/chat', new AbortController().signal);
+    await host.handleNormalResponse({}, new AbortController().signal);
 
     assert.deepEqual(requests, ['/api/agent/chat']);
     assert.equal(host.currentChatId, 'agent-chat');

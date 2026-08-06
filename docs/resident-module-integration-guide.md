@@ -18,7 +18,7 @@ Resident UI → ChatRaw Module SDK → ChatRaw Server → Module Protocol → Mo
 
 选择普通配套插件：
 
-- 功能通过工具栏或侧栏入口打开插件工作台；
+- 功能通过首页目录卡片或 Agent 输入区工具栏打开工作台；
 - 希望管理员在 WebUI 中安装、启停或升级前端入口；
 - 不需要修改 ChatRaw Server 源码并重新构建。
 
@@ -59,8 +59,8 @@ ResidentIntegrations/<integration-id>/
 
 当前稳定挂载位：
 
-- `sidebar`：侧边栏常驻入口；
-- `composer`：聊天输入区常驻入口。
+- `composer`：当前 Agent 输入区常驻入口；
+- `sidebar`：历史兼容别名，四页式壳层会把它渲染到 `composer`，新代码不得再声明。
 
 两种入口都打开由 ChatRaw Core 管理的 Resident workspace。集成只负责在收到的 `container` 中渲染自己的内容。
 
@@ -107,7 +107,7 @@ Resident 的 `id` 和版本范围属于模块审批权限面。修改模式、ID
   "entrypoints": [
     {
       "id": "open-example",
-      "placement": "sidebar",
+      "placement": "composer",
       "icon": "ri-layout-grid-line",
       "label": {
         "en": "Example",
@@ -299,7 +299,7 @@ Resident UI → ChatRaw Module SDK → ChatRaw Server → Module Protocol → Mo
 
 The module process never supplies browser code. A Resident Integration never calls a module address directly, reads module credentials, or bypasses ChatRaw authentication, roles, review, and enablement.
 
-Use a companion plugin when an administrator should install, enable, disable, or upgrade the frontend entry at runtime; a plugin entry may choose the toolbar or sidebar mount. Use a Resident Integration when the entry and workspace must be reviewed, rebuilt, and deployed with Server source rather than installed dynamically.
+Use a companion plugin when an administrator should install, enable, disable, or upgrade the frontend entry at runtime. The current generic entry surface is the Agent composer toolbar; Module-backed business features should use home catalog cards. Use a Resident Integration when the entry and workspace must be reviewed, rebuilt, and deployed with Server source rather than installed dynamically.
 
 Resident is not a privileged plugin or a runtime marketplace. The WebUI reports its build and module status; it does not dynamically install or rewrite Resident code.
 
@@ -319,7 +319,7 @@ ResidentIntegrations/<integration-id>/
 └── tests/
 ```
 
-Integration code must not patch `app.js`, `index.html`, Alpine internals, another integration, a plugin, or module backend source. If the stable `sidebar` and `composer` mounts or the documented SDK are insufficient, stop and propose a generic Host contract change first.
+Integration code must not patch `app.js`, `index.html`, Alpine internals, another integration, a plugin, or module backend source. If the stable `composer` mount or the documented SDK is insufficient, stop and propose a generic Host contract change first. Legacy `sidebar` declarations are normalized to `composer` and must not be used by new integrations.
 
 The module selects Resident mode with:
 

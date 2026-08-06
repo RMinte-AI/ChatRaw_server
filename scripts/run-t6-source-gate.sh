@@ -122,7 +122,7 @@ require_process "$server_pid" "$server_data/server.log"
 wait_for_url "http://127.0.0.1:$server_port/health"
 wait_for_tcp 127.0.0.1 "$module_port"
 
-"$python_bin" scripts/t6-deployment-acceptance.py bootstrap \
+set -- \
     --server-base-url "http://127.0.0.1:$server_port" \
     --module-base-url "http://127.0.0.1:$module_port" \
     --module-probe-base-url "http://127.0.0.1:$module_port" \
@@ -130,6 +130,12 @@ wait_for_tcp 127.0.0.1 "$module_port"
     --pairing-code "$pairing_code" \
     --frontend-mode "$frontend_mode" \
     --state-file "$state_file"
+if [ -n "${T6_HERMES_PLUGIN_DIR:-}" ]; then
+    set -- "$@" \
+        --hermes-plugin-dir "$T6_HERMES_PLUGIN_DIR" \
+        --hermes-base-url "${T6_HERMES_BASE_URL:-http://127.0.0.1:8642/v1}"
+fi
+"$python_bin" scripts/t6-deployment-acceptance.py bootstrap "$@"
 
 if [ "${T6_SOURCE_HOLD_AFTER_BOOTSTRAP:-0}" = "1" ]; then
     echo "T6 browser fixture ready at http://127.0.0.1:$server_port"

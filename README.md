@@ -172,6 +172,7 @@ ChatRaw 备份不包含模块自己的数据库。每个模块必须独立备份
 - [Module Developer Guide](docs/module-developer-guide.md)：manifest、任务、SSE、审批、产物、Host Capability 和部署模板。
 - [Resident Module Integration Guide](docs/resident-module-integration-guide.md)：源码级常驻入口、稳定挂载位、Host SDK、AI 修改边界和验收。
 - [Human + AI Development Guide](docs/human-ai-development-guide.md)：面向人和 AI 的最小目录、Schema、命令、验收清单和禁止事项。
+- [前端配色要求](docs/frontend-color-requirements.md)：当前首页色板、可访问性阈值与 Plugin/Resident 样式边界。
 - [Server 与模块部署](docs/deployment/server-and-modules.md)：Source/Compose 网络与持久化。
 - [发布流程](docs/release/release-process.md)与 [T8 验收状态](docs/release/acceptance-status.md)
 - [OpenAPI](docs/api/openapi.json)：Server HTTP API 的机器可读快照。
@@ -373,6 +374,7 @@ Server backups do not contain module-owned databases. Back up each module separa
 - [Module Developer Guide](docs/module-developer-guide.md)
 - [Resident Module Integration Guide](docs/resident-module-integration-guide.md)
 - [Human + AI Development Guide](docs/human-ai-development-guide.md)
+- [Frontend color requirements](docs/frontend-color-requirements.md)
 - [Deployment and module operations](docs/deployment/server-and-modules.md)
 - [Release process](docs/release/release-process.md) and [acceptance status](docs/release/acceptance-status.md)
 - [OpenAPI snapshot](docs/api/openapi.json)

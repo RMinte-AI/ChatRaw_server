@@ -12,8 +12,8 @@
     
     <!-- Performance: Preload Critical Resources -->
     <link rel="preload" href="fonts/remixicon/remixicon.woff2?t=1769685282643" as="font" type="font/woff2" crossorigin>
-    <link rel="preload" href="styles.min.css?v=320d82b4745ab6ae042970d5abe37c8927b871c23b507ceaf4885198c4197d77" as="style">
-    <link rel="preload" href="app.min.js?v=ff25cb8f1e67e64dbc49cc12e0a32fb5ed0042aec0fddccbe41e383600e100c7" as="script">
+    <link rel="preload" href="styles.min.css?v=4b44e8ca7db1ff0d21b33d9533f8c8429519d9321f072bbfcf29ad3c2dd3bb41" as="style">
+    <link rel="preload" href="app.min.js?v=0071bcbd2e8680f985df7d9e8f048fb6d19abfa1021d2da0b1be6e16b64ee76d" as="script">
     <link rel="preload" href="vendor/alpine.min.js?v=c8fa8ff457abdcd212f37a07ef2f292c999011dffabcaa577fb1e1e0076ca658" as="script">
     <link rel="preload" href="vendor/marked.min.js?v=6002af63485b043fa60ddaba1b34363b98d2a8b2c63b607004f3a2405a8a053a" as="script">
     <link rel="preload" href="vendor/purify.min.js?v=c45ba939765574f96cbf35ee9b6d89f73756a17921814425e74b82f7c54603ce" as="script">
@@ -75,19 +75,6 @@
             -webkit-font-smoothing: antialiased;
         }
         [x-cloak] { display: none !important; }
-        .sidebar {
-            width: 280px;
-            min-width: 280px;
-            height: 100%;
-            background: var(--bg-secondary);
-            border-right: 1px solid var(--border-color);
-            display: flex;
-            flex-direction: column;
-            transition: width 0.3s cubic-bezier(0.16, 1, 0.3, 1);
-            z-index: 10;
-            flex-shrink: 0;
-        }
-        .sidebar.collapsed { width: 72px; min-width: 72px; }
         .main-content {
             flex: 1;
             display: flex;
@@ -119,10 +106,6 @@
             font-size: 1.1rem;
             margin-bottom: 40px;
         }
-        @media (max-width: 768px), (max-height: 500px) and (max-width: 900px) and (pointer: coarse) {
-            .sidebar { position: fixed; left: 0; top: 0; transform: translateX(0); }
-            .sidebar.collapsed { transform: translateX(-100%); }
-        }
     </style>
     
     <!-- Locally pinned frontend runtime -->
@@ -133,189 +116,9 @@
     <script defer src="vendor/alpine.min.js?v=c8fa8ff457abdcd212f37a07ef2f292c999011dffabcaa577fb1e1e0076ca658"></script>
     <!-- highlight.js is lazy-loaded in app.min.js when needed -->
     <link rel="stylesheet" href="fonts/remixicon/remixicon.css">
-    <link rel="stylesheet" href="styles.min.css?v=320d82b4745ab6ae042970d5abe37c8927b871c23b507ceaf4885198c4197d77">
+    <link rel="stylesheet" href="styles.min.css?v=4b44e8ca7db1ff0d21b33d9533f8c8429519d9321f072bbfcf29ad3c2dd3bb41">
 </head>
 <body x-data="app()" :data-theme="settings.ui_settings.theme_mode">
-    <!-- Sidebar Overlay for Mobile -->
-    <div class="sidebar-overlay" x-show="isMobileView && !sidebarCollapsed" @click="closeSidebar()" x-transition:enter="fade-enter" x-transition:leave="fade-leave"></div>
-    
-    <!-- Sidebar -->
-    <aside class="sidebar" :class="{ 'collapsed': sidebarCollapsed }">
-        <div class="sidebar-header">
-            <div class="logo" x-show="!sidebarCollapsed">
-                <img x-show="settings.ui_settings.logo_data" :src="settings.ui_settings.logo_data" :alt="t('logoAlt')" @error="handleLogoImageError($event)" class="logo-img" width="32" height="32">
-                <span class="logo-text" x-text="settings.ui_settings.logo_text || 'JustChat'"></span>
-            </div>
-            <button class="btn-icon" @click="toggleSidebar()" :title="sidebarCollapsed ? t('expand') : t('collapse')" :aria-expanded="String(!sidebarCollapsed)" :aria-label="t('toggleSidebar')">
-                <i class="ri-arrow-left-s-line" x-show="!sidebarCollapsed"></i>
-                <i class="ri-arrow-right-s-line" x-show="sidebarCollapsed"></i>
-            </button>
-        </div>
-        
-        <!-- Stable sidebar mount for Host-rendered feature entries. -->
-        <div class="sidebar-feature-section"
-             x-show="hasSidebarFeatureEntries"
-             x-cloak>
-            <button class="sidebar-feature-toggle"
-                    type="button"
-                    x-show="!sidebarCollapsed"
-                    @click="toggleSidebarFeatures()"
-                    :title="sidebarFeaturesCollapsed
-                        ? t('expandSidebarFeatures')
-                        : t('collapseSidebarFeatures')"
-                    :aria-label="sidebarFeaturesCollapsed
-                        ? t('expandSidebarFeatures')
-                        : t('collapseSidebarFeatures')"
-                    :aria-expanded="String(!sidebarFeaturesCollapsed)"
-                    aria-controls="sidebar-feature-entries">
-                <span class="sidebar-feature-toggle-label">
-                    <i class="ri-apps-2-line"></i>
-                    <span x-text="t('sidebarFeatures')"></span>
-                </span>
-                <span class="sidebar-feature-toggle-action">
-                    <span x-text="sidebarFeaturesCollapsed
-                        ? t('expand')
-                        : t('collapse')"></span>
-                    <i class="ri-arrow-down-s-line sidebar-feature-toggle-chevron"></i>
-                </span>
-            </button>
-
-            <div id="sidebar-feature-entries"
-                 class="sidebar-feature-area"
-                 x-show="sidebarCollapsed || !sidebarFeaturesCollapsed">
-                <div class="resident-sidebar-entries"
-                     x-show="!sidebarCollapsed">
-                    <template x-for="entry in residentEntries('sidebar')"
-                              :key="entry.integration.id + ':' + entry.id">
-                        <button class="resident-entry"
-                                type="button"
-                                :disabled="!entry.integration.feature?.available"
-                                :title="entry.integration.feature?.available
-                                    ? residentText(entry.label)
-                                    : t('unavailable')"
-                                @click="openResidentIntegration(entry.integration)">
-                            <i :class="entry.icon"></i>
-                            <span x-text="residentText(entry.label)"></span>
-                            <small x-show="!entry.integration.feature?.available" x-text="t('unavailable')"></small>
-                        </button>
-                    </template>
-                    <template x-for="collection in pluginWorkspaceCollections"
-                              :key="'workspace-collection:' + collection.id">
-                        <button class="plugin-sidebar-entry"
-                                type="button"
-                                :title="getLocalizedText(collection.title, collection.id)"
-                                :class="{ 'active': pluginWorkspace.show && pluginWorkspace.collectionId === collection.id }"
-                                @click="openPluginWorkspaceCollection(collection.id)">
-                            <i :class="collection.icon"></i>
-                            <span x-text="getLocalizedText(collection.title, collection.id)"></span>
-                            <small x-text="collection.panels.length"></small>
-                        </button>
-                    </template>
-                    <template x-for="btn in sidebarPluginButtons" :key="btn.fullId">
-                        <button class="plugin-sidebar-entry"
-                                type="button"
-                                :disabled="btn.loading || btn.disabled"
-                                :title="getPluginButtonLabel(btn)"
-                                :class="{ 'active': btn.active, 'loading': btn.loading }"
-                                @click="handlePluginButtonClick(btn, $event.currentTarget)">
-                            <i :class="btn.loading ? 'ri-loader-4-line spin' : btn.icon"></i>
-                            <span x-text="getPluginButtonLabel(btn)"></span>
-                            <small x-show="getPluginButtonStatus(btn)" x-text="getPluginButtonStatus(btn)"></small>
-                        </button>
-                    </template>
-                </div>
-                <div class="resident-sidebar-collapsed"
-                     x-show="sidebarCollapsed">
-                    <template x-for="entry in residentEntries('sidebar')"
-                              :key="entry.integration.id + ':' + entry.id">
-                        <button class="btn-icon"
-                                type="button"
-                                :disabled="!entry.integration.feature?.available"
-                                :title="residentText(entry.label)"
-                                @click="openResidentIntegration(entry.integration)">
-                            <i :class="entry.icon"></i>
-                        </button>
-                    </template>
-                    <template x-for="collection in pluginWorkspaceCollections"
-                              :key="'workspace-collection-collapsed:' + collection.id">
-                        <button class="btn-icon plugin-sidebar-entry-collapsed"
-                                type="button"
-                                :title="getLocalizedText(collection.title, collection.id)"
-                                :class="{ 'active': pluginWorkspace.show && pluginWorkspace.collectionId === collection.id }"
-                                @click="openPluginWorkspaceCollection(collection.id)">
-                            <i :class="collection.icon"></i>
-                        </button>
-                    </template>
-                    <template x-for="btn in sidebarPluginButtons" :key="btn.fullId">
-                        <button class="btn-icon plugin-sidebar-entry-collapsed"
-                                type="button"
-                                :disabled="btn.loading || btn.disabled"
-                                :title="getPluginButtonLabel(btn)"
-                                :class="{ 'active': btn.active, 'loading': btn.loading }"
-                                @click="handlePluginButtonClick(btn, $event.currentTarget)">
-                            <i :class="btn.loading ? 'ri-loader-4-line spin' : btn.icon"></i>
-                        </button>
-                    </template>
-                </div>
-            </div>
-        </div>
-
-        <div class="sidebar-section-divider"
-             x-show="hasSidebarFeatureEntries"
-             x-cloak></div>
-
-        <button class="btn-new-chat" @click="createNewChat()" x-show="!sidebarCollapsed">
-            <i class="ri-add-line"></i>
-            <span x-text="t('newChat')"></span>
-        </button>
-
-        <button class="btn-new-chat-collapsed" @click="createNewChat()" x-show="sidebarCollapsed" :title="t('newChat')" :aria-label="t('newChat')">
-            <i class="ri-add-line"></i>
-        </button>
-
-        <div class="chat-list" x-show="!sidebarCollapsed">
-            <template x-for="chat in chats" :key="chat.id">
-                <div class="chat-item" :class="{ 'active': currentChatId === chat.id }" @click="selectChat(chat.id)">
-                    <i class="ri-message-3-line"></i>
-                    <span class="chat-title" x-text="chat.title"></span>
-                    <button class="btn-delete" @click.stop="renameChat(chat)" :title="t('rename')">
-                        <i class="ri-edit-line"></i>
-                    </button>
-                    <button class="btn-delete" @click.stop="deleteChat(chat.id)" :title="t('delete')">
-                        <i class="ri-close-line"></i>
-                    </button>
-                </div>
-            </template>
-        </div>
-        
-        <button class="btn-clear-all" x-show="!sidebarCollapsed && chats.length > 0 && isAdmin()" @click="clearAllChats()" :title="t('clearAllChats')">
-            <i class="ri-delete-bin-line"></i>
-            <span x-text="t('clearAllChats')"></span>
-        </button>
-
-        <div class="sidebar-footer" x-show="!sidebarCollapsed">
-            <button class="btn-plugins" x-show="isAdmin()" @click="openPluginsPanel()">
-                <i class="ri-tools-line"></i>
-                <span x-text="t('plugins')"></span>
-            </button>
-            <button class="btn-settings" @click="openSettingsPanel()">
-                <i class="ri-settings-3-line"></i>
-                <span x-text="t('settings')"></span>
-            </button>
-            <button class="btn-settings" @click="logout()">
-                <i class="ri-logout-box-r-line"></i>
-                <span x-text="me ? me.username : t('account')"></span>
-            </button>
-        </div>
-        
-        <button class="btn-icon sidebar-plugins-collapsed" @click="openPluginsPanel()" x-show="sidebarCollapsed && isAdmin()" :title="t('plugins')">
-            <i class="ri-tools-line"></i>
-        </button>
-        <button class="btn-icon sidebar-settings-collapsed" @click="openSettingsPanel()" x-show="sidebarCollapsed" :title="t('settings')">
-            <i class="ri-settings-3-line"></i>
-        </button>
-    </aside>
-
     <section class="hub-home"
              x-show="!showSettings && !pluginWorkspace.show"
              x-cloak>
@@ -391,14 +194,6 @@
 
     <!-- Main Content -->
     <main class="main-content" x-show="pluginWorkspace.show || agentOpen" x-cloak>
-        <!-- Mobile Header -->
-        <div class="mobile-header" x-show="isMobileView">
-            <button class="btn-icon" @click="openSidebar()">
-                <i class="ri-menu-line"></i>
-            </button>
-            <span class="mobile-title">ChatRaw</span>
-        </div>
-
         <div class="plugin-workspace-layout"
              :class="pluginWorkspace.show ? 'workspace-' + pluginWorkspace.placement : ''">
         <aside class="content-navigator" x-show="pluginWorkspace.show" x-cloak>
@@ -2072,6 +1867,6 @@
         <div class="plugin-fullscreen-content" x-html="pluginFullscreenModal.content"></div>
     </div>
 
-    <script src="app.min.js?v=ff25cb8f1e67e64dbc49cc12e0a32fb5ed0042aec0fddccbe41e383600e100c7"></script>
+    <script src="app.min.js?v=0071bcbd2e8680f985df7d9e8f048fb6d19abfa1021d2da0b1be6e16b64ee76d"></script>
 </body>
 </html>

@@ -4635,7 +4635,7 @@ class ReferenceTaskConformanceTests(unittest.TestCase):
             delay_ms=1,
             require_approval=True,
         )
-        waiting = self._wait_state(approval_task, {"waiting_approval"})
+        self._wait_state(approval_task, {"waiting_approval"})
         state = self.reference._read_state()
         approval_id = state["tasks"][approval_task]["approval"]["approval_id"]
         endpoint = (

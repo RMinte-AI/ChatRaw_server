@@ -2,7 +2,7 @@ import argparse
 import asyncio
 import contextlib
 import json
-from typing import Any, Dict, List, Optional
+from typing import Dict, List, Optional
 
 from aiohttp import web
 

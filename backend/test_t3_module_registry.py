@@ -21,7 +21,6 @@ from backend import main
 from backend.module_protocol import (
     MAX_MANIFEST_BYTES,
     ModuleProtocolError,
-    digest_json,
     validate_config_update,
     validate_config_view,
     validate_manifest,

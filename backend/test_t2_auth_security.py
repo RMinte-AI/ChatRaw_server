@@ -2,7 +2,6 @@ import asyncio
 import io
 import json
 import ipaddress
-import os
 import stat
 import tempfile
 import threading

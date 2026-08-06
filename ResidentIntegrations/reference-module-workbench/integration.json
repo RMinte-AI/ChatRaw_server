@@ -15,7 +15,7 @@
   "entrypoints": [
     {
       "id": "open-workbench",
-      "placement": "sidebar",
+      "placement": "composer",
       "icon": "ri-layout-grid-line",
       "label": {
         "en": "Reference",

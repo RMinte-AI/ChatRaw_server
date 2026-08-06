@@ -37,7 +37,7 @@ ChatRaw Server 的所有用户使用同一个平台。聊天、文档、模型�
 
 ### 3. 首页、内容页与 Agent
 
-登录后首页只展示三个固定分类：`数据中枢`、`知识中枢`、`业务中枢`。切换分类会显示对应的业务卡片；卡片只有在配套 Module 可用且 Companion Plugin 已安装启用时才能打开。点击卡片进入独立内容页，左侧导航高亮当前卡片，返回按钮回到首页。设置按钮打开单独的全页设置界面。
+登录后首页只展示三个固定分类：`数据中枢`、`知识中枢`、`业务中枢`。切换分类会显示对应的业务卡片；卡片只有在配套 Module 可用且 Companion Plugin 已安装启用时才能打开。点击卡片进入独立内容页，左侧内容导航高亮当前卡片，返回按钮回到首页。设置按钮打开单独的全页设置界面。旧版聊天侧栏已经移除，不再承载会话、Plugin 或 Resident 入口。
 
 右下角 Hermes Agent 浮窗是当前产品唯一的通用对话入口：
 
@@ -187,7 +187,7 @@ Changing your password invalidates the current session. Sign in again with the n
 
 ### 3. Home, content, and Agent
 
-After sign-in, the home page has three fixed categories: **Data Hub**, **Knowledge Hub**, and **Operations Hub**. Switching category changes the business cards. A card opens only when its Module is available and its Companion Plugin is enabled. Selecting a card opens a dedicated content view with a highlighted navigator entry and a return control. Settings is a separate full-page view.
+After sign-in, the home page has three fixed categories: **Data Hub**, **Knowledge Hub**, and **Operations Hub**. Switching category changes the business cards. A card opens only when its Module is available and its Companion Plugin is enabled. Selecting a card opens a dedicated content view with a highlighted content-navigator entry and a return control. Settings is a separate full-page view. The legacy chat sidebar has been removed and no longer hosts conversations, Plugin entries, or Resident entries.
 
 The bottom-right Hermes Agent popup is the only generic conversation UI:
 

@@ -31,7 +31,7 @@
 
 ```text
 管理员需要在 WebUI 动态安装、启停或升级入口？
-  ├─ 是 → 配套插件（工具栏或侧栏入口）
+  ├─ 是 → 配套插件（首页目录卡片或 Agent 输入区工具栏入口）
   └─ 否
       入口必须随 Server 源码审查、构建和发布？
         ├─ 是 → 源码级 Resident Integration
@@ -290,6 +290,10 @@ Module SDK 本地错误：
 12. 真实浏览器验证管理员和普通用户。
 13. 完成备份恢复和安全负向检查。
 14. 代码与协议稳定后再更新正式文档。
+
+涉及首页、内容页、Agent、设置页或 Workspace 视觉时，同时按
+[前端配色要求](frontend-color-requirements.md)复核语义色、文字对比度、焦点态以及
+Plugin/Resident 的样式作用域。
 
 Agent 规则作用域变更必须保持归属分层：Server 管理 `personal` /
 `system_default` 授权、激活容量和不可变任务快照；Agent 校验并执行冻结的 Compiled

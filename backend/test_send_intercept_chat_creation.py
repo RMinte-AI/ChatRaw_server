@@ -81,8 +81,8 @@ class AgentSendIsolationTests(unittest.TestCase):
                 }};
             }};
             let sent = null;
-            instance.handleNormalResponse = async (body, endpoint) => {{
-                sent = {{ body, endpoint }};
+            instance.handleNormalResponse = async (body, signal) => {{
+                sent = {{ body, signal }};
             }};
             instance.settings.chat_settings.stream = false;
 
@@ -91,7 +91,7 @@ class AgentSendIsolationTests(unittest.TestCase):
                 await instance.sendMessage();
                 assert.equal(requests.length, 2);
                 assert.equal(instance.currentChatId, 'chat-first');
-                assert.equal(sent.endpoint, '/api/agent/chat');
+                assert.equal(sent.signal instanceof AbortSignal, true);
                 assert.equal(sent.body.chat_id, 'chat-first');
                 assert.equal(sent.body.message, 'first agent message');
                 assert.deepEqual(sent.body.active_skills, ['trusted-skill']);

@@ -23,7 +23,6 @@ import threading
 import tempfile
 import zipfile
 import ipaddress
-import socket
 import stat
 import hashlib
 from yarl import URL as YarlURL
@@ -127,7 +126,6 @@ from starlette.datastructures import UploadFile as StarletteUploadFile
 from starlette.formparsers import MultiPartException, MultiPartParser
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 from pydantic.json_schema import SkipJsonSchema
-import sqlite3
 import math
 from collections import defaultdict
 import time as time_module
@@ -8513,7 +8511,6 @@ async def get_market_plugin_icon(plugin_folder: str):
 @app.post("/api/plugins/install")
 async def install_plugin(request: PluginInstallRequest):
     """Install a plugin from URL"""
-    import zipfile
     import shutil
     import tempfile
     

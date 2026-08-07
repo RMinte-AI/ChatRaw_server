@@ -42,6 +42,7 @@
 3. 不使用渐变、霓虹、高饱和大色块、彩色投影或透明玻璃叠层。阴影只表达浮层高度，不能替代边框和焦点。
 4. 新增颜色前必须说明现有语义色不能覆盖的原因，并同时补充本文、CSS token 和前端测试。
 5. 截图比对不能替代对比度检查。至少验证默认、hover、focus-visible、disabled、success 和 danger 六种状态。
+6. Agent 扩展面板属于 Host 浅色浮层：使用 `--hub-surface`、`--hub-paper`、`--hub-line`、`--hub-ink` 和 `--hub-muted`，不得由 Plugin 或 Resident 用私有品牌色覆盖面板、箭头、网格或 Host 焦点态。
 
 ## 5. 验收
 

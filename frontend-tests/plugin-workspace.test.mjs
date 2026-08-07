@@ -47,6 +47,9 @@ function createHost({
     const host = dom.window.app();
     host.installedPlugins = [];
     host.$nextTick = callback => callback();
+    host.$refs = {
+        extensionPaletteToggle: dom.window.document.getElementById('launcher')
+    };
     host.initPluginSystem();
     host.installedPlugins = [
         { id: 'plugin-one', enabled: true },
@@ -513,6 +516,79 @@ test('workspace focus moves only for a synchronous Host entry activation', async
     flushAnimationFrames();
     assert.equal(await staleClick, true);
     assert.equal(dom.window.document.activeElement, launcher);
+});
+
+test('palette entry authorizes workspace focus and returns to the stable arrow', async () => {
+    const {
+        dom,
+        host,
+        ui,
+        flushAnimationFrames
+    } = createHost({
+        deferAnimationFrame: true,
+        userActivated: true
+    });
+    const entryButton = dom.window.document.getElementById('launcher');
+    const paletteArrow = dom.window.document.createElement('button');
+    paletteArrow.id = 'palette-arrow';
+    dom.window.document.body.append(paletteArrow);
+    host.$refs.extensionPaletteToggle = paletteArrow;
+    ui.registerWorkspacePanel(
+        panelDefinition('palette-open', counters()),
+        'plugin-one'
+    );
+    ui.registerToolbarButton(
+        {
+            id: 'palette-entry',
+            icon: 'ri-layout-right-line',
+            onClick() {
+                ui.openWorkspacePanel(
+                    'palette-open',
+                    undefined,
+                    'plugin-one'
+                );
+            }
+        },
+        'plugin-one'
+    );
+    const entry = host.pluginToolbarButtons.find(
+        button => button.id === 'palette-entry'
+    );
+
+    assert.equal(
+        await host.handlePluginButtonClick(
+            entry,
+            entryButton,
+            paletteArrow
+        ),
+        true
+    );
+    flushAnimationFrames();
+    assert.equal(
+        dom.window.document.activeElement,
+        dom.window.document.getElementById('plugin-workspace-title')
+    );
+    ui.closeWorkspacePanel('palette-open', 'plugin-one');
+    flushAnimationFrames();
+    assert.equal(dom.window.document.activeElement, paletteArrow);
+});
+
+test('workspace close skips a hidden return arrow and focuses the composer', () => {
+    const {
+        dom,
+        host,
+        flushAnimationFrames
+    } = createHost({ deferAnimationFrame: true });
+    const hiddenArrow = dom.window.document.getElementById('launcher');
+    const composer = dom.window.document.createElement('textarea');
+    dom.window.document.body.append(composer);
+    hiddenArrow.style.display = 'none';
+    host.$refs.inputBox = composer;
+
+    host.restorePluginWorkspaceFocus(hiddenArrow);
+    flushAnimationFrames();
+
+    assert.equal(dom.window.document.activeElement, composer);
 });
 
 test('direct API open preserves focus even during unrelated user activation', () => {
@@ -1165,17 +1241,20 @@ test('workspace layout is non-modal, responsive, and isolated from Alpine', () =
     assert.match(appCss, /@media \(max-height: 420px\)/);
     assert.match(appCss, /contain:\s*layout paint/);
     assert.match(appCss, /isolation:\s*isolate/);
-    assert.match(appHtml, /x-ref="pluginMoreButton"/);
+    assert.match(appHtml, /x-ref="extensionPaletteToggle"/);
     assert.match(
         appHtml,
-        /<button class="plugin-more-item"[\s\S]*handlePluginMoreButtonClick\(btn, \$refs\.pluginMoreButton\)/
+        /class="agent-extension-item"[\s\S]*handleExtensionEntryClick\(entry, \$event\.currentTarget\)/
     );
+    assert.match(appCss, /width:\s*min\(100%, 32rem\)/);
+    assert.match(appCss, /max-height:\s*min\(18rem, 45dvh\)/);
+    assert.match(appCss, /repeat\(auto-fit, minmax\(9rem, 1fr\)\)/);
 });
 
 test('focus contract and Host entry wiring describe the same authorization boundary', () => {
     assert.match(
         pluginUiContract.focus.host_focus_authorization,
-        /Host-rendered Agent composer toolbar entry/
+        /Host-rendered Agent extension palette entry/
     );
     assert.match(
         pluginUiContract.focus.host_focus_authorization,
@@ -1189,7 +1268,7 @@ test('focus contract and Host entry wiring describe the same authorization bound
     assert.equal(pluginUiContract.focus.plugin_override, false);
     assert.match(
         appHtml,
-        /handlePluginButtonClick\(btn, \$event\.currentTarget\)/
+        /handleExtensionEntryClick\(entry, \$event\.currentTarget\)/
     );
     assert.match(
         appSource,

@@ -5,8 +5,8 @@
 
 ## 1. 用户看到什么
 
-普通插件入口由 Agent 输入区的 `registerToolbarButton` 提供；Module 配套业务的首选入口是首页
-目录卡片。点击入口后，工作台直接出现在
+普通插件入口通过兼容方法 `registerToolbarButton` 注册，由 Agent 输入区箭头打开的扩展面板
+统一呈现；Module 配套业务的首选入口仍是首页目录卡片。点击入口后，工作台直接出现在
 ChatRaw 主内容区，而不是弹窗：
 
 - `right`、`top`、`bottom`：工作台和聊天同时可见、同时可操作；
@@ -385,7 +385,7 @@ collection 时，`title`、`icon` 和 `order` 必须一致；每个面板用 `ta
 顺序。切换标签不会并存两个 Workspace，而是先同步清理当前面板，再挂载目标面板。
 
 collection 入口和标签是 Server 自己的控件。点击后浏览器焦点保留在被点击的控件上；
-它们不会冒充某个 Plugin 的工具栏入口来取得 Plugin 范围的焦点授权。
+它们不会冒充某个 Plugin 的扩展面板入口来取得 Plugin 范围的焦点授权。
 
 ## 5. 生命周期要求
 
@@ -405,10 +405,10 @@ collection 入口和标签是 Server 自己的控件。点击后浏览器焦点�
 Server 会在同步 `dispose()` 返回后清空挂载容器。返回 Promise 或其他值属于契约错误；
 Host 仍会关闭并清空面板；直接调用 `closeWorkspacePanel()` 会抛错，停用、卸载或重载触发的
 Host 清理会记录错误并继续注销面板。Plugin 不需要删除 Server 的标题栏。
-只有用户点击或用键盘激活 Host 在 Agent 输入区渲染的工具栏入口，且该入口的 `onClick` 在返回前同步
+只有用户点击或用键盘激活 Host 在 Agent 扩展面板渲染的入口，且该入口的 `onClick` 在返回前同步
 打开同一 Plugin 所属的 Workspace 时，Host 才会在 Workspace 可见后聚焦 Workspace 标题。
 正常关闭、挂载失败或替换失败后，Host 会在聊天布局恢复可见后把焦点交还仍连接在页面中的
-Host 入口；溢出菜单入口统一返回稳定的“更多”按钮。直接调用 API、在 `await` 之后打开、
+Host 入口；面板关闭后统一返回稳定的扩展箭头。直接调用 API、在 `await` 之后打开、
 模块回调、定时器或跨 Plugin 代开时，Host 不移动当前焦点。Plugin 无权通过参数伪造或覆盖
 这个判定。需要异步数据时，按本示例先同步打开并渲染 Loading，再启动异步工作。
 

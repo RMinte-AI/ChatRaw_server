@@ -561,9 +561,12 @@ select:focus:not(:focus-visible),
 }
 
 .message-avatar {
+    flex: 0 0 var(--message-avatar-size);
     width: var(--message-avatar-size);
     height: var(--message-avatar-size);
     min-width: var(--message-avatar-size);
+    min-height: var(--message-avatar-size);
+    aspect-ratio: 1;
     border-radius: 50%;
     display: flex;
     align-items: center;
@@ -1524,8 +1527,7 @@ body {
 .chat-container .welcome h1 { font-family: "Songti SC", Georgia, serif; font-size: 28px; font-weight: 500; }
 .chat-container .welcome-subtitle { font-size: 13px; }
 .chat-container .messages { padding: 20px 16px !important; }
-.chat-container .message { gap: 9px; }
-.chat-container .message-avatar { width: 30px; height: 30px; }
+.chat-container .message { --message-avatar-size: 30px; gap: 9px; }
 .chat-container .input-area { padding: 10px 12px 12px !important; background: transparent; }
 .chat-container .input-container-inner { padding: 0 !important; }
 .chat-container .input-wrapper { border-color: #d9d5ce !important; border-radius: 12px !important; box-shadow: none !important; }
@@ -1702,6 +1704,21 @@ body > .modal-overlay[aria-labelledby="settings-modal-title"] .settings-content 
 .btn-tool.active {
     background: var(--bg-tertiary);
     color: var(--text-primary);
+}
+
+.btn-tool.disabled,
+.btn-tool:disabled,
+.btn-tool[aria-disabled="true"] {
+    color: var(--text-muted);
+    opacity: 0.45;
+    cursor: not-allowed;
+}
+
+.btn-tool.disabled:hover,
+.btn-tool:disabled:hover,
+.btn-tool[aria-disabled="true"]:hover {
+    color: var(--text-muted);
+    background: transparent;
 }
 
 .input-wrapper {
@@ -3833,114 +3850,137 @@ input[type=range]::-webkit-slider-thumb:hover {
     margin-bottom: 16px;
 }
 
-/* ============ Plugin Toolbar Extension Area ============ */
+/* ============ Agent Extension Palette ============ */
 
-/* Plugin Toolbar Area Container */
-.plugin-toolbar-area {
-    display: flex;
-    align-items: center;
-    gap: 4px;
-}
-
-.plugin-toolbar-divider {
-    width: 1px;
-    height: 20px;
-    background: var(--border-color);
-    margin: 0 4px;
-}
-
-/* Plugin Button Active State */
-.btn-tool.plugin-btn.active {
-    background: var(--text-primary);
-    color: var(--bg-primary);
-}
-
-.btn-tool.plugin-btn.active:hover {
-    background: var(--accent-hover);
-    color: var(--bg-primary);
-}
-
-/* Plugin Button Loading State */
-.btn-tool.plugin-btn.loading {
-    pointer-events: none;
-    opacity: 0.7;
-}
-
-/* Plugin More Dropdown */
-.plugin-more-dropdown {
-    position: relative;
-}
-
-.plugin-more-menu {
+.agent-extension-palette {
     position: absolute;
-    bottom: 100%;
-    right: 0;
-    margin-bottom: 8px;
-    background: var(--bg-primary);
-    border: 1px solid var(--border-color);
-    border-radius: var(--radius-md);
-    box-shadow: var(--shadow-lg);
-    min-width: 180px;
-    max-height: 280px;
-    overflow-y: auto;
+    bottom: calc(100% + 8px);
+    left: 0;
+    width: min(100%, 32rem);
+    max-height: min(18rem, 45dvh);
+    overflow: hidden;
+    background: var(--hub-surface, var(--bg-primary));
+    border: 1px solid var(--hub-line, var(--border-color));
+    border-radius: 12px;
+    box-shadow: 0 18px 44px rgba(45, 40, 34, 0.14);
     z-index: 100;
 }
 
-.plugin-more-item {
+.agent-extension-palette-header {
     display: flex;
     align-items: center;
-    gap: 10px;
+    justify-content: space-between;
+    min-height: 42px;
+    padding: 0 14px;
+    border-bottom: 1px solid var(--hub-line, var(--border-color));
+    color: var(--hub-ink, var(--text-primary));
+}
+
+.agent-extension-palette-header strong {
+    font-size: 0.86rem;
+    font-weight: 600;
+}
+
+.agent-extension-palette-header span {
+    color: var(--hub-muted, var(--text-secondary));
+    font-size: 0.75rem;
+    font-variant-numeric: tabular-nums;
+}
+
+.agent-extension-palette-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr));
+    gap: 8px;
+    max-height: calc(min(18rem, 45dvh) - 43px);
+    padding: 10px;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+}
+
+.agent-extension-item {
+    display: grid;
+    grid-template-columns: 30px minmax(0, 1fr);
+    align-items: center;
+    gap: 9px;
     width: 100%;
-    border: 0;
-    padding: 12px 16px;
-    background: transparent;
+    min-height: 54px;
+    padding: 8px 10px;
+    border: 1px solid transparent;
+    border-radius: 8px;
+    background: var(--hub-paper, var(--bg-secondary));
     cursor: pointer;
-    transition: background 0.15s;
-    color: var(--text-secondary);
+    transition: background-color 180ms ease, border-color 180ms ease, transform 180ms ease;
+    color: var(--hub-ink, var(--text-primary));
     font-family: inherit;
-    font-size: 0.9rem;
     text-align: left;
 }
 
-.plugin-more-item:first-child {
-    border-radius: var(--radius-md) var(--radius-md) 0 0;
+.agent-extension-item:hover:not(:disabled) {
+    border-color: var(--hub-line, var(--border-color));
+    background: var(--hub-surface, var(--bg-primary));
 }
 
-.plugin-more-item:last-child {
-    border-radius: 0 0 var(--radius-md) var(--radius-md);
+.agent-extension-item:active:not(:disabled) {
+    transform: translateY(1px);
 }
 
-.plugin-more-item:hover {
-    background: var(--bg-hover);
-    color: var(--text-primary);
+.agent-extension-item:focus-visible,
+.agent-extension-toggle:focus-visible {
+    outline: 2px solid #315f3a;
+    outline-offset: 2px;
 }
 
-.plugin-more-item.active {
-    color: var(--text-primary);
-    background: var(--bg-secondary);
+.agent-extension-item.active {
+    border-color: #dfeade;
+    background: #edf4ec;
+    color: #315f3a;
 }
 
-.plugin-more-item.loading {
-    opacity: 0.7;
-    pointer-events: none;
-}
-
-.plugin-more-item.disabled {
+.agent-extension-item.loading,
+.agent-extension-item.disabled,
+.agent-extension-item:disabled {
     cursor: not-allowed;
     opacity: 0.45;
 }
 
-.plugin-more-item i {
+.agent-extension-item > i {
+    display: grid;
+    place-items: center;
+    width: 30px;
+    height: 30px;
+    border-radius: 7px;
+    background: var(--hub-surface, var(--bg-primary));
     font-size: 16px;
-    width: 20px;
-    text-align: center;
-    flex-shrink: 0;
 }
 
-.plugin-more-item span {
-    white-space: nowrap;
+.agent-extension-item-copy {
+    display: grid;
+    gap: 2px;
+    min-width: 0;
+}
+
+.agent-extension-item-copy > span {
+    display: -webkit-box;
     overflow: hidden;
+    font-size: 0.84rem;
+    font-weight: 600;
+    line-height: 1.25;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+}
+
+.agent-extension-item-copy small {
+    overflow: hidden;
+    color: var(--hub-muted, var(--text-secondary));
+    font-size: 0.72rem;
+    line-height: 1.25;
     text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.agent-extension-toggle.active {
+    background: #edf4ec;
+    color: #315f3a;
 }
 
 /* Plugin Fullscreen Modal */
@@ -3950,11 +3990,6 @@ input[type=range]::-webkit-slider-thumb:hover {
 
 .module-task-modal {
     z-index: 1100;
-}
-
-.resident-composer-entry:disabled {
-    cursor: not-allowed;
-    opacity: 0.48;
 }
 
 .resident-workspace-panel {
@@ -4231,16 +4266,8 @@ input[type=range]::-webkit-slider-thumb:hover {
     }
 }
 
-/* Mobile: Plugin Toolbar */
+/* Mobile: Agent extension surfaces */
 @media (max-width: 768px), (max-height: 500px) and (max-width: 900px) and (pointer: coarse) {
-    .plugin-toolbar-area {
-        gap: 2px;
-    }
-    
-    .plugin-toolbar-divider {
-        margin: 0 2px;
-    }
-    
     .plugin-fullscreen-content {
         max-width: 100%;
         max-height: 100%;
@@ -4248,11 +4275,13 @@ input[type=range]::-webkit-slider-thumb:hover {
         border: none;
     }
     
-    .plugin-more-menu {
-        right: auto;
-        left: 50%;
-        transform: translateX(-50%);
-        min-width: 200px;
+    .agent-extension-palette {
+        right: 0;
+        width: auto;
+    }
+
+    .agent-extension-palette-grid {
+        grid-template-columns: repeat(auto-fit, minmax(min(9rem, 100%), 1fr));
     }
 
     .plugin-settings-modal {
@@ -4264,14 +4293,6 @@ input[type=range]::-webkit-slider-thumb:hover {
     .plugin-settings-content {
         min-height: 0;
         -webkit-overflow-scrolling: touch;
-    }
-}
-
-/* Tablet: Plugin Toolbar */
-@media (min-width: 769px) and (max-width: 1024px) {
-    .btn-tool.plugin-btn {
-        min-width: 44px;
-        min-height: 44px;
     }
 }
 

@@ -649,9 +649,9 @@ only for `/[a-z0-9-]*` tokens at the start of a line or after whitespace. Sugges
 IME composition is active, inside fenced code blocks, or inside Markdown link/image syntax. When a menu is
 open, ArrowUp/ArrowDown move selection, Tab/Enter accept, and Escape closes the menu.
 
-### Toolbar Button Extension API
+### Agent Extension Entry API
 
-Plugins can add custom buttons to the input toolbar using the `ChatRawPlugin.ui` API. Buttons support active and loading states, and plugins can open a fullscreen modal for complex interactions.
+Plugins register Agent extension entries through the compatibility-named `ChatRawPlugin.ui` toolbar API. The Host presents them in the arrow-triggered extension palette instead of adding unlimited icons to the composer. Entries support active, loading, disabled, and localized status states, and plugins can open a fullscreen modal for complex interactions.
 
 #### Register a Toolbar Button
 
@@ -674,9 +674,10 @@ ChatRawPlugin.ui.registerToolbarButton({
 });
 ```
 
-Use `placement: 'sidebar'` for an independently installed business workbench that should appear above the
-chat list. Sidebar entries may provide a localized `status` and update `status`, `disabled`, `active`, or
-`loading` through `setButtonState`. Plugins must not move entries by querying ChatRaw's DOM.
+Both `placement: 'toolbar'` and the legacy `placement: 'sidebar'` remain compatible and are presented in the
+Server-owned Agent extension palette. Entries may provide a localized `status` and update `status`,
+`disabled`, `active`, or `loading` through `setButtonState`. Plugins must not move entries by querying
+ChatRaw's DOM, and installation or enablement never executes the action automatically.
 
 **Icon Requirements**: All button icons **must** use [RemixIcon](https://remixicon.com/) (format: `ri-xxx-line` or `ri-xxx-fill`). Invalid icons will cause registration to fail.
 
@@ -734,19 +735,19 @@ ChatRawPlugin.ui.openFullscreenModal('<div>Simple content</div>');
 ChatRawPlugin.ui.closeFullscreenModal();
 ```
 
-#### Button Overflow
+#### Entry layout
 
-When more than 5 plugin buttons are registered, additional buttons are automatically moved to a "More" dropdown menu.
+The Host owns the responsive palette grid and scrolling. Plugins must not assume a fixed column count or direct composer placement.
 
 #### Lifecycle Management
 
 When a plugin is disabled or uninstalled:
-- All toolbar buttons registered by that plugin are automatically removed
+- All extension entries registered by that plugin are automatically removed
 - If the plugin has an open fullscreen modal, it is automatically closed
 
 ### Built-in Context Compressor
 
-The `context-compressor` plugin adds a manual compression button to the input toolbar and lets the backend
+The `context-compressor` plugin adds a manual compression entry to the Agent extension palette and lets the backend
 automatically compact older chat history before model calls. It uses standard plugin settings:
 
 - `autoCompress` (`boolean`, default `true`): create or update compact summaries automatically when the
@@ -756,7 +757,7 @@ automatically compact older chat history before model calls. It uses standard pl
 
 When `autoCompress` is `false`, the plugin does not automatically create or update summaries. If a summary
 already exists, the backend still uses it while the plugin is enabled; if no summary exists, the chat uses full
-history until the user clicks the toolbar compression button. Disabling the plugin restores full history usage.
+history until the user clicks the compression entry in the Agent extension palette. Disabling the plugin restores full history usage.
 
 The backend stores one latest summary per chat and never deletes or rewrites original messages. The summary only
 changes the model input assembled for future requests.
@@ -1953,9 +1954,9 @@ ChatRawPlugin.input.unregisterCompletionProvider(providerId, 'my-plugin');
 `/[a-z0-9-]*` token 上触发；IME composition 期间、fenced code block 内、Markdown link/image
 局部上下文中不会触发。菜单打开时，ArrowUp/ArrowDown 移动高亮，Tab/Enter 接受，Escape 关闭。
 
-### 工具栏按钮扩展 API
+### Agent 扩展入口 API
 
-插件可以使用 `ChatRawPlugin.ui` API 在输入框工具栏添加自定义按钮。按钮支持激活态和加载态，插件还可以打开全屏模态框实现复杂交互。
+插件通过为兼容既有代码而保留名称的 `ChatRawPlugin.ui` 工具栏 API 注册 Agent 扩展入口。Host 会把入口放进箭头打开的扩展面板，不再向输入栏无限追加图标。入口支持激活、加载、禁用和本地化状态，插件仍可打开全屏模态框实现复杂交互。
 
 #### 注册工具栏按钮
 
@@ -1978,9 +1979,10 @@ ChatRawPlugin.ui.registerToolbarButton({
 });
 ```
 
-独立业务工作台可以使用 `placement: 'sidebar'`，入口会显示在聊天列表上方。侧栏入口可以提供
-本地化 `status`，并通过 `setButtonState` 更新 `status`、`disabled`、`active` 或 `loading`。
-插件不得查询或修改 ChatRaw DOM 来移动入口。
+`placement: 'toolbar'` 和历史 `placement: 'sidebar'` 都保持兼容，并统一显示在 Server 管理的
+Agent 扩展面板。入口可以提供本地化 `status`，并通过 `setButtonState` 更新 `status`、
+`disabled`、`active` 或 `loading`。插件不得查询或修改 ChatRaw DOM 来移动入口，安装或启用
+插件也不会自动执行入口动作。
 
 **图标要求**：所有按钮图标**必须**使用 [RemixIcon](https://remixicon.com/)（格式：`ri-xxx-line` 或 `ri-xxx-fill`）。无效图标会导致注册失败。
 
@@ -2038,24 +2040,24 @@ ChatRawPlugin.ui.openFullscreenModal('<div>简单内容</div>');
 ChatRawPlugin.ui.closeFullscreenModal();
 ```
 
-#### 按钮溢出处理
+#### 入口布局
 
-当注册超过 5 个插件按钮时，多余的按钮会自动折叠到「更多」下拉菜单中。
+响应式网格、列数和滚动由 Host 统一控制；插件不得假设固定列数或入口会直接出现在输入栏。
 
 #### 生命周期管理
 
 当插件被禁用或卸载时：
-- 该插件注册的所有工具栏按钮会自动移除
+- 该插件注册的所有扩展入口会自动移除
 - 如果该插件打开了全屏模态框，会自动关闭
 
 ### 内置上下文压缩插件
 
-`context-compressor` 插件会在输入框工具栏添加手动压缩按钮，并允许后端在模型调用前自动压缩较早聊天历史。它使用标准插件设置：
+`context-compressor` 插件会在 Agent 扩展面板添加手动压缩入口，并允许后端在模型调用前自动压缩较早聊天历史。它使用标准插件设置：
 
 - `autoCompress` (`boolean`，默认 `true`)：当估算输入达到阈值时自动创建或更新压缩摘要。
 - `thresholdPercent` (`number`，默认 `70`，最小 `30`，最大 `95`)：自动压缩阈值，占当前聊天模型输入预算的百分比。
 
-当 `autoCompress` 为 `false` 时，插件不会自动创建或更新摘要。如果已有摘要，插件启用期间后端仍会使用它；如果没有摘要，则会使用完整历史，直到用户点击工具栏压缩按钮。禁用插件会恢复完整历史。
+当 `autoCompress` 为 `false` 时，插件不会自动创建或更新摘要。如果已有摘要，插件启用期间后端仍会使用它；如果没有摘要，则会使用完整历史，直到用户点击 Agent 扩展面板中的压缩入口。禁用插件会恢复完整历史。
 
 后端每个会话只保存最新摘要，不删除或改写原始消息。摘要只影响后续请求组装给模型的输入。
 

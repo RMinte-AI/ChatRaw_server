@@ -14,7 +14,8 @@ ChatRaw Server 只做两件核心事情：
 插件与模块不是同一种东西：
 
 - **插件**运行在 ChatRaw 前端，用来增加按钮、拦截发送或展示结果。
-- 插件可以通过 Server 管理的 Workspace Host，在主内容区右侧、上侧、下侧或主区域挂载可交互界面，无需依赖 ChatRaw 私有 DOM；只有用户点击或用键盘激活 Host 渲染的所属插件入口，并由该入口同步打开 Workspace 时，Host 才会转移焦点，其他打开方式不会抢占当前输入。
+- Agent 输入区固定保留图片、文档和网页三个核心操作；Plugin 与 Resident 的动态入口由右侧箭头打开的 Server 扩展面板统一承载。安装或启用只会让入口可用，不会自动执行功能。
+- 插件可以通过 Server 管理的 Workspace Host，在主内容区右侧、上侧、下侧或主区域挂载可交互界面，无需依赖 ChatRaw 私有 DOM；只有用户点击或用键盘激活扩展面板中 Host 渲染的所属插件入口，并由该入口同步打开 Workspace 时，Host 才会转移焦点，其他打开方式不会抢占当前输入。
 - **Resident Integration**也是前端代码，但位于独立源码目录，随 Server 审查、构建和部署，用于常驻入口；它不能由模块动态注入。
 - **模块**是独立后端服务，负责长任务、私有依赖、数据库或高权限能力。
 - **ChatRaw Server**负责登录、授权、模块生命周期、任务转发和安全边界。
@@ -234,7 +235,8 @@ ChatRaw Server has two primary responsibilities:
 2. **Large features as independent modules.** A feature that needs a backend, privileged access, a database, or complex dependencies runs outside the ChatRaw backend. Its frontend entry is either an administrator-managed plugin or a source-built Resident Integration.
 
 - A **plugin** is trusted frontend code that adds an entry point or presentation.
-- A plugin can mount an interactive Server-owned workspace at the right, top, bottom, or main content area without depending on private ChatRaw DOM. The Host moves focus only when a click or keyboard activation on that plugin's Host-rendered entry synchronously opens its workspace; every other open path preserves the current input focus.
+- The Agent composer keeps three core actions for images, documents, and web pages. A Server-owned extension palette behind the adjacent arrow contains dynamic Plugin and Resident entries. Installing or enabling an extension never runs it automatically.
+- A plugin can mount an interactive Server-owned workspace at the right, top, bottom, or main content area without depending on private ChatRaw DOM. The Host moves focus only when a click or keyboard activation on that plugin's Host-rendered palette entry synchronously opens its workspace; every other open path preserves the current input focus.
 - A **Resident Integration** is trusted frontend source shipped in the Server build for a persistent entry point. It is never injected by a module.
 - A **module** is an independent backend service.
 - **ChatRaw Server** owns authentication, authorization, lifecycle management, task forwarding, and the security boundary.

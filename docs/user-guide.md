@@ -47,6 +47,11 @@ ChatRaw Server 的所有用户使用同一个平台。聊天、文档、模型�
 4. 输入区不再提供 Hermes Agent 选择按钮或思考模式开关；发送消息即固定进入 Hermes Agent；
 5. 点击浮窗顶部的窗口扩展按钮，可在不离开当前页面的情况下打开全屏浮动对话窗口，便于查看宽表格和模型渲染内容。
 
+输入区只直接显示上传图片、上传文档和解析网页三个核心操作。存在当前用户可见的 Plugin 或
+Resident 入口时，右侧会出现向上箭头；点击后在输入框上方打开扩展面板。安装或启用扩展只会
+让入口出现，不会自动执行。键盘用户可直接聚焦三个核心操作和扩展箭头；打开面板后焦点进入
+第一个可用入口，按 `Esc` 关闭并返回箭头。当前用户有权看到但 Module 暂不可用的 Resident 会保留为禁用项。
+
 Hermes Agent 会话只对创建它的登录用户可见，其他普通用户和管理员都不能通过 Agent 或经典聊天接口枚举、读取、改名或删除。业务模块数据、文档以及保留的经典聊天仍遵循共享平台边界。
 
 消息中的宽 Markdown 表格会限制在消息区域内，并提供独立的横向滚动。可以在表格上使用触控板、
@@ -59,7 +64,7 @@ Magic Mouse 的横向手势，或按住 Shift 使用鼠标滚轮。ChatRaw 会�
 一个大型功能通常由后端模块和一种前端入口组成：
 
 - **配套插件**：由管理员在 WebUI 安装和启停的按钮、开关或结果展示。
-- **Resident Integration**：随 Server 源码构建的侧边栏或输入区常驻入口。
+- **Resident Integration**：随 Server 源码构建、由 Agent 扩展面板承载的常驻入口。
 - **后端模块**：在独立服务中执行真正的任务。
 
 普通用户不需要分别配置它们。管理员完成安装和连接后，功能入口会自动可用。
@@ -196,6 +201,13 @@ The bottom-right Hermes Agent popup is the only generic conversation UI:
 3. Create, switch, rename, or delete your own sessions.
 4. The composer has no Hermes selection button or thinking-mode switch; every message goes directly to Hermes Agent.
 5. Use the window-expand button in the popup header to open a full-screen floating conversation window without leaving the current page. This gives wide tables and rendered model content enough room.
+
+The composer directly shows only the image, document, and web-page actions. When the current user has
+visible Plugin or Resident entries, an adjacent up-arrow opens the extension palette above the composer.
+Installing or enabling an extension only makes its entry available; it never runs the action automatically.
+Keyboard users can focus all three core actions and the extension arrow. Opening the palette moves focus to
+the first enabled entry; `Escape` closes it and returns focus to the arrow. An eligible but unavailable Resident
+remains visible as a disabled entry.
 
 Hermes Agent sessions are private to their creator. Other members and administrators cannot enumerate, read, rename, or delete them through either Agent or classic chat APIs. Module-owned business data, documents, and retained classic chats continue to use the shared-platform boundary.
 

@@ -12,8 +12,8 @@
     
     <!-- Performance: Preload Critical Resources -->
     <link rel="preload" href="fonts/remixicon/remixicon.woff2?t=1769685282643" as="font" type="font/woff2" crossorigin>
-    <link rel="preload" href="styles.min.css?v=4b44e8ca7db1ff0d21b33d9533f8c8429519d9321f072bbfcf29ad3c2dd3bb41" as="style">
-    <link rel="preload" href="app.min.js?v=0071bcbd2e8680f985df7d9e8f048fb6d19abfa1021d2da0b1be6e16b64ee76d" as="script">
+    <link rel="preload" href="styles.min.css?v=2852de776101de99a58a95e3cece4f524426cbd45e13beb667b8c64b87c3227b" as="style">
+    <link rel="preload" href="app.min.js?v=a57414bca76151d047c2df6e186755b45369de30e0fad53cd75700289175a5bf" as="script">
     <link rel="preload" href="vendor/alpine.min.js?v=c8fa8ff457abdcd212f37a07ef2f292c999011dffabcaa577fb1e1e0076ca658" as="script">
     <link rel="preload" href="vendor/marked.min.js?v=6002af63485b043fa60ddaba1b34363b98d2a8b2c63b607004f3a2405a8a053a" as="script">
     <link rel="preload" href="vendor/purify.min.js?v=c45ba939765574f96cbf35ee9b6d89f73756a17921814425e74b82f7c54603ce" as="script">
@@ -116,7 +116,7 @@
     <script defer src="vendor/alpine.min.js?v=c8fa8ff457abdcd212f37a07ef2f292c999011dffabcaa577fb1e1e0076ca658"></script>
     <!-- highlight.js is lazy-loaded in app.min.js when needed -->
     <link rel="stylesheet" href="fonts/remixicon/remixicon.css">
-    <link rel="stylesheet" href="styles.min.css?v=4b44e8ca7db1ff0d21b33d9533f8c8429519d9321f072bbfcf29ad3c2dd3bb41">
+    <link rel="stylesheet" href="styles.min.css?v=2852de776101de99a58a95e3cece4f524426cbd45e13beb667b8c64b87c3227b">
 </head>
 <body x-data="app()" :data-theme="settings.ui_settings.theme_mode">
     <section class="hub-home"
@@ -216,7 +216,7 @@
         <div class="agent-modal-backdrop"
              x-show="agentOpen && agentExpanded"
              x-cloak
-             @click="agentExpanded = false"
+             @click="toggleAgentExpanded()"
              aria-hidden="true"></div>
         <div class="chat-container" :class="{ 'agent-expanded': agentExpanded }" x-show="agentOpen" x-cloak>
             <header class="agent-header">
@@ -225,7 +225,7 @@
                     <div><strong>SDHS Agent</strong><small x-text="t('currentConversation')"></small></div>
                 </div>
                 <div>
-                    <button type="button" @click="agentHistoryOpen = !agentHistoryOpen" :aria-label="t('conversationHistory')">
+                    <button type="button" @click="toggleAgentHistory()" :aria-label="t('conversationHistory')">
                         <i class="ri-history-line"></i>
                     </button>
                     <button type="button" @click="createNewChat()" :aria-label="t('newConversation')">
@@ -574,7 +574,8 @@
 
             <!-- Input Area -->
             <div class="input-area">
-                <div class="input-container-inner">
+                <div class="input-container-inner"
+                     x-effect="syncExtensionPaletteVisibility(extensionPaletteEntries.length)">
                     <div class="uploaded-image-preview" x-show="uploadedImage && chatModelSupportsVision()">
                         <img :src="uploadedImage ? 'data:image/jpeg;base64,' + uploadedImageBase64 : ''" :alt="t('preview')" width="60" height="60">
                         <button class="btn-delete-overlay" @click="removeUploadedImage()" :aria-label="t('removeImage')"><i class="ri-close-circle-fill"></i></button>
@@ -613,6 +614,44 @@
                             </button>
                         </div>
                     </div>
+
+                    <section id="agent-extension-palette"
+                             class="agent-extension-palette"
+                             x-show="showExtensionPalette && extensionPaletteEntries.length > 0"
+                             x-cloak
+                             x-transition
+                             role="dialog"
+                             tabindex="-1"
+                             aria-labelledby="agent-extension-palette-title"
+                             @keydown.escape.window="showExtensionPalette && closeExtensionPalette(true)"
+                             @click.outside="!$refs.extensionPaletteToggle?.contains($event.target) && closeExtensionPalette(false)"
+                             @keydown.escape.stop="closeExtensionPalette(true)">
+                        <header class="agent-extension-palette-header">
+                            <strong id="agent-extension-palette-title" x-text="t('agentExtensions')"></strong>
+                            <span x-text="extensionPaletteEntries.length"></span>
+                        </header>
+                        <div class="agent-extension-palette-grid">
+                            <template x-for="entry in extensionPaletteEntries" :key="entry.key">
+                                <button class="agent-extension-item"
+                                        type="button"
+                                        :class="{
+                                            'active': entry.active,
+                                            'loading': entry.loading,
+                                            'disabled': entry.disabled
+                                        }"
+                                        :disabled="entry.loading || entry.disabled"
+                                        :title="extensionEntryTitle(entry)"
+                                        :aria-label="extensionEntryTitle(entry)"
+                                        @click="handleExtensionEntryClick(entry, $event.currentTarget)">
+                                    <i :class="entry.loading ? 'ri-loader-4-line spin' : entry.icon"></i>
+                                    <span class="agent-extension-item-copy">
+                                        <span x-text="entry.label"></span>
+                                        <small x-show="entry.status" x-text="entry.status"></small>
+                                    </span>
+                                </button>
+                            </template>
+                        </div>
+                    </section>
 
                     <div class="input-wrapper" @click.outside="closeCompletionMenu()">
                         <div class="composer-suggestions"
@@ -661,78 +700,53 @@
                         ></textarea>
                         
                         <div class="input-toolbar">
-                            <template x-if="chatModelSupportsVision()">
-                                <label class="btn-tool btn-tool-upload" :title="t('uploadImage')">
-                                    <input type="file" @change="handleImageUpload($event)" accept="image/*" class="file-input-hidden">
-                                    <i class="ri-image-line"></i>
-                                </label>
-                            </template>
-                            <label class="btn-tool btn-tool-upload" :title="t('uploadDocument')" :class="{ 'active': attachedDocument }">
-                                <input type="file" @change="handleDocumentUpload($event)" :accept="getDocumentAcceptTypes()" class="file-input-hidden" :disabled="isUploadingDocument">
+                            <input type="file"
+                                   x-ref="imageUploadInput"
+                                   @change="handleImageUpload($event)"
+                                   accept="image/*"
+                                   class="file-input-hidden"
+                                   :disabled="!chatModelSupportsVision()">
+                            <button class="btn-tool btn-tool-upload"
+                                    type="button"
+                                    :title="t('uploadImage')"
+                                    :aria-label="t('uploadImage')"
+                                    :disabled="!chatModelSupportsVision()"
+                                    @click="$refs.imageUploadInput?.click()">
+                                <i class="ri-image-line"></i>
+                            </button>
+                            <input type="file"
+                                   x-ref="documentUploadInput"
+                                   @change="handleDocumentUpload($event)"
+                                   :accept="getDocumentAcceptTypes()"
+                                   class="file-input-hidden"
+                                   :disabled="isUploadingDocument">
+                            <button class="btn-tool btn-tool-upload"
+                                    type="button"
+                                    :title="t('uploadDocument')"
+                                    :aria-label="t('uploadDocument')"
+                                    :class="{ 'active': attachedDocument }"
+                                    :disabled="isUploadingDocument"
+                                    @click="$refs.documentUploadInput?.click()">
                                 <i class="ri-file-text-line" x-show="!isUploadingDocument"></i>
                                 <i class="ri-loader-4-line spin" x-show="isUploadingDocument"></i>
-                            </label>
-                            <button class="btn-tool" @click="toggleUrlInput()" :title="t('parseUrl')" :class="{ 'active': parsedUrl }">
+                            </button>
+                            <button class="btn-tool" type="button" @click="toggleUrlInput()" :title="t('parseUrl')" :aria-label="t('parseUrl')" :class="{ 'active': parsedUrl }">
                                 <i class="ri-link"></i>
                             </button>
-
-                            <!-- Stable composer mount for Resident Integrations. -->
-                            <template x-for="entry in residentEntries('composer')"
-                                      :key="entry.integration.id + ':' + entry.id">
-                                <button class="btn-tool resident-composer-entry"
-                                        type="button"
-                                        :disabled="!entry.integration.feature?.available"
-                                        :title="entry.integration.feature?.available
-                                            ? residentText(entry.label)
-                                            : t('unavailable')"
-                                        @click="openResidentIntegration(entry.integration)">
-                                    <i :class="entry.icon"></i>
-                                </button>
-                            </template>
-                            
-                            <!-- Plugin Toolbar Buttons Extension Area -->
-                            <div class="plugin-toolbar-area" x-show="getSortedPluginButtons('toolbar').length > 0" x-cloak>
-                                <div class="plugin-toolbar-divider"></div>
-                                
-                                <!-- Visible buttons (max 5) -->
-                                <template x-for="btn in visiblePluginButtons" :key="btn.fullId">
-                                    <button 
-                                        class="btn-tool plugin-btn" 
-                                        :class="{ 'active': btn.active, 'loading': btn.loading }"
-                                        :title="getPluginButtonLabel(btn)"
-                                        @click="handlePluginButtonClick(btn, $event.currentTarget)"
-                                        :disabled="btn.loading || btn.disabled">
-                                        <i :class="btn.loading ? 'ri-loader-4-line spin' : btn.icon"></i>
-                                    </button>
-                                </template>
-                                
-                                <!-- More menu (shown when > 5 buttons) -->
-                                <div class="plugin-more-dropdown" x-show="hiddenPluginButtons.length > 0" x-cloak>
-                                    <button class="btn-tool"
-                                            type="button"
-                                            x-ref="pluginMoreButton"
-                                            @click="showPluginMoreMenu = !showPluginMoreMenu"
-                                            :title="t('plugins')">
-                                        <i class="ri-more-2-fill"></i>
-                                    </button>
-                                    <div class="plugin-more-menu" 
-                                         x-show="showPluginMoreMenu" 
-                                         x-cloak
-                                         x-transition
-                                         @click.outside="showPluginMoreMenu = false">
-                                        <template x-for="btn in hiddenPluginButtons" :key="btn.fullId">
-                                            <button class="plugin-more-item"
-                                                 type="button"
-                                                 :class="{ 'active': btn.active, 'loading': btn.loading, 'disabled': btn.disabled }"
-                                                 :disabled="btn.loading || btn.disabled"
-                                                 @click="handlePluginMoreButtonClick(btn, $refs.pluginMoreButton)">
-                                                <i :class="btn.loading ? 'ri-loader-4-line spin' : btn.icon"></i>
-                                                <span x-text="getPluginButtonLabel(btn)"></span>
-                                            </button>
-                                        </template>
-                                    </div>
-                                </div>
-                            </div>
+                            <button class="btn-tool agent-extension-toggle"
+                                    type="button"
+                                    x-ref="extensionPaletteToggle"
+                                    x-show="extensionPaletteEntries.length > 0"
+                                    x-cloak
+                                    :class="{ 'active': showExtensionPalette }"
+                                    :aria-expanded="showExtensionPalette"
+                                    aria-haspopup="dialog"
+                                    aria-controls="agent-extension-palette"
+                                    :aria-label="showExtensionPalette ? t('closeAgentExtensions') : t('openAgentExtensions')"
+                                    :title="showExtensionPalette ? t('closeAgentExtensions') : t('openAgentExtensions')"
+                                    @click="toggleExtensionPalette()">
+                                <i :class="showExtensionPalette ? 'ri-arrow-down-s-line' : 'ri-arrow-up-s-line'"></i>
+                            </button>
                         </div>
 
                         <!-- Send Button -->
@@ -808,6 +822,7 @@
 
     <button class="agent-launcher"
             type="button"
+            x-ref="agentLauncher"
             x-show="!showSettings && !agentOpen"
             x-cloak
             @click="toggleAgent()"
@@ -1671,6 +1686,7 @@
                  aria-labelledby="resident-workspace-title">
             <header class="resident-workspace-header">
                 <h2 id="resident-workspace-title"
+                    tabindex="-1"
                     x-text="residentWorkspace.title"></h2>
                 <button class="btn-icon"
                         type="button"
@@ -1867,6 +1883,6 @@
         <div class="plugin-fullscreen-content" x-html="pluginFullscreenModal.content"></div>
     </div>
 
-    <script src="app.min.js?v=0071bcbd2e8680f985df7d9e8f048fb6d19abfa1021d2da0b1be6e16b64ee76d"></script>
+    <script src="app.min.js?v=a57414bca76151d047c2df6e186755b45369de30e0fad53cd75700289175a5bf"></script>
 </body>
 </html>

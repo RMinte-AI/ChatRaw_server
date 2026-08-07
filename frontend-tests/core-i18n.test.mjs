@@ -103,11 +103,15 @@ test('module configuration performs a bounded readiness recheck', () => {
     );
 });
 
-test('legacy sidebar plugin buttons normalize to the remaining toolbar surface', () => {
+test('legacy sidebar plugin buttons remain reachable through the extension palette', () => {
     assert.match(appScript, /placement: 'toolbar'/);
     assert.doesNotMatch(appScript, /get sidebarPluginButtons\(\)/);
     assert.doesNotMatch(appHtml, /class="plugin-sidebar-entry"/);
-    assert.match(appHtml, /getSortedPluginButtons\('toolbar'\)/);
+    assert.match(appScript, /get extensionPaletteEntries\(\)/);
+    assert.match(appScript, /this\.getSortedPluginButtons\('toolbar'\)/);
+    assert.match(appHtml, /class="agent-extension-palette"/);
+    assert.match(appHtml, /x-ref="extensionPaletteToggle"/);
+    assert.doesNotMatch(appHtml, /class="btn-tool plugin-btn"/);
     assert.match(appHtml, /app\.min\.js\?v=[0-9a-f]{64}/);
     assert.match(appHtml, /styles\.min\.css\?v=[0-9a-f]{64}/);
     assert.match(
@@ -115,10 +119,10 @@ test('legacy sidebar plugin buttons normalize to the remaining toolbar surface',
         /content-security\.min\.js\?v=[0-9a-f]{64}/
     );
     assert.match(appScript, /if \(btn\.loading \|\| btn\.disabled\) return false/);
-    assert.match(appHtml, /:disabled="btn\.loading \|\| btn\.disabled"/);
+    assert.match(appHtml, /:disabled="entry\.loading \|\| entry\.disabled"/);
     assert.match(
         appHtml,
-        /@click="handlePluginMoreButtonClick\(btn, \$refs\.pluginMoreButton\)"/
+        /@click="handleExtensionEntryClick\(entry, \$event\.currentTarget\)"/
     );
 });
 
@@ -130,11 +134,12 @@ test('unconfigured Resident entries stay hidden until their feature is visible',
     assert.match(appScript, /visible: false,\s+available: false,\s+state: 'hidden'/);
 });
 
-test('legacy Resident sidebar entries render in the composer surface', () => {
+test('legacy Resident sidebar entries feed the extension palette', () => {
     assert.match(
         appScript,
         /placement === 'composer'[\s\S]*entrypoint\.placement === 'sidebar'/
     );
     assert.doesNotMatch(appHtml, /residentEntries\('sidebar'\)/);
-    assert.match(appHtml, /residentEntries\('composer'\)/);
+    assert.match(appScript, /this\.residentEntries\('composer'\)/);
+    assert.doesNotMatch(appHtml, /class="btn-tool resident-composer-entry"/);
 });

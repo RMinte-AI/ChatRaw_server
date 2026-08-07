@@ -49,7 +49,7 @@
 3. [module-task-v1.schema.json](../backend/contracts/module-task-v1.schema.json)
 4. [module-conformance-fixture-v1.schema.json](../backend/contracts/module-conformance-fixture-v1.schema.json)
 5. [module-plugin-sdk-v1.json](../backend/contracts/module-plugin-sdk-v1.json)
-6. 修改 Plugin UI 公共接口或使用主内容区 Workspace 时，完整阅读 [Plugin UI SDK](../backend/contracts/plugin-ui-sdk-v1.json)
+6. 修改 Plugin UI 公共接口、Agent 扩展面板或使用主内容区 Workspace 时，完整阅读 [Plugin UI SDK 1.3.0](../backend/contracts/plugin-ui-sdk-v1.json)
 7. 如果选择 Resident，完整阅读 [Resident descriptor](../backend/contracts/resident-integration-v1.schema.json)、[Resident Host SDK](../backend/contracts/resident-integration-sdk-v1.json) 和 [Resident Guide](resident-module-integration-guide.md)
 8. [plugin manifest example](../examples/reference-module/manifest.example.json) 或 [Resident manifest example](../examples/reference-module/manifest.resident.example.json)
 9. [conformance-fixture.json](../examples/reference-module/conformance-fixture.json)

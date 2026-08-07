@@ -90,7 +90,7 @@ API 会同时返回稳定的错误 `code` 与英文诊断 `detail`；前端按 `
 
 首页保留三个 Host 固定分类，业务卡片从已注册 Module Manifest 的 `frontend_integration.catalog` 动态汇聚。卡片只有在 Module 服务就绪、配套 Plugin 已安装启用且版本兼容、声明的 Workspace 面板已在当前浏览器注册并支持 `main` 时才能打开。缺失或不兼容只影响对应卡片，不使用硬编码业务目录兜底。Plugin 不得自行插入首页 DOM。
 
-旧版聊天侧栏已从 DOM 和运行状态中移除。历史 Plugin `placement: 'sidebar'` 会归一到 Agent 输入区工具栏，历史 Resident `sidebar` 入口会归一到 `composer`；新集成应直接声明当前入口，不得依赖旧侧栏。
+旧版聊天侧栏已从 DOM 和运行状态中移除。Agent 输入区只直接保留图片、文档和网页三个核心操作；Plugin 与 Resident 动态入口统一进入箭头打开的扩展面板。历史 Plugin `placement: 'sidebar'` 与 `toolbar`、历史 Resident `sidebar` 与 `composer` 都保持可达，但安装或启用不会自动执行入口动作。
 
 通用主聊天界面已从产品 UI 移除。右下角 Hermes Agent 浮窗固定调用 `/api/agent/chat`；其历史会话按登录用户私有，管理员也不能借经典 `/api/chats` 接口读取。原 `/api/chat`、`/api/hermes/chat` 和经典聊天接口仅为现有集成保留，不是新 UI 的回退路径。
 
@@ -391,7 +391,7 @@ Installing, upgrading, enabling, disabling, or removing a plugin synchronizes it
 
 The Host owns the three home categories. Cards are aggregated from `frontend_integration.catalog` in registered Module manifests. A card opens only when the Module service is ready, its Companion Plugin is installed, enabled, version-compatible, and the declared Workspace panel is registered in the current browser with `main` support. There is no hardcoded business-card fallback, and plugins must not inject home-page DOM.
 
-The legacy chat sidebar has been removed from both DOM and runtime state. Historical Plugin `placement: 'sidebar'` declarations normalize to the Agent composer toolbar, and historical Resident `sidebar` entries normalize to `composer`; new integrations must declare the current surface directly.
+The legacy chat sidebar has been removed from both DOM and runtime state. The Agent composer directly keeps only image, document, and web-page actions; dynamic Plugin and Resident entries live in the arrow-triggered extension palette. Historical Plugin `sidebar`/`toolbar` and Resident `sidebar`/`composer` declarations remain reachable, but installation or enablement never executes an action automatically.
 
 The generic main-chat UI has been removed. The bottom-right Hermes Agent popup always calls `/api/agent/chat`; its sessions are private to the signed-in user, including from administrators and classic `/api/chats` routes. `/api/chat`, `/api/hermes/chat`, and classic chat endpoints remain compatibility APIs, not UI fallback routes.
 

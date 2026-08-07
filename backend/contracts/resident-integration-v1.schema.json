@@ -127,7 +127,7 @@
             "sidebar",
             "composer"
           ],
-          "description": "composer is the current mount; sidebar is a legacy alias normalized to composer"
+          "description": "composer is the current Agent extension entry declaration; sidebar is a legacy alias and both are presented in the Server-owned Agent extension palette"
         },
         "icon": {
           "type": "string",

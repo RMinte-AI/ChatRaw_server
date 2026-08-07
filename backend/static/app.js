@@ -74,6 +74,9 @@ const i18n = {
         imageSelected: 'Image Selected',
         documentAttached: 'Document Attached',
         parseUrl: 'Parse URL',
+        agentExtensions: 'Agent extensions',
+        openAgentExtensions: 'Open Agent extensions',
+        closeAgentExtensions: 'Close Agent extensions',
         enterUrl: 'Enter URL',
         parsing: 'Parsing...',
         urlAttached: 'URL Attached',
@@ -265,6 +268,9 @@ const i18n = {
         imageSelected: '已选择图片',
         documentAttached: '已附加文档',
         parseUrl: '解析网页',
+        agentExtensions: 'Agent 扩展',
+        openAgentExtensions: '打开 Agent 扩展',
+        closeAgentExtensions: '关闭 Agent 扩展',
         enterUrl: '输入网址',
         parsing: '解析中...',
         urlAttached: '已附加网页',
@@ -1007,6 +1013,7 @@ function app() {
             cleanup: null
         },
         _residentFocusHandler: null,
+        _residentWorkspaceReturnFocus: null,
         showSystemPrompt: false,
         currentChatId: null,
         inputMessage: '',
@@ -1056,9 +1063,10 @@ function app() {
         pluginApiKeyConfigured: {},
         pluginApiKeyActions: {},
         
-        // Plugin toolbar extension state
-        pluginToolbarButtons: [],  // Generic plugin entries for the Agent composer toolbar.
-        showPluginMoreMenu: false,
+        // Plugin entry registry. The legacy public API name is preserved, while
+        // the Host presents these entries in the Agent extension palette.
+        pluginToolbarButtons: [],
+        showExtensionPalette: false,
         pluginFullscreenModal: {
             show: false,
             content: '',
@@ -1080,6 +1088,7 @@ function app() {
             dispose: null
         },
         _pluginWorkspaceReturnFocus: null,
+        _pluginFullscreenReturnFocus: null,
         _pluginWorkspaceActivation: null,
         _pluginWorkspaceTransition: null,
         _rootWheelHandler: null,
@@ -1497,6 +1506,7 @@ function app() {
             this.agentOpen = false;
             this.agentExpanded = false;
             this.agentHistoryOpen = false;
+            this.showExtensionPalette = false;
             const previousActivation = this._pluginWorkspaceActivation;
             this._pluginWorkspaceActivation = (
                 navigator.userActivation?.isActive === true
@@ -1525,6 +1535,7 @@ function app() {
                 this.showPlugins = false;
             }
             this.agentOpen = !this.agentOpen;
+            this.showExtensionPalette = false;
             if (!this.agentOpen) {
                 this.agentHistoryOpen = false;
                 this.agentExpanded = false;
@@ -1537,7 +1548,15 @@ function app() {
         toggleAgentExpanded() {
             if (!this.agentOpen) return;
             this.agentExpanded = !this.agentExpanded;
-            if (this.agentExpanded) this.agentHistoryOpen = false;
+            this.agentHistoryOpen = false;
+            this.showExtensionPalette = false;
+        },
+
+        toggleAgentHistory() {
+            const next = !this.agentHistoryOpen;
+            this.showExtensionPalette = false;
+            this.showUrlInput = false;
+            this.agentHistoryOpen = next;
         },
 
         async loadAdminUsers() {
@@ -2435,7 +2454,7 @@ function app() {
             window.addEventListener('focus', this._residentFocusHandler);
         },
 
-        async openResidentIntegration(integration) {
+        async openResidentIntegration(integration, returnFocus = null) {
             await this.refreshResidentIntegrationStatuses();
             const current = this.residentIntegrations.find(
                 item => item.id === integration.id
@@ -2448,7 +2467,12 @@ function app() {
                 );
                 return;
             }
-            this.closeResidentWorkspace();
+            this.closeResidentWorkspace(false);
+            this.showExtensionPalette = false;
+            this._residentWorkspaceReturnFocus = (
+                returnFocus instanceof HTMLElement
+                && returnFocus.isConnected
+            ) ? returnFocus : null;
             this.residentWorkspace = {
                 show: true,
                 integrationId: current.id,
@@ -2465,6 +2489,7 @@ function app() {
                 this.residentWorkspace.error = (
                     'Resident Integration failed to mount'
                 );
+                document.getElementById('resident-workspace-title')?.focus();
                 return;
             }
             try {
@@ -2487,9 +2512,10 @@ function app() {
                     error?.message || 'Resident Integration failed to mount'
                 );
             }
+            document.getElementById('resident-workspace-title')?.focus();
         },
 
-        closeResidentWorkspace() {
+        closeResidentWorkspace(restoreFocus = true) {
             try {
                 this.residentWorkspace.cleanup?.();
             } catch (error) {
@@ -2506,6 +2532,11 @@ function app() {
                 error: null,
                 cleanup: null
             };
+            const returnFocus = this._residentWorkspaceReturnFocus;
+            this._residentWorkspaceReturnFocus = null;
+            if (restoreFocus) {
+                this.restoreExtensionPaletteFocus(returnFocus);
+            }
         },
 
         async loadModules() {
@@ -2736,6 +2767,7 @@ function app() {
             this.agentOpen = false;
             this.agentExpanded = false;
             this.agentHistoryOpen = false;
+            this.showExtensionPalette = false;
             if (this.pluginWorkspace.show) this.closeActivePluginWorkspace();
             if (this.isAdmin()) {
                 this.loadAdminUsers();
@@ -2747,6 +2779,7 @@ function app() {
             if (!this.isAdmin()) return;
             this.showSettings = false;
             this.showPlugins = true;
+            this.showExtensionPalette = false;
             await this.loadInstalledPlugins();
             this.loadPluginMarket();
         },
@@ -2853,6 +2886,7 @@ function app() {
             if (this.isGenerating) {
                 this.stopGeneration();
             }
+            this.showExtensionPalette = false;
             
             try {
                 const res = await fetch('/api/agent/chats', { method: 'POST' });
@@ -2890,6 +2924,7 @@ function app() {
         
         // Select chat
         async selectChat(chatId) {
+            this.showExtensionPalette = false;
             if (this.currentChatId === chatId) {
                 this.agentHistoryOpen = false;
                 return;
@@ -4380,6 +4415,7 @@ function app() {
         
         // Toggle URL input popup
         toggleUrlInput() {
+            this.showExtensionPalette = false;
             this.showUrlInput = !this.showUrlInput;
             if (this.showUrlInput) {
                 this.urlInputValue = '';
@@ -4743,21 +4779,136 @@ function app() {
                     // Hermes is the fixed runtime for the Agent surface. It is
                     // not a user-selectable composer mode anymore, so its
                     // legacy toolbar toggle must stay out of every placement.
-                    return plugin?.enabled !== false
+                    return plugin?.enabled === true
                         && btn.pluginId !== 'hermes'
                         && btn.placement === placement;
                 })
                 .sort((a, b) => (a.order || 100) - (b.order || 100));
         },
         
-        // Computed: Visible plugin buttons (max 5)
-        get visiblePluginButtons() {
-            return this.getSortedPluginButtons('toolbar').slice(0, 5);
+        // Read-only presentation model. Plugin and Resident registries remain
+        // authoritative and separate so their lifecycle and permission rules
+        // cannot leak into each other.
+        get extensionPaletteEntries() {
+            const residents = this.residentEntries('composer').map(entry => ({
+                key: `resident:${entry.integration.id}:${entry.id}`,
+                kind: 'resident',
+                order: entry.order ?? 100,
+                stableId: `${entry.integration.id}:${entry.id}`,
+                icon: entry.icon,
+                label: this.residentText(entry.label),
+                status: entry.integration.feature?.available
+                    ? ''
+                    : this.t('unavailable'),
+                active: false,
+                loading: false,
+                disabled: !entry.integration.feature?.available,
+                source: entry
+            }));
+            const plugins = this.getSortedPluginButtons('toolbar').map(button => ({
+                key: `plugin:${button.fullId}`,
+                kind: 'plugin',
+                order: button.order ?? 100,
+                stableId: button.fullId,
+                icon: button.icon,
+                label: this.getPluginButtonLabel(button),
+                status: button.status ? this.getLocalizedText(button.status, '') : '',
+                active: button.active === true,
+                loading: button.loading === true,
+                disabled: button.disabled === true,
+                source: button
+            }));
+            return [...residents, ...plugins].sort((left, right) => (
+                left.order - right.order
+                || (left.kind === right.kind ? 0 : left.kind === 'resident' ? -1 : 1)
+                || left.stableId.localeCompare(right.stableId)
+            ));
         },
-        
-        // Computed: Hidden plugin buttons (overflow into "More" menu)
-        get hiddenPluginButtons() {
-            return this.getSortedPluginButtons('toolbar').slice(5);
+
+        syncExtensionPaletteVisibility(entryCount) {
+            if (entryCount !== 0) return;
+            const palette = document.getElementById('agent-extension-palette');
+            const activeElement = document.activeElement;
+            const shouldRestoreFocus = (
+                this.showExtensionPalette
+                || activeElement === this.$refs?.extensionPaletteToggle
+                || palette?.contains(activeElement)
+            );
+            this.showExtensionPalette = false;
+            if (shouldRestoreFocus) this.restoreExtensionPaletteFocus(null);
+        },
+
+        isVisibleFocusTarget(target) {
+            if (!(target instanceof HTMLElement) || !target.isConnected) {
+                return false;
+            }
+            if (target.disabled || target.hidden) return false;
+            for (let node = target; node instanceof HTMLElement; node = node.parentElement) {
+                const style = window.getComputedStyle(node);
+                if (
+                    node.hidden
+                    || style.display === 'none'
+                    || style.visibility === 'hidden'
+                ) {
+                    return false;
+                }
+            }
+            return true;
+        },
+
+        agentSurfaceFocusTarget(preferred = null) {
+            return [
+                preferred,
+                this.$refs?.inputBox,
+                this.$refs?.agentLauncher
+            ].find(target => this.isVisibleFocusTarget(target)) || null;
+        },
+
+        focusFirstExtensionEntry() {
+            this.$nextTick(() => {
+                requestAnimationFrame(() => {
+                    if (!this.showExtensionPalette) return;
+                    const palette = document.getElementById('agent-extension-palette');
+                    const firstEntry = document.querySelector(
+                        '#agent-extension-palette .agent-extension-item:not(:disabled)'
+                    );
+                    (firstEntry || palette)?.focus();
+                });
+            });
+        },
+
+        restoreExtensionPaletteFocus(target = this.$refs?.extensionPaletteToggle) {
+            this.$nextTick(() => {
+                requestAnimationFrame(() => {
+                    if (this.showExtensionPalette) return;
+                    this.agentSurfaceFocusTarget(target)?.focus();
+                });
+            });
+        },
+
+        closeExtensionPalette(restoreFocus = false) {
+            const returnFocus = this.$refs?.extensionPaletteToggle;
+            this.showExtensionPalette = false;
+            if (restoreFocus) this.restoreExtensionPaletteFocus(returnFocus);
+        },
+
+        toggleExtensionPalette() {
+            if (this.extensionPaletteEntries.length === 0) {
+                this.showExtensionPalette = false;
+                return;
+            }
+            const next = !this.showExtensionPalette;
+            this.showUrlInput = false;
+            this.completionMenuOpen = false;
+            this.agentHistoryOpen = false;
+            this.showExtensionPalette = next;
+            if (next) this.focusFirstExtensionEntry();
+        },
+
+        extensionEntryTitle(entry) {
+            return entry?.status
+                ? `${entry.label} · ${entry.status}`
+                : (entry?.label || '');
         },
 
         get pluginWorkspaceCollections() {
@@ -4863,15 +5014,10 @@ function app() {
         },
 
         restorePluginWorkspaceFocus(returnFocus) {
-            if (!returnFocus?.isConnected) return;
             this.$nextTick(() => {
                 requestAnimationFrame(() => {
-                    if (
-                        !this.pluginWorkspace.show
-                        && returnFocus.isConnected
-                    ) {
-                        returnFocus.focus();
-                    }
+                    if (this.pluginWorkspace.show) return;
+                    this.agentSurfaceFocusTarget(returnFocus)?.focus();
                 });
             });
         },
@@ -5117,10 +5263,16 @@ function app() {
             );
             const previousReturnFocus = this._pluginWorkspaceReturnFocus;
             const returnFocus = shouldMoveFocus
-                ? activation.trigger
+                ? (
+                    activation.returnFocus instanceof HTMLElement
+                    && activation.returnFocus.isConnected
+                        ? activation.returnFocus
+                        : activation.trigger
+                )
                 : previousReturnFocus?.isConnected
                     ? previousReturnFocus
                     : null;
+            this.showExtensionPalette = false;
             if (
                 this.pluginWorkspace.show
                 && this.pluginWorkspace.pluginId === owner
@@ -5304,7 +5456,7 @@ function app() {
         },
         
         // Handle plugin button click
-        async handlePluginButtonClick(btn, trigger = null) {
+        async handlePluginButtonClick(btn, trigger = null, returnFocus = trigger) {
             if (btn.loading || btn.disabled) return false;
             try {
                 const activation = (
@@ -5313,7 +5465,11 @@ function app() {
                     && trigger.isConnected
                 ) ? {
                     pluginId: btn.pluginId,
-                    trigger
+                    trigger,
+                    returnFocus: (
+                        returnFocus instanceof HTMLElement
+                        && returnFocus.isConnected
+                    ) ? returnFocus : trigger
                 } : null;
                 const previousActivation = this._pluginWorkspaceActivation;
                 let clickResult;
@@ -5333,10 +5489,40 @@ function app() {
             }
         },
 
-        async handlePluginMoreButtonClick(btn, trigger = null) {
-            if (await this.handlePluginButtonClick(btn, trigger)) {
-                this.showPluginMoreMenu = false;
+        async handleExtensionEntryClick(entry, trigger = null) {
+            const current = this.extensionPaletteEntries.find(
+                candidate => candidate.key === entry?.key
+            );
+            if (!current || current.loading || current.disabled) {
+                this.syncExtensionPaletteVisibility(
+                    this.extensionPaletteEntries.length
+                );
+                return false;
             }
+            const returnFocus = this.$refs.extensionPaletteToggle;
+            if (current.kind === 'resident') {
+                this.showExtensionPalette = false;
+                await this.openResidentIntegration(
+                    current.source.integration,
+                    returnFocus
+                );
+                return true;
+            }
+            const handled = await this.handlePluginButtonClick(
+                current.source,
+                trigger,
+                returnFocus
+            );
+            if (!handled) return false;
+            this.showExtensionPalette = false;
+            if (
+                !this.pluginWorkspace.show
+                && !this.pluginFullscreenModal.show
+                && !this.residentWorkspace.show
+            ) {
+                this.restoreExtensionPaletteFocus(returnFocus);
+            }
+            return true;
         },
         
         // Close plugin fullscreen modal
@@ -5352,6 +5538,9 @@ function app() {
             this.pluginFullscreenModal.content = '';
             this.pluginFullscreenModal.onClose = null;
             this.pluginFullscreenModal.pluginId = null;
+            const returnFocus = this._pluginFullscreenReturnFocus;
+            this._pluginFullscreenReturnFocus = null;
+            this.restoreExtensionPaletteFocus(returnFocus);
         },
         
         // ============ Plugin System ============
@@ -6349,7 +6538,12 @@ function app() {
                             console.warn('[Plugin UI] Cannot open modal: empty content');
                             return false;
                         }
-                        
+                        const activation = appInstance._pluginWorkspaceActivation;
+                        appInstance._pluginFullscreenReturnFocus = (
+                            activation?.returnFocus instanceof HTMLElement
+                            && activation.returnFocus.isConnected
+                        ) ? activation.returnFocus : null;
+                        appInstance.showExtensionPalette = false;
                         appInstance.pluginFullscreenModal = {
                             show: true,
                             content: options.content,

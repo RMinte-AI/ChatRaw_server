@@ -136,9 +136,9 @@ const mode = settings.display_mode || 'compact';
 })();
 ```
 
-卸载、停用或重新加载时，ChatRaw 会清理已登记 hook、补全和工具栏按钮。插件自己建立的定时器、事件监听或外部对象仍应由插件清理。
+卸载、停用或重新加载时，ChatRaw 会清理已登记 hook、补全和扩展入口。插件自己建立的定时器、事件监听或外部对象仍应由插件清理。
 
-公共工具栏 API：
+公共扩展入口 API（为兼容既有插件保留 `Toolbar` 方法名）：
 
 - `ChatRawPlugin.ui.registerToolbarButton(definition, pluginId)`
 - `ChatRawPlugin.ui.unregisterToolbarButton(buttonId, pluginId)`
@@ -233,9 +233,9 @@ Workspace 规则：
   Server 挂载点写入模块返回的 HTML。
 - 同一时刻只有一个 Workspace。打开另一面板或切换位置时，旧面板先执行一次 `dispose()`。
 - 同一面板以同一位置重复打开不会重复 mount。页面刷新后 Workspace 保持关闭。
-- 只有用户点击或用键盘激活 Host 在 Agent 输入区渲染的工具栏入口，且该入口的 `onClick` 在返回前同步
+- 只有用户点击或用键盘激活 Host 在 Agent 扩展面板渲染的所属入口，且该入口的 `onClick` 在返回前同步
   打开同一 Plugin 所属的 Workspace 时，Host 才会把焦点移到 Workspace 标题；关闭、挂载失败或
-  替换失败后，焦点返回仍在页面中的 Host 入口。溢出菜单中的入口统一返回稳定的“更多”按钮。
+  替换失败后，焦点返回稳定的 Agent 扩展箭头。
   直接 API 调用、在 `await` 之后打开、模块回调、定时器或跨 Plugin 代开都保持当前焦点。
   Plugin 不能传入参数覆盖这一 Host 判定。需要异步数据时，先同步打开并在 `mount()` 中渲染
   Loading，再启动异步工作。
@@ -256,8 +256,9 @@ Workspace 规则：
 
 Plugin 与 Resident 的视觉实现同时遵循[前端配色要求](frontend-color-requirements.md)：公共语义变量只读，选择器限定在分配的根节点内。
 
-`registerToolbarButton` 把入口放在 Agent 输入区工具栏。四页式壳层不再提供左侧栏；为保证旧插件
-可达，历史 `placement: 'sidebar'` 声明仍被接受，但 Host 会将它归一为 `toolbar`。入口可以提供
+`registerToolbarButton` 注册由 Host 呈现的 Agent 扩展入口。Agent 输入区只直接保留图片、文档和
+网页三个核心操作；`placement: 'toolbar'` 和历史 `placement: 'sidebar'` 都显示在箭头打开的扩展面板。
+API 名称、参数、返回值和生命周期保持兼容，插件不得假设入口一定是独立的输入栏图标。入口可以提供
 本地化 `status`，并通过 `setButtonState` 更新 `status`、`disabled`、`active` 或 `loading`。
 独立业务能力的首选入口是 Module Manifest 目录卡片；插件不得自行查询或修改 ChatRaw DOM 来移动入口。
 
@@ -487,9 +488,9 @@ renders `top` and `bottom` as `main`. The plugin receives a real DOM container. 
 must synchronously return one cleanup function, and that function must synchronously return
 `undefined`. It must not fall back to the legacy fullscreen modal when registration or
 mounting fails. The Host focuses the Workspace title only when the `onClick` callback of that plugin's
-Host-rendered Agent composer toolbar entry synchronously opens its own workspace during click or keyboard
+Host-rendered Agent extension palette entry synchronously opens its own workspace during click or keyboard
 activation. Closing, mount failure, or replacement failure then restores the connected Host entry;
-overflow entries return to the stable More button. Direct API calls, opens after `await`, module
+palette entries return to the stable extension arrow. Direct API calls, opens after `await`, module
 callbacks, timers, and cross-plugin opens preserve the current focus. Plugins cannot override this
 Host decision with an option. If data is asynchronous, open synchronously, render loading state from
 `mount()`, and then start the asynchronous work. See the

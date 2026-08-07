@@ -59,8 +59,8 @@
       "version": "e92dc38bfb1d15dbb9d9ca9e645754f68e7c5b224e33c45a17048bd0cf2407a6"
     },
     "index.html": {
-      "sha256": "d380c746a95ec98814c45d59d4b9c1dc7ebc42067b9366215c83493e6f660cf8",
-      "version": "d380c746a95ec98814c45d59d4b9c1dc7ebc42067b9366215c83493e6f660cf8"
+      "sha256": "76d787c5477761a729b0e76d98027e2bfb7e0f1610b5a1462ebf823111ef4de0",
+      "version": "76d787c5477761a729b0e76d98027e2bfb7e0f1610b5a1462ebf823111ef4de0"
     },
     "landing-field.svg": {
       "sha256": "b44d1d8b331f8b7d22bb1127a2c49e4e5d76fd38769fb7ce60c5d533b7f71378",
@@ -87,12 +87,12 @@
       "version": "71e248dc1dd85929e4e313847d73cd43d26bc104b3f000b9d403be079a0556eb"
     },
     "styles.css": {
-      "sha256": "e4a502ce5f43e57433c19fd2bb79a5e2d00c703743db39ceec617cb23ea72ffb",
-      "version": "e4a502ce5f43e57433c19fd2bb79a5e2d00c703743db39ceec617cb23ea72ffb"
+      "sha256": "7de17923a9c2ee909aa0ae5f1dff9c5c284db58d3b95d0f751cb33e6d70e8109",
+      "version": "7de17923a9c2ee909aa0ae5f1dff9c5c284db58d3b95d0f751cb33e6d70e8109"
     },
     "styles.min.css": {
-      "sha256": "2852de776101de99a58a95e3cece4f524426cbd45e13beb667b8c64b87c3227b",
-      "version": "2852de776101de99a58a95e3cece4f524426cbd45e13beb667b8c64b87c3227b"
+      "sha256": "776f0101f8816ad42ab1f5862bba9a9e6c4224df14965fe2a3c5ee0a67bb83b0",
+      "version": "776f0101f8816ad42ab1f5862bba9a9e6c4224df14965fe2a3c5ee0a67bb83b0"
     },
     "vendor/alpine-collapse.min.js": {
       "sha256": "2bd5d9719b537cdd83b80e171fd725da9cddaf9943d510fcb4ac0140db39a47a",

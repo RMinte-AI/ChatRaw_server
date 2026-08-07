@@ -3,12 +3,12 @@
   "entrypoint": "index.html",
   "assets": {
     "app.js": {
-      "sha256": "cc4aa6079fd4780a16c66b5a1012792b9014326d4419276d7338c9e94a9f0a3c",
-      "version": "cc4aa6079fd4780a16c66b5a1012792b9014326d4419276d7338c9e94a9f0a3c"
+      "sha256": "97e5a4d56d493f21c50511a47044feffc12ea78944d6dbe08b06311eef617fc2",
+      "version": "97e5a4d56d493f21c50511a47044feffc12ea78944d6dbe08b06311eef617fc2"
     },
     "app.min.js": {
-      "sha256": "a57414bca76151d047c2df6e186755b45369de30e0fad53cd75700289175a5bf",
-      "version": "a57414bca76151d047c2df6e186755b45369de30e0fad53cd75700289175a5bf"
+      "sha256": "3a3a04e64ffe8a8e377f8605abbd14b90f88ea92e9ec0016a74413d1a849a2e4",
+      "version": "3a3a04e64ffe8a8e377f8605abbd14b90f88ea92e9ec0016a74413d1a849a2e4"
     },
     "auth.css": {
       "sha256": "f07a31c703b40bdf18566936d997d1ea574d9757113bbeb714040bf7663ee6fe",
@@ -59,8 +59,8 @@
       "version": "e92dc38bfb1d15dbb9d9ca9e645754f68e7c5b224e33c45a17048bd0cf2407a6"
     },
     "index.html": {
-      "sha256": "76d787c5477761a729b0e76d98027e2bfb7e0f1610b5a1462ebf823111ef4de0",
-      "version": "76d787c5477761a729b0e76d98027e2bfb7e0f1610b5a1462ebf823111ef4de0"
+      "sha256": "3b036329a38bf6a76c4026b8b895b800bd9a1bdd7e8fa9a00a0ba3301210b907",
+      "version": "3b036329a38bf6a76c4026b8b895b800bd9a1bdd7e8fa9a00a0ba3301210b907"
     },
     "landing-field.svg": {
       "sha256": "b44d1d8b331f8b7d22bb1127a2c49e4e5d76fd38769fb7ce60c5d533b7f71378",

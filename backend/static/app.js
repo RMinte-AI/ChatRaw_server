@@ -933,6 +933,7 @@ const COMMON_PATH_ROOTS = new Set(['tmp', 'var', 'usr', 'etc', 'home', 'users', 
 const SKILL_NAME_PATTERN = /^[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?$/;
 const MODULE_SDK_VERSION = '1.6.0';
 const MODULE_TASK_STORAGE_KEY = 'chatraw_module_tasks_v1';
+const SHELL_PAGE_STORAGE_KEY = 'chatraw_shell_page_v1';
 const MODULE_TERMINAL_STATES = new Set(['succeeded', 'failed', 'cancelled']);
 const PLUGIN_WORKSPACE_PLACEMENTS = Object.freeze([
     'right',
@@ -1307,7 +1308,8 @@ function app() {
             this.initCrossTabStateSync();
             // Note: favicon is updated by loadLogo() which is called from loadSettings()
             // Initialize plugin system
-            this.initPluginSystem();
+            await this.initPluginSystem();
+            this.restorePluginWorkspacePage();
             await this.initResidentIntegrations();
             await this.resumeModuleTasks();
         },
@@ -1527,6 +1529,75 @@ function app() {
         returnHome() {
             this.showSettings = false;
             if (this.pluginWorkspace.show) this.closeActivePluginWorkspace();
+        },
+
+        storedPluginWorkspacePage() {
+            let page = null;
+            try {
+                page = JSON.parse(sessionStorage.getItem(SHELL_PAGE_STORAGE_KEY) || 'null');
+            } catch (_error) {
+                page = null;
+            }
+            if (
+                !page
+                || page.kind !== 'plugin-workspace'
+                || typeof page.pluginId !== 'string'
+                || !page.pluginId
+                || typeof page.panelId !== 'string'
+                || !PLUGIN_WORKSPACE_PANEL_ID_PATTERN.test(page.panelId)
+                || !PLUGIN_WORKSPACE_PLACEMENTS.includes(page.placement)
+                || Object.keys(page).some(
+                    key => !['kind', 'pluginId', 'panelId', 'placement'].includes(key)
+                )
+            ) {
+                this.forgetPluginWorkspacePage();
+                return null;
+            }
+            return page;
+        },
+
+        rememberPluginWorkspacePage(pluginId, panelId, placement) {
+            try {
+                sessionStorage.setItem(SHELL_PAGE_STORAGE_KEY, JSON.stringify({
+                    kind: 'plugin-workspace',
+                    pluginId,
+                    panelId,
+                    placement
+                }));
+            } catch (_error) {
+                // A blocked session store must not prevent the page from opening.
+            }
+        },
+
+        forgetPluginWorkspacePage() {
+            try {
+                sessionStorage.removeItem(SHELL_PAGE_STORAGE_KEY);
+            } catch (_error) {
+                // The visible page can still close when storage is unavailable.
+            }
+        },
+
+        restorePluginWorkspacePage() {
+            const page = this.storedPluginWorkspacePage();
+            if (!page) return false;
+            const definition = this.pluginWorkspaceDefinitions[
+                this.pluginWorkspaceKey(page.pluginId, page.panelId)
+            ];
+            if (!definition || !definition.placements.includes(page.placement)) {
+                this.forgetPluginWorkspacePage();
+                return false;
+            }
+            try {
+                return this.openPluginWorkspacePanel(
+                    page.panelId,
+                    { placement: page.placement },
+                    page.pluginId
+                );
+            } catch (error) {
+                this.forgetPluginWorkspacePage();
+                console.warn('[Plugin Workspace restore]', error);
+                return false;
+            }
         },
 
         toggleAgent() {
@@ -5287,6 +5358,7 @@ function app() {
                         placement
                     );
                 }
+                this.rememberPluginWorkspacePage(owner, panelId, placement);
                 return true;
             }
             if (this.pluginWorkspace.show) {
@@ -5340,6 +5412,7 @@ function app() {
                 };
                 const returnFocus = this._pluginWorkspaceReturnFocus;
                 this._pluginWorkspaceReturnFocus = null;
+                this.forgetPluginWorkspacePage();
                 this.restorePluginWorkspaceFocus(returnFocus);
                 throw error;
             } finally {
@@ -5352,6 +5425,7 @@ function app() {
                     placement
                 );
             }
+            this.rememberPluginWorkspacePage(owner, panelId, placement);
             return true;
         },
 
@@ -5403,6 +5477,7 @@ function app() {
                 placement: null,
                 dispose: null
             };
+            this.forgetPluginWorkspacePage();
             const returnFocus = this._pluginWorkspaceReturnFocus;
             this._pluginWorkspaceReturnFocus = null;
             if (restoreFocus) {
@@ -6590,9 +6665,9 @@ function app() {
                 }
             };
 
-            // Load enabled plugins
-            this.loadEnabledPlugins();
             this.initPluginRuntimeSync();
+            // Loading must finish before init() can restore the saved Workspace.
+            return this.loadEnabledPlugins();
         },
 
         initPluginRuntimeSync() {

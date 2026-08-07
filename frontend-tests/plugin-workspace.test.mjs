@@ -296,6 +296,73 @@ test('workspace API mounts interactive DOM and closes with one disposal', () => 
     assert.equal(state.disposals, 1);
 });
 
+test('workspace page survives refresh state and restores after Plugin registration', () => {
+    const first = createHost();
+    const firstState = counters();
+    first.ui.registerWorkspacePanel(
+        panelDefinition('refresh-safe', firstState),
+        'plugin-one'
+    );
+    first.ui.openWorkspacePanel(
+        'refresh-safe',
+        { placement: 'right' },
+        'plugin-one'
+    );
+    const storedPage = first.dom.window.sessionStorage.getItem(
+        'chatraw_shell_page_v1'
+    );
+    assert.deepEqual(JSON.parse(storedPage), {
+        kind: 'plugin-workspace',
+        pluginId: 'plugin-one',
+        panelId: 'refresh-safe',
+        placement: 'right'
+    });
+
+    const refreshed = createHost();
+    refreshed.dom.window.sessionStorage.setItem(
+        'chatraw_shell_page_v1',
+        storedPage
+    );
+    const refreshedState = counters();
+    refreshed.ui.registerWorkspacePanel(
+        panelDefinition('refresh-safe', refreshedState),
+        'plugin-one'
+    );
+
+    assert.equal(refreshed.host.restorePluginWorkspacePage(), true);
+    assert.equal(refreshed.host.pluginWorkspace.show, true);
+    assert.equal(refreshed.host.pluginWorkspace.pluginId, 'plugin-one');
+    assert.equal(refreshed.host.pluginWorkspace.panelId, 'refresh-safe');
+    assert.equal(refreshed.host.pluginWorkspace.placement, 'right');
+    assert.equal(refreshedState.mounts, 1);
+
+    refreshed.host.returnHome();
+    assert.equal(
+        refreshed.dom.window.sessionStorage.getItem('chatraw_shell_page_v1'),
+        null
+    );
+});
+
+test('workspace refresh state fails closed when the saved panel is unavailable', () => {
+    const { dom, host } = createHost();
+    dom.window.sessionStorage.setItem(
+        'chatraw_shell_page_v1',
+        JSON.stringify({
+            kind: 'plugin-workspace',
+            pluginId: 'plugin-one',
+            panelId: 'removed-panel',
+            placement: 'main'
+        })
+    );
+
+    assert.equal(host.restorePluginWorkspacePage(), false);
+    assert.equal(host.pluginWorkspace.show, false);
+    assert.equal(
+        dom.window.sessionStorage.getItem('chatraw_shell_page_v1'),
+        null
+    );
+});
+
 test('workspace open options distinguish omission from invalid explicit values', () => {
     const { host, ui } = createHost();
     const state = counters();

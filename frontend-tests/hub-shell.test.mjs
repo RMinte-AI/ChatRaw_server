@@ -159,6 +159,25 @@ test('catalog availability requires live main-placement panel registration', () 
     assert.match(app, /const placement = 'main'/);
 });
 
+test('initialization restores the saved page only after enabled Plugins load', () => {
+    const initBody = app.slice(
+        app.indexOf('async init() {'),
+        app.indexOf('\n        initCrossTabStateSync()', app.indexOf('async init() {'))
+    );
+    assert.match(
+        initBody,
+        /await this\.initPluginSystem\(\);[\s\S]*this\.restorePluginWorkspacePage\(\);/
+    );
+    const pluginInitBody = app.slice(
+        app.indexOf('initPluginSystem() {'),
+        app.indexOf('\n        initPluginRuntimeSync()', app.indexOf('initPluginSystem() {'))
+    );
+    assert.match(
+        pluginInitBody,
+        /this\.initPluginRuntimeSync\(\);[\s\S]*return this\.loadEnabledPlugins\(\);/
+    );
+});
+
 test('installed plugins without a declared icon do not request a missing resource', () => {
     assert.match(html, /<template x-if="plugin\.icon">/);
     assert.match(html, /x-show="!plugin\.icon"/);

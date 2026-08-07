@@ -84,6 +84,19 @@ test('the only conversation surface is the SDHS Agent popup', () => {
     assert.doesNotMatch(sendMessage, /use_thinking/);
 });
 
+test('Agent launcher and title identity use round pale-blue Host accents', () => {
+    assert.match(
+        styles,
+        /\.agent-launcher\s*\{[^}]*width:\s*48px;[^}]*height:\s*48px;[^}]*background:\s*var\(--hub-blue\);[^}]*border:\s*1px solid var\(--hub-line\);[^}]*border-radius:\s*50%/s
+    );
+    assert.match(
+        styles,
+        /\.agent-mark\s*\{[^}]*width:\s*40px;[^}]*height:\s*40px;[^}]*background:\s*var\(--hub-blue\);[^}]*border:\s*1px solid var\(--hub-line\);[^}]*border-radius:\s*50%/s
+    );
+    assert.doesNotMatch(styles, /\.agent-launcher\s*\{[^}]*background:\s*#111/s);
+    assert.doesNotMatch(styles, /\.agent-mark\s*\{[^}]*background:\s*#111/s);
+});
+
 test('settings and Plugin Workspace are independent full-page views', () => {
     assert.match(html, /class="settings-page-back"/);
     assert.match(html, /class="content-navigator"/);

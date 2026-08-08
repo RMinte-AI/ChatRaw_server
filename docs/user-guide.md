@@ -33,6 +33,10 @@ ChatRaw Server 的所有用户使用同一个平台。聊天、文档、模型�
 
 当前产品只提供浅色界面，不提供深色模式开关。
 
+管理员可以在“设置 → Interface”上传不超过 15 MB 的 JPEG、PNG 或 WebP 登录页背景图。
+图片会在浏览器中解码、缩放并优化后保存，再以居中裁切方式铺满登录页；左侧宣传文字自动隐藏。
+清空自定义背景并保存后，恢复内置抽象背景和宣传文字；取消设置不会保存上传或清空操作。
+
 修改密码后现有会话会失效，需要使用新密码重新登录。不要共享账号，不要把浏览器 Cookie 当作 API Token 保存。
 
 ### 3. 首页、内容页与 Agent
@@ -182,6 +186,11 @@ Use the Server URL supplied by your administrator. After signing in, open **Sett
 Every signed-in user can switch between English and Chinese under **Settings → Account**. The selection is stored in the current browser and updates the Host shell without reloading or discarding the active category, Agent session, or Workspace.
 
 The current product exposes only the light interface and has no dark-mode control.
+
+Administrators can upload a JPEG, PNG, or WebP login-page background of up to 15 MB under
+**Settings → Interface**. The browser decodes, resizes, and optimizes it before saving. A custom
+image is center-cropped to cover the page and hides the promotional copy. Clearing and saving
+restores the built-in background and copy; cancelling discards an upload or clear operation.
 
 ChatRaw has no public self-registration; an administrator creates accounts. Administrators can
 change an account's role, disable or re-enable it, and reset another user's password. A role change,

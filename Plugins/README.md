@@ -2618,7 +2618,7 @@ arr.filter(l => (/^#{2,6}\s+/).test(l))
 
 ## License
 
-Plugins developed for ChatRaw should be compatible with the [MIT License](https://opensource.org/licenses/MIT).
+Plugins distributed as part of ChatRaw are licensed under the [GNU Affero General Public License v3.0](../LICENSE) (`AGPL-3.0-only`). Third-party dependencies retain their respective licenses.
 
 ---
 

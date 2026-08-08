@@ -17,7 +17,7 @@ function response(payload, ok = true) {
     };
 }
 
-function createAuthWindow(page, language, fetchImpl) {
+function createAuthWindow(page, language, fetchImpl, backgroundLoads = true) {
     const html = fs.readFileSync(`backend/static/${page}.html`, 'utf8');
     const dom = new JSDOM(html, {
         runScripts: 'outside-only',
@@ -26,6 +26,14 @@ function createAuthWindow(page, language, fetchImpl) {
     if (language) dom.window.localStorage.setItem('justchat_lang', language);
     dom.window.fetch = fetchImpl;
     dom.window.setTimeout = () => 0;
+    dom.window.Image = class {
+        set src(_value) {
+            Promise.resolve().then(() => {
+                if (backgroundLoads) this.onload?.();
+                else this.onerror?.(new Error('decode failed'));
+            });
+        }
+    };
     vm.runInContext(authScript, dom.getInternalVMContext(), {
         filename: 'backend/static/auth.js'
     });
@@ -41,7 +49,11 @@ test('login initializes from justchat_lang and localizes the complete page', asy
         'login',
         'zh',
         async path => path === '/api/settings/logo'
-            ? response({logo_data: 'data:image/png;base64,AA==', logo_text: '站务智枢'})
+            ? response({
+                logo_data: 'data:image/png;base64,AA==',
+                logo_text: '站务智枢',
+                login_background_data: 'data:image/png;base64,Qkc='
+            })
             : response({setup_required: false})
     );
     await flushAsyncWork();
@@ -72,9 +84,47 @@ test('login initializes from justchat_lang and localizes the complete page', asy
         window.document.querySelector('.language-switch').ariaLabel,
         '语言'
     );
+    const loginPage = window.document.querySelector('.login-page-shell');
+    assert.equal(loginPage.classList.contains('has-custom-background'), true);
+    assert.match(loginPage.style.backgroundImage, /data:image\/png;base64,Qkc=/);
+    assert.equal(
+        window.document.querySelector('.login-field').ariaLabel,
+        '自定义登录页背景图'
+    );
+    assert.match(
+        authStyles,
+        /\.login-page-shell\.has-custom-background \.login-field-copy\s*\{[^}]*display:\s*none/s
+    );
     assert.equal(
         window.document.querySelector('[data-language="zh"]').ariaPressed,
         'true'
+    );
+});
+
+test('login keeps the bundled artwork and copy when custom decoding fails', async () => {
+    const window = createAuthWindow(
+        'login',
+        'en',
+        async path => path === '/api/settings/logo'
+            ? response({
+                logo_data: '',
+                logo_text: 'ChatRaw',
+                login_background_data: 'data:image/png;base64,broken'
+            })
+            : response({setup_required: false}),
+        false
+    );
+    await flushAsyncWork();
+
+    const loginPage = window.document.querySelector('.login-page-shell');
+    assert.equal(loginPage.classList.contains('has-custom-background'), false);
+    assert.equal(
+        window.document.querySelector('.login-field').ariaLabel,
+        'Warm gray abstract architectural landscape'
+    );
+    assert.equal(
+        window.document.querySelector('.login-field-copy h2').textContent,
+        'Put complex work in one place.'
     );
 });
 

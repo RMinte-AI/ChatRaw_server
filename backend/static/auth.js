@@ -15,6 +15,7 @@
             welcomeBack: 'Welcome back',
             sharedWorkspace: 'Shared workspace',
             loginArtworkLabel: 'Warm gray abstract architectural landscape',
+            loginCustomBackgroundLabel: 'Custom login page background',
             loginArtworkEyebrow: 'ChatRaw / Shared Intelligence',
             loginArtworkHeading: 'Put complex work in one place.',
             loginArtworkCopy: 'Conversations, knowledge and business modules work together in one clear workspace.',
@@ -49,6 +50,7 @@
             welcomeBack: '欢迎回来',
             sharedWorkspace: '多人共享工作空间',
             loginArtworkLabel: '暖灰色抽象建筑景观',
+            loginCustomBackgroundLabel: '自定义登录页背景图',
             loginArtworkEyebrow: 'ChatRaw / 共享智能',
             loginArtworkHeading: '把复杂工作，放进一个入口。',
             loginArtworkCopy: '对话、知识与业务模块，在同一个清晰的工作空间中协作。',
@@ -187,6 +189,7 @@
         const identity = await response.json();
         const logo = document.getElementById('public-logo');
         const logoText = document.getElementById('public-logo-text');
+        const loginPage = document.querySelector('.login-page-shell');
         if (logo) {
             logo.onerror = () => {
                 logo.onerror = null;
@@ -196,6 +199,25 @@
             logo.alt = identity.logo_text || 'ChatRaw';
         }
         if (logoText) logoText.textContent = identity.logo_text || 'ChatRaw';
+        if (loginPage && identity.login_background_data) {
+            const background = new Image();
+            try {
+                await new Promise((resolve, reject) => {
+                    background.onload = resolve;
+                    background.onerror = reject;
+                    background.src = identity.login_background_data;
+                });
+                loginPage.style.backgroundImage = `url(${identity.login_background_data})`;
+                loginPage.classList.add('has-custom-background');
+                const artwork = loginPage.querySelector('.login-field');
+                if (artwork) {
+                    artwork.dataset.i18nAriaLabel = 'loginCustomBackgroundLabel';
+                    artwork.setAttribute('aria-label', text('loginCustomBackgroundLabel'));
+                }
+            } catch (_error) {
+                // Keep the bundled background and its copy when custom image decoding fails.
+            }
+        }
     }
 
     for (const option of document.querySelectorAll('[data-language]')) {

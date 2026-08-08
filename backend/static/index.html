@@ -12,8 +12,8 @@
     
     <!-- Performance: Preload Critical Resources -->
     <link rel="preload" href="fonts/remixicon/remixicon.woff2?t=1769685282643" as="font" type="font/woff2" crossorigin>
-    <link rel="preload" href="styles.min.css?v=fdfce3e75bde2f2f8dfde398d3160abd49d7277a1a03e17848777a45737a7108" as="style">
-    <link rel="preload" href="app.min.js?v=b852f360de46d95ac3f9a60d377afb2ace078dfe474ee926cbc726d234146ef3" as="script">
+    <link rel="preload" href="styles.min.css?v=1c8b1cbcd539513c2ee6d5a905970321a5495f57385418ab3be302ecae9982f0" as="style">
+    <link rel="preload" href="app.min.js?v=892a6bfe93f1c61919acdf997b7eec6c6223f7140ae1cf8fabd62a2b3fbf94ab" as="script">
     <link rel="preload" href="vendor/alpine.min.js?v=c8fa8ff457abdcd212f37a07ef2f292c999011dffabcaa577fb1e1e0076ca658" as="script">
     <link rel="preload" href="vendor/marked.min.js?v=6002af63485b043fa60ddaba1b34363b98d2a8b2c63b607004f3a2405a8a053a" as="script">
     <link rel="preload" href="vendor/purify.min.js?v=9ab3d44d73c3e3947f9ab72e0f0bc15c7f1931d60b365ba261fc85fe59013c56" as="script">
@@ -116,7 +116,7 @@
     <script defer src="vendor/alpine.min.js?v=c8fa8ff457abdcd212f37a07ef2f292c999011dffabcaa577fb1e1e0076ca658"></script>
     <!-- highlight.js is lazy-loaded in app.min.js when needed -->
     <link rel="stylesheet" href="fonts/remixicon/remixicon.css">
-    <link rel="stylesheet" href="styles.min.css?v=fdfce3e75bde2f2f8dfde398d3160abd49d7277a1a03e17848777a45737a7108">
+    <link rel="stylesheet" href="styles.min.css?v=1c8b1cbcd539513c2ee6d5a905970321a5495f57385418ab3be302ecae9982f0">
 </head>
 <body x-data="app()" :data-theme="settings.ui_settings.theme_mode">
     <section class="hub-home"
@@ -854,7 +854,7 @@
     </button>
 
     <!-- New Settings Modal -->
-    <div class="modal-overlay" x-show="showSettings" x-cloak @click.self="showSettings = false" @keydown.escape.window="showSettings && (showSettings = false)" x-transition role="dialog" aria-modal="true" aria-labelledby="settings-modal-title">
+    <div class="modal-overlay" x-show="showSettings" x-cloak @click.self="cancelSettingsPanel()" @keydown.escape.window="showSettings && cancelSettingsPanel()" x-transition role="dialog" aria-modal="true" aria-labelledby="settings-modal-title">
         <div class="settings-modal">
             <button class="settings-page-back" type="button" @click="returnHome()">
                 <i class="ri-arrow-left-line"></i><span x-text="t('backHome')"></span>
@@ -871,7 +871,9 @@
                 <button class="nav-item" type="button" role="tab" :aria-selected="settingsTab === 'account'" :class="{ 'active': settingsTab === 'account' }" @click="settingsTab = 'account'" x-text="t('account')"></button>
                 <div class="settings-footer">
                     © 2026 ChatRaw by massif-01<br>
-                    <a href="https://opensource.org/licenses/MIT" target="_blank" rel="noopener" class="settings-footer-link" x-text="t('mitLicense')"></a>
+                    <a href="https://github.com/massif-01/ChatRaw_server/blob/main/LICENSE" target="_blank" rel="noopener" class="settings-footer-link" x-text="t('agplLicense')"></a>
+                    <a href="https://github.com/massif-01/ChatRaw_server" target="_blank" rel="noopener" class="settings-footer-link" x-text="t('sourceCode')"></a>
+                    <span class="settings-footer-legal" x-text="t('legalNotice')"></span>
                 </div>
             </div>
 
@@ -1020,6 +1022,31 @@
                         <div class="form-group form-group-lg">
                             <label class="form-label" x-text="t('subtitle')"></label>
                             <input type="text" x-model="settings.ui_settings.subtitle" :placeholder="t('defaultSubtitle')" class="input-minimal">
+                        </div>
+
+                        <div class="form-group form-group-lg">
+                            <label class="form-label" x-text="t('loginBackground')"></label>
+                            <div class="login-background-settings-row" :aria-busy="String(loginBackgroundProcessing)">
+                                <img
+                                    x-show="loginBackgroundDraft"
+                                    :src="loginBackgroundDraft"
+                                    :alt="t('loginBackgroundAlt')"
+                                    class="login-background-preview"
+                                >
+                                <label class="btn-secondary btn-compact" :class="{ 'is-disabled': loginBackgroundProcessing }">
+                                    <input type="file" @change="handleLoginBackgroundUpload($event)" accept="image/jpeg,image/png,image/webp" class="file-input-hidden" :disabled="loginBackgroundProcessing">
+                                    <span x-text="t('uploadLoginBackground')"></span>
+                                </label>
+                                <button
+                                    type="button"
+                                    class="btn-danger btn-compact"
+                                    x-show="loginBackgroundDraft"
+                                    @click="clearLoginBackground()"
+                                    :disabled="loginBackgroundProcessing"
+                                    x-text="t('clearLoginBackground')"
+                                ></button>
+                            </div>
+                            <span class="form-sublabel form-sublabel-block" x-text="t('loginBackgroundHint')"></span>
                         </div>
 
                         <div class="form-group form-group-lg">
@@ -1410,8 +1437,8 @@
                 
                 <!-- Modal Actions Footer -->
                 <div class="modal-actions-bar">
-                    <button class="btn-secondary" @click="showSettings = false" x-text="t('cancel')"></button>
-                    <button class="btn-primary" x-show="isAdmin() && ['models', 'chat', 'ui'].includes(settingsTab)" @click="saveAllSettings()" x-text="t('save')"></button>
+                    <button class="btn-secondary" @click="cancelSettingsPanel()" x-text="t('cancel')"></button>
+                    <button class="btn-primary" x-show="isAdmin() && ['models', 'chat', 'ui'].includes(settingsTab)" @click="saveAllSettings()" :disabled="loginBackgroundProcessing" x-text="t('save')"></button>
                 </div>
             </div>
         </div>
@@ -1428,7 +1455,9 @@
                 <div class="nav-item" role="tab" :aria-selected="pluginTab === 'local'" :class="{ 'active': pluginTab === 'local' }" @click="pluginTab = 'local'" x-text="t('installLocalPlugin')"></div>
                 <div class="settings-footer">
                     © 2026 ChatRaw by massif-01<br>
-                    <a href="https://opensource.org/licenses/MIT" target="_blank" rel="noopener" class="settings-footer-link" x-text="t('mitLicense')"></a>
+                    <a href="https://github.com/massif-01/ChatRaw_server/blob/main/LICENSE" target="_blank" rel="noopener" class="settings-footer-link" x-text="t('agplLicense')"></a>
+                    <a href="https://github.com/massif-01/ChatRaw_server" target="_blank" rel="noopener" class="settings-footer-link" x-text="t('sourceCode')"></a>
+                    <span class="settings-footer-legal" x-text="t('legalNotice')"></span>
                 </div>
             </div>
 
@@ -1906,6 +1935,6 @@
         <div class="plugin-fullscreen-content" x-html="pluginFullscreenModal.content"></div>
     </div>
 
-    <script src="app.min.js?v=b852f360de46d95ac3f9a60d377afb2ace078dfe474ee926cbc726d234146ef3"></script>
+    <script src="app.min.js?v=892a6bfe93f1c61919acdf997b7eec6c6223f7140ae1cf8fabd62a2b3fbf94ab"></script>
 </body>
 </html>

@@ -48,5 +48,5 @@ See [CI.md](.github/CI.md) for details.
 ---
 
 **By submitting, I confirm**:
-- [ ] License contributions under MIT
+- [ ] License contributions under AGPL-3.0-only
 - [ ] Understand checks must pass before merge

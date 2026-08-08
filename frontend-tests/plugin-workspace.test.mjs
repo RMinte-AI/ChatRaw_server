@@ -249,6 +249,25 @@ test('opening settings stops Agent generation and disposes Workspace', () => {
     assert.equal(state.disposals, 1);
 });
 
+test('cancelling settings discards login background draft state', () => {
+    const { host } = createHost();
+    host.me = { role: 'member' };
+    host.settings.ui_settings.login_background_data = 'saved-background';
+
+    host.openSettingsPanel();
+    host.loginBackgroundDraft = 'replacement-background';
+    host.loginBackgroundAction = 'replace';
+    host.cancelSettingsPanel();
+
+    assert.equal(host.showSettings, false);
+    assert.equal(
+        host.settings.ui_settings.login_background_data,
+        'saved-background'
+    );
+    assert.equal(host.loginBackgroundDraft, 'saved-background');
+    assert.equal(host.loginBackgroundAction, 'preserve');
+});
+
 test('workspace API mounts interactive DOM and closes with one disposal', () => {
     const { dom, host, ui } = createHost();
     const state = counters();

@@ -1593,6 +1593,7 @@
             "$ref": "#/components/schemas/UISettings",
             "default": {
               "assistant_avatar": "",
+              "login_background_data": "",
               "logo_data": "",
               "logo_text": "ChatRaw",
               "subtitle": "",
@@ -1661,6 +1662,21 @@
           "assistant_avatar": {
             "default": "",
             "title": "Assistant Avatar",
+            "type": "string"
+          },
+          "login_background_action": {
+            "default": "preserve",
+            "enum": [
+              "preserve",
+              "replace",
+              "clear"
+            ],
+            "title": "Login Background Action",
+            "type": "string"
+          },
+          "login_background_data": {
+            "default": "",
+            "title": "Login Background Data",
             "type": "string"
           },
           "logo_data": {
@@ -7444,7 +7460,7 @@
     },
     "/api/settings": {
       "get": {
-        "description": "Get settings. By default excludes logo_data for faster initial load.",
+        "description": "Get settings. By default excludes large image data for faster initial load.",
         "operationId": "get_settings_api_settings_get",
         "parameters": [
           {

@@ -303,13 +303,57 @@ class RAGSettings(BaseModel):
     top_k: int = 3
     score_threshold: float = 0.5
 
+LOGIN_BACKGROUND_MAX_BYTES = 4 * 1024 * 1024
+LOGIN_BACKGROUND_DATA_URL_PATTERN = re.compile(
+    r"^data:image/(jpeg|png|webp);base64,([A-Za-z0-9+/]+={0,2})$"
+)
+
+
 class UISettings(BaseModel):
     logo_data: str = ""
     logo_text: str = "ChatRaw"
     subtitle: str = ""
+    login_background_data: str = ""
+    login_background_action: Literal["preserve", "replace", "clear"] = Field(
+        default="preserve",
+        exclude=True,
+    )
     theme_mode: Literal["light"] = "light"
     user_avatar: str = ""
     assistant_avatar: str = ""
+
+    @field_validator("login_background_data")
+    @classmethod
+    def validate_login_background_data(cls, value):
+        if value == "":
+            return value
+        if not isinstance(value, str):
+            raise ValueError("login background must be an image data URL")
+        max_data_url_length = ((LOGIN_BACKGROUND_MAX_BYTES + 2) // 3) * 4 + 64
+        if len(value) > max_data_url_length:
+            raise ValueError("login background exceeds the size limit")
+        match = LOGIN_BACKGROUND_DATA_URL_PATTERN.fullmatch(value)
+        if not match:
+            raise ValueError("login background must be JPEG, PNG, or WebP")
+        try:
+            image_bytes = base64.b64decode(match.group(2), validate=True)
+        except (binascii.Error, ValueError) as error:
+            raise ValueError("login background contains invalid base64") from error
+        if not image_bytes or len(image_bytes) > LOGIN_BACKGROUND_MAX_BYTES:
+            raise ValueError("login background exceeds the size limit")
+        media_type = match.group(1)
+        valid_signature = (
+            media_type == "jpeg" and image_bytes.startswith(b"\xff\xd8\xff")
+        ) or (
+            media_type == "png" and image_bytes.startswith(b"\x89PNG\r\n\x1a\n")
+        ) or (
+            media_type == "webp"
+            and image_bytes.startswith(b"RIFF")
+            and image_bytes[8:12] == b"WEBP"
+        )
+        if not valid_signature:
+            raise ValueError("login background does not match its media type")
+        return value
 
     @field_validator("theme_mode", mode="before")
     @classmethod
@@ -4920,11 +4964,12 @@ async def prepare_github_skill_from_url(source_url: str, stage_dir: Path) -> dic
 
 @app.get("/api/settings")
 async def get_settings(include_logo: bool = False):
-    """Get settings. By default excludes logo_data for faster initial load."""
+    """Get settings. By default excludes large image data for faster initial load."""
     settings = db.get_settings().model_dump()
     if not include_logo:
-        # Exclude large logo_data from initial load for better LCP
+        # Large visual assets are loaded lazily through the public identity endpoint.
         settings['ui_settings']['logo_data'] = '' if settings['ui_settings'].get('logo_data') else ''
+        settings['ui_settings']['login_background_data'] = ''
     return settings
 
 @app.get("/api/settings/logo")
@@ -4934,10 +4979,22 @@ async def get_settings_logo():
     return {
         "logo_data": settings.ui_settings.logo_data,
         "logo_text": settings.ui_settings.logo_text,
+        "login_background_data": settings.ui_settings.login_background_data,
     }
 
 @app.post("/api/settings")
 async def save_settings(settings: Settings):
+    action = settings.ui_settings.login_background_action
+    current_background = db.get_settings().ui_settings.login_background_data
+    if action == "preserve":
+        settings.ui_settings.login_background_data = current_background
+    elif action == "clear":
+        settings.ui_settings.login_background_data = ""
+    elif not settings.ui_settings.login_background_data:
+        raise HTTPException(
+            status_code=422,
+            detail="Replacement login background is required",
+        )
     db.save_settings(settings)
     return {"success": True}
 

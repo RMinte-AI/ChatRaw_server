@@ -132,6 +132,13 @@ const i18n = {
         theme: 'Theme',
         light: 'Light',
         uploadLogo: 'Upload',
+        loginBackground: 'Login page background',
+        uploadLoginBackground: 'Upload background',
+        clearLoginBackground: 'Clear background',
+        loginBackgroundHint: 'JPEG, PNG, or WebP up to 15 MB. The image is optimized and cropped to fill the login page.',
+        loginBackgroundRequirements: 'Choose a JPEG, PNG, or WebP image up to 15 MB.',
+        loginBackgroundInvalid: 'The selected image could not be decoded.',
+        loginBackgroundAlt: 'Login page background preview',
         logoText: 'Logo Text',
         subtitle: 'Subtitle',
         avatars: 'Avatars',
@@ -155,7 +162,9 @@ const i18n = {
         uploadAIAvatar: 'Upload AI Avatar',
         active: 'Active',
         error: 'Error',
-        mitLicense: 'MIT License',
+        agplLicense: 'GNU AGPL-3.0',
+        sourceCode: 'Source code',
+        legalNotice: 'No warranty. Redistribution is permitted under AGPL-3.0.',
         // Plugin translations
         plugins: 'Plugins',
         pluginMarket: 'Plugin Market',
@@ -328,6 +337,13 @@ const i18n = {
         theme: '主题',
         light: '浅色',
         uploadLogo: '上传',
+        loginBackground: '登录页背景图',
+        uploadLoginBackground: '上传背景图',
+        clearLoginBackground: '清空背景图',
+        loginBackgroundHint: '支持不超过 15 MB 的 JPEG、PNG 或 WebP；图片会自动优化并裁切铺满登录页。',
+        loginBackgroundRequirements: '请选择不超过 15 MB 的 JPEG、PNG 或 WebP 图片。',
+        loginBackgroundInvalid: '无法解析所选图片。',
+        loginBackgroundAlt: '登录页背景图预览',
         logoText: 'Logo文字',
         subtitle: '副标题',
         avatars: '头像',
@@ -351,7 +367,9 @@ const i18n = {
         uploadAIAvatar: '上传 AI 头像',
         active: '活跃',
         error: '错误',
-        mitLicense: 'MIT 协议',
+        agplLicense: 'GNU AGPL-3.0 协议',
+        sourceCode: '源代码',
+        legalNotice: '不提供担保，可依 AGPL-3.0 再分发。',
         // Plugin translations
         plugins: '插件',
         pluginMarket: '插件市场',
@@ -933,6 +951,14 @@ const SKILL_MANAGER_PLUGIN_ID = 'skill-manager';
 const COMPOSER_COMPLETION_LIMIT = 20;
 const SKILL_CATALOG_CACHE_MS = 30000;
 const MAX_ACTIVE_SKILLS_PER_REQUEST = 5;
+const LOGIN_BACKGROUND_INPUT_MAX_BYTES = 15 * 1024 * 1024;
+const LOGIN_BACKGROUND_OUTPUT_MAX_BYTES = 4 * 1024 * 1024;
+const LOGIN_BACKGROUND_MAX_DIMENSION = 2560;
+const LOGIN_BACKGROUND_TYPES = new Set([
+    'image/jpeg',
+    'image/png',
+    'image/webp'
+]);
 const AGENT_CHAT_ENDPOINT = '/api/agent/chat';
 const RESERVED_SLASH_COMMANDS = new Set(['plugins', 'settings', 'help', 'clear', 'compact', 'api']);
 const COMMON_PATH_ROOTS = new Set(['tmp', 'var', 'usr', 'etc', 'home', 'users', 'opt', 'private', 'volumes', 'mnt']);
@@ -968,6 +994,10 @@ function app() {
         activeFeatureCategory: 'data-hub',
         featureCatalogLoading: true,
         settingsTab: 'models',
+        loginBackgroundDraft: '',
+        loginBackgroundAction: 'preserve',
+        loginBackgroundProcessing: false,
+        publicIdentityLoaded: false,
         me: null,
         adminUsers: [],
         adminUsersLoading: false,
@@ -1159,6 +1189,7 @@ function app() {
                 logo_data: '',
                 logo_text: 'ChatRaw',
                 subtitle: '',
+                login_background_data: '',
                 theme_mode: 'light',
                 user_avatar: '',
                 assistant_avatar: ''
@@ -1316,7 +1347,7 @@ function app() {
             await this.loadInstalledPlugins();
             this.applyTheme();
             this.initCrossTabStateSync();
-            // Note: favicon is updated by loadLogo() which is called from loadSettings()
+            // Visual identity is loaded by loadSettings before settings become editable.
             // Initialize plugin system
             await this.initPluginSystem();
             this.restorePluginWorkspacePage();
@@ -1537,7 +1568,7 @@ function app() {
         },
 
         returnHome() {
-            this.showSettings = false;
+            if (this.showSettings) this.cancelSettingsPanel();
             if (this.pluginWorkspace.show) this.closeActivePluginWorkspace();
         },
 
@@ -2846,7 +2877,20 @@ function app() {
         openSettingsPanel() {
             this.showPlugins = false;
             this.settingsTab = this.isAdmin() ? 'models' : 'account';
+            this.loginBackgroundDraft = this.settings.ui_settings.login_background_data || '';
+            this.loginBackgroundAction = 'preserve';
             this.showSettings = true;
+            if (!this.publicIdentityLoaded) {
+                this.loadLogo().then(loaded => {
+                    if (
+                        loaded
+                        && this.showSettings
+                        && this.loginBackgroundAction === 'preserve'
+                    ) {
+                        this.loginBackgroundDraft = this.settings.ui_settings.login_background_data || '';
+                    }
+                });
+            }
             if (this.isGenerating) this.stopGeneration();
             this.agentOpen = false;
             this.agentExpanded = false;
@@ -2858,10 +2902,16 @@ function app() {
                 this.loadModules();
             }
         },
+
+        cancelSettingsPanel() {
+            this.loginBackgroundDraft = this.settings.ui_settings.login_background_data || '';
+            this.loginBackgroundAction = 'preserve';
+            this.showSettings = false;
+        },
         
         async openPluginsPanel() {
             if (!this.isAdmin()) return;
-            this.showSettings = false;
+            if (this.showSettings) this.cancelSettingsPanel();
             this.showPlugins = true;
             this.showExtensionPalette = false;
             await this.loadInstalledPlugins();
@@ -2892,8 +2942,7 @@ function app() {
                         this.settings.ui_settings.theme_mode = 'light';
                     }
                 }
-                // Lazy load logo after initial settings (for better LCP)
-                this.loadLogo();
+                await this.loadLogo();
             } catch (e) {
                 console.error('Failed to load settings:', e);
             }
@@ -2909,11 +2958,20 @@ function app() {
                     if (typeof data.logo_text === 'string') {
                         this.settings.ui_settings.logo_text = data.logo_text;
                     }
+                    this.settings.ui_settings.login_background_data = data.login_background_data || '';
+                    if (!this.showSettings) {
+                        this.loginBackgroundDraft = this.settings.ui_settings.login_background_data;
+                        this.loginBackgroundAction = 'preserve';
+                    }
+                    this.publicIdentityLoaded = true;
                     this.updateFavicon(this.settings.ui_settings.logo_data);
+                    return true;
                 }
             } catch (e) {
                 // Logo loading is non-critical, fail silently
             }
+            this.publicIdentityLoaded = false;
+            return false;
         },
         
         // Load model configs
@@ -4428,6 +4486,80 @@ function app() {
             this.updateFavicon('');
         },
 
+        async handleLoginBackgroundUpload(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+            event.target.value = '';
+
+            if (
+                !LOGIN_BACKGROUND_TYPES.has(file.type)
+                || file.size > LOGIN_BACKGROUND_INPUT_MAX_BYTES
+            ) {
+                this.showToast(this.t('loginBackgroundRequirements'), 'error');
+                return;
+            }
+
+            this.loginBackgroundProcessing = true;
+            try {
+                this.loginBackgroundDraft = await this.prepareLoginBackground(file);
+                this.loginBackgroundAction = 'replace';
+            } catch (error) {
+                const key = error?.message === 'requirements'
+                    ? 'loginBackgroundRequirements'
+                    : 'loginBackgroundInvalid';
+                this.showToast(this.t(key), 'error');
+            } finally {
+                this.loginBackgroundProcessing = false;
+            }
+        },
+
+        async prepareLoginBackground(file) {
+            const objectUrl = URL.createObjectURL(file);
+            try {
+                const image = new Image();
+                await new Promise((resolve, reject) => {
+                    image.onload = resolve;
+                    image.onerror = reject;
+                    image.src = objectUrl;
+                });
+                if (!image.naturalWidth || !image.naturalHeight) {
+                    throw new Error('invalid');
+                }
+                const scale = Math.min(
+                    1,
+                    LOGIN_BACKGROUND_MAX_DIMENSION
+                        / Math.max(image.naturalWidth, image.naturalHeight)
+                );
+                const canvas = document.createElement('canvas');
+                canvas.width = Math.max(1, Math.round(image.naturalWidth * scale));
+                canvas.height = Math.max(1, Math.round(image.naturalHeight * scale));
+                const context = canvas.getContext('2d');
+                if (!context) throw new Error('invalid');
+                context.fillStyle = '#d7d0c5';
+                context.fillRect(0, 0, canvas.width, canvas.height);
+                context.drawImage(image, 0, 0, canvas.width, canvas.height);
+                const blob = await new Promise(resolve => {
+                    canvas.toBlob(resolve, 'image/jpeg', 0.84);
+                });
+                if (!blob || blob.size > LOGIN_BACKGROUND_OUTPUT_MAX_BYTES) {
+                    throw new Error('requirements');
+                }
+                return await new Promise((resolve, reject) => {
+                    const reader = new FileReader();
+                    reader.onload = () => resolve(reader.result);
+                    reader.onerror = reject;
+                    reader.readAsDataURL(blob);
+                });
+            } finally {
+                URL.revokeObjectURL(objectUrl);
+            }
+        },
+
+        clearLoginBackground() {
+            this.loginBackgroundDraft = '';
+            this.loginBackgroundAction = 'clear';
+        },
+
         handleLogoImageError(event) {
             const image = event?.currentTarget;
             if (!image) return;
@@ -4758,10 +4890,18 @@ function app() {
             try {
                 // Save settings
                 this.settings.ui_settings.theme_mode = 'light';
+                const backgroundAction = this.loginBackgroundAction;
+                const settingsPayload = JSON.parse(JSON.stringify(this.settings));
+                settingsPayload.ui_settings.login_background_action = backgroundAction;
+                settingsPayload.ui_settings.login_background_data = (
+                    backgroundAction === 'replace'
+                        ? this.loginBackgroundDraft
+                        : ''
+                );
                 const settingsResponse = await fetch('/api/settings', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(this.settings)
+                    body: JSON.stringify(settingsPayload)
                 });
                 if (!settingsResponse.ok) {
                     throw new Error(this.t('saveFailed'));
@@ -4784,6 +4924,14 @@ function app() {
                         })
                     });
                 }
+
+                if (backgroundAction === 'replace') {
+                    this.settings.ui_settings.login_background_data = this.loginBackgroundDraft;
+                } else if (backgroundAction === 'clear') {
+                    this.settings.ui_settings.login_background_data = '';
+                }
+                this.loginBackgroundDraft = this.settings.ui_settings.login_background_data || '';
+                this.loginBackgroundAction = 'preserve';
                 
                 this.applyTheme();
                 this.announceSettingsChange();

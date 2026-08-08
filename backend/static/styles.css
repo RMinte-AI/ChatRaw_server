@@ -2463,6 +2463,27 @@ body > .modal-overlay[aria-labelledby="settings-modal-title"] .settings-content 
     flex-shrink: 0;
 }
 
+.login-background-settings-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+}
+
+.login-background-preview {
+    width: 144px;
+    height: 88px;
+    flex: 0 0 auto;
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-sm);
+    object-fit: cover;
+}
+
+.login-background-settings-row .is-disabled {
+    cursor: not-allowed;
+    opacity: .45;
+}
+
 /* Button with no extra margin */
 .btn-compact {
     margin: 0;
@@ -2528,6 +2549,12 @@ body > .modal-overlay[aria-labelledby="settings-modal-title"] .settings-content 
 
 .settings-footer-link:hover {
     text-decoration: underline;
+}
+
+.settings-footer-legal {
+    display: block;
+    margin-top: 4px;
+    line-height: 1.35;
 }
 
 /* Error icon size */

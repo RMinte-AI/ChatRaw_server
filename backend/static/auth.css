@@ -149,6 +149,13 @@ body[data-mode="login"] .login-page-shell {
     min-height: 100dvh;
     background: url('/landing-field.svg') center / cover no-repeat;
 }
+body[data-mode="login"] .login-page-shell.has-custom-background {
+    background-position: center;
+    background-size: cover;
+}
+body[data-mode="login"] .login-page-shell.has-custom-background .login-field-copy {
+    display: none;
+}
 .login-field { position: relative; min-height: 100dvh; }
 .login-field-copy {
     position: absolute;

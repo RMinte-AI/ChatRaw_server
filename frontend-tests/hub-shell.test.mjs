@@ -61,6 +61,29 @@ test('home renders the saved subtitle under the central logo', () => {
     assert.match(styles, /\.hub-subtitle\s*\{[^}]*text-wrap:\s*balance/s);
 });
 
+test('Interface settings expose the login background upload and clear controls', () => {
+    const document = new JSDOM(html).window.document;
+    const fileInput = [...document.querySelectorAll('input[type="file"]')]
+        .find(input => input.getAttribute('@change') === 'handleLoginBackgroundUpload($event)');
+    const clearButton = [...document.querySelectorAll('button')]
+        .find(button => button.getAttribute('@click') === 'clearLoginBackground()');
+
+    assert.ok(fileInput);
+    assert.equal(
+        fileInput.getAttribute('accept'),
+        'image/jpeg,image/png,image/webp'
+    );
+    assert.ok(clearButton);
+    assert.match(app, /login_background_data:\s*''/);
+    assert.match(app, /LOGIN_BACKGROUND_INPUT_MAX_BYTES\s*=\s*15 \* 1024 \* 1024/);
+    assert.match(app, /LOGIN_BACKGROUND_OUTPUT_MAX_BYTES\s*=\s*4 \* 1024 \* 1024/);
+    assert.match(app, /handleLoginBackgroundUpload\(event\)/);
+    assert.match(app, /prepareLoginBackground\(file\)/);
+    assert.match(app, /clearLoginBackground\(\)/);
+    assert.match(app, /login_background_action\s*=\s*backgroundAction/);
+    assert.match(styles, /\.login-background-preview\s*\{[^}]*object-fit:\s*cover/s);
+});
+
 test('the only conversation surface is the SDHS Agent popup', () => {
     assert.match(html, /class="agent-launcher"/);
     assert.match(html, /SDHS Agent/);
@@ -245,6 +268,18 @@ test('settings controls use the shell button hierarchy and keyboard focus', () =
     assert.match(styles, /\.modal-actions-bar\s*\{[^}]*background:\s*var\(--hub-paper\)/s);
     assert.match(styles, /\.toggle-switch:focus-visible\s*\{[^}]*outline:\s*2px solid #315f3a/s);
     assert.match(styles, /:is\(\.btn-danger, \.btn-delete\)\s*\{[^}]*opacity:\s*1/s);
+});
+
+test('settings footers expose the AGPL license and corresponding source', () => {
+    assert.equal((html.match(/x-text="t\('agplLicense'\)"/g) || []).length, 2);
+    assert.equal((html.match(/x-text="t\('sourceCode'\)"/g) || []).length, 2);
+    assert.equal((html.match(/x-text="t\('legalNotice'\)"/g) || []).length, 2);
+    assert.match(app, /agplLicense: 'GNU AGPL-3\.0'/);
+    assert.match(app, /agplLicense: 'GNU AGPL-3\.0 协议'/);
+    assert.match(app, /No warranty\. Redistribution is permitted under AGPL-3\.0\./);
+    assert.match(app, /不提供担保，可依 AGPL-3\.0 再分发。/);
+    assert.doesNotMatch(html, /opensource\.org\/licenses\/MIT/);
+    assert.doesNotMatch(app, /mitLicense/);
 });
 
 test('catalog availability requires live main-placement panel registration', () => {

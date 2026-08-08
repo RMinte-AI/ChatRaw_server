@@ -3,20 +3,20 @@
   "entrypoint": "index.html",
   "assets": {
     "app.js": {
-      "sha256": "6b0d0ff25fb6838a68457af42aef2e9a19aafa90e64bc4823948dca2e5aa7cea",
-      "version": "6b0d0ff25fb6838a68457af42aef2e9a19aafa90e64bc4823948dca2e5aa7cea"
+      "sha256": "d97c1cfb858f49716697d0c3591a7239c0299d1c54340b6ee43ee6485e8dcdd4",
+      "version": "d97c1cfb858f49716697d0c3591a7239c0299d1c54340b6ee43ee6485e8dcdd4"
     },
     "app.min.js": {
-      "sha256": "b852f360de46d95ac3f9a60d377afb2ace078dfe474ee926cbc726d234146ef3",
-      "version": "b852f360de46d95ac3f9a60d377afb2ace078dfe474ee926cbc726d234146ef3"
+      "sha256": "892a6bfe93f1c61919acdf997b7eec6c6223f7140ae1cf8fabd62a2b3fbf94ab",
+      "version": "892a6bfe93f1c61919acdf997b7eec6c6223f7140ae1cf8fabd62a2b3fbf94ab"
     },
     "auth.css": {
-      "sha256": "f07a31c703b40bdf18566936d997d1ea574d9757113bbeb714040bf7663ee6fe",
-      "version": "f07a31c703b40bdf18566936d997d1ea574d9757113bbeb714040bf7663ee6fe"
+      "sha256": "5f5500e673431515f55eca4b2b45d266d20da43fe94a99e77355c8a5d901acfb",
+      "version": "5f5500e673431515f55eca4b2b45d266d20da43fe94a99e77355c8a5d901acfb"
     },
     "auth.js": {
-      "sha256": "94c804a51e43787aa42da3cc0b61576d9891f9fdb3479696d7eaab46d538fe8f",
-      "version": "94c804a51e43787aa42da3cc0b61576d9891f9fdb3479696d7eaab46d538fe8f"
+      "sha256": "bfc5f682830af3104f9217966d00fe93a5006f0a2b653bc63311c0ce5c5f782d",
+      "version": "bfc5f682830af3104f9217966d00fe93a5006f0a2b653bc63311c0ce5c5f782d"
     },
     "brand-mark.svg": {
       "sha256": "80b4f84c2c05c5fdaab07c917926d143a0c73a4748498091ba191a8b7520d057",
@@ -59,16 +59,16 @@
       "version": "e92dc38bfb1d15dbb9d9ca9e645754f68e7c5b224e33c45a17048bd0cf2407a6"
     },
     "index.html": {
-      "sha256": "867520379d1b9a280924e17cafd3a12bb90d157640cfbaa632b76527f2b02ed7",
-      "version": "867520379d1b9a280924e17cafd3a12bb90d157640cfbaa632b76527f2b02ed7"
+      "sha256": "0434dc8728779658bbdc1550f98885e69db83a10f7af9750bfcf831cfc34b9b5",
+      "version": "0434dc8728779658bbdc1550f98885e69db83a10f7af9750bfcf831cfc34b9b5"
     },
     "landing-field.svg": {
       "sha256": "b44d1d8b331f8b7d22bb1127a2c49e4e5d76fd38769fb7ce60c5d533b7f71378",
       "version": "b44d1d8b331f8b7d22bb1127a2c49e4e5d76fd38769fb7ce60c5d533b7f71378"
     },
     "login.html": {
-      "sha256": "8d8681a0e52b851a13570a04dde43114bd0166bb1d1be3c59a69975826bb97ca",
-      "version": "8d8681a0e52b851a13570a04dde43114bd0166bb1d1be3c59a69975826bb97ca"
+      "sha256": "ad34ae18a757f3633e4b43597b1f8cf7e12ce2ea37812b1408401f5e6016ffbf",
+      "version": "ad34ae18a757f3633e4b43597b1f8cf7e12ce2ea37812b1408401f5e6016ffbf"
     },
     "resident-integrations/catalog.json": {
       "sha256": "6c903a106ef64e4a9d9ac6a5420fb3b89da6423690ea51b104d53a9af4ffbd83",
@@ -83,16 +83,16 @@
       "version": "734d69feed0fdb278d96c3fe7437afb41852e576c70fb85738e9f147dbade0ce"
     },
     "setup.html": {
-      "sha256": "71e248dc1dd85929e4e313847d73cd43d26bc104b3f000b9d403be079a0556eb",
-      "version": "71e248dc1dd85929e4e313847d73cd43d26bc104b3f000b9d403be079a0556eb"
+      "sha256": "75909bee28a5bc00ecba2b17115da049a16987fd0f2f522c44b3ace7f32e7b03",
+      "version": "75909bee28a5bc00ecba2b17115da049a16987fd0f2f522c44b3ace7f32e7b03"
     },
     "styles.css": {
-      "sha256": "c683a147cdb940c9aa7c6418ea8a513a36f3dc97190be0a88de137ff48bbc9b4",
-      "version": "c683a147cdb940c9aa7c6418ea8a513a36f3dc97190be0a88de137ff48bbc9b4"
+      "sha256": "48b56cded20b1ec77641c6bf1b3863d369284bdbd5469adc8a479737589df315",
+      "version": "48b56cded20b1ec77641c6bf1b3863d369284bdbd5469adc8a479737589df315"
     },
     "styles.min.css": {
-      "sha256": "fdfce3e75bde2f2f8dfde398d3160abd49d7277a1a03e17848777a45737a7108",
-      "version": "fdfce3e75bde2f2f8dfde398d3160abd49d7277a1a03e17848777a45737a7108"
+      "sha256": "1c8b1cbcd539513c2ee6d5a905970321a5495f57385418ab3be302ecae9982f0",
+      "version": "1c8b1cbcd539513c2ee6d5a905970321a5495f57385418ab3be302ecae9982f0"
     },
     "vendor/alpine-collapse.min.js": {
       "sha256": "2bd5d9719b537cdd83b80e171fd725da9cddaf9943d510fcb4ac0140db39a47a",

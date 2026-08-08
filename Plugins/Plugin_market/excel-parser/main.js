@@ -13,7 +13,7 @@
  * 
  * @version 1.0.2
  * @author ChatRaw
- * @license MIT
+ * @license AGPL-3.0-only
  */
 (function(ChatRaw) {
     'use strict';

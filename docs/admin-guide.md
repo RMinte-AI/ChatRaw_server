@@ -72,6 +72,11 @@ ChatRaw 不提供公开的用户自助注册。管理员在“设置 → Users�
 API 会同时返回稳定的错误 `code` 与英文诊断 `detail`；前端按 `code` 显示本地化消息，
 不要依赖解析 `detail` 文本。
 
+“设置 → Interface”支持上传不超过 15 MB 的 JPEG、PNG 或 WebP 登录页背景图。浏览器会先解码、
+缩放并优化图片，Server 再校验格式和保存体积。自定义图片会以 `cover` 方式居中裁切并铺满登录页，
+同时隐藏登录页左侧宣传文字；清空并保存后恢复内置抽象背景和宣传文字。取消设置不会提交上传或清空。
+该配置属于 Server 全局设置，会影响所有未登录用户看到的登录页。
+
 ### 4. 插件管理
 
 插件是管理员安装的可信前端代码。它与 ChatRaw 页面运行在同一 JavaScript 上下文中，不是浏览器安全沙箱。
@@ -396,6 +401,11 @@ The legacy chat sidebar has been removed from both DOM and runtime state. The Ag
 The generic main-chat UI has been removed. The bottom-right Hermes Agent popup always calls `/api/agent/chat`; its sessions are private to the signed-in user, including from administrators and classic `/api/chats` routes. `/api/chat`, `/api/hermes/chat`, and classic chat endpoints remain compatibility APIs, not UI fallback routes.
 
 The product UI is light-only. Saved legacy `dark` values are normalized to `light`, and administrators are not offered a theme selector.
+
+Under **Settings → Interface**, administrators can upload a JPEG, PNG, or WebP login-page background
+of up to 15 MB. The browser decodes, resizes, and optimizes it, and Server validates its format and
+stored size. A custom image is center-cropped with `cover` and hides the left promotional copy.
+Clearing and saving restores the bundled background; cancelling discards an upload or clear operation.
 
 ### System-default Agent rules
 

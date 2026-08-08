@@ -123,11 +123,12 @@ DATA_DIR="$PWD/data" CHATRAW_LOOPBACK_DEV=1 \
 
 1. 在设置中创建普通用户或其他管理员。
 2. 配置并验证模型。
-3. 安装需要的插件。
-4. 为独立模块设置一次性 Pairing Code，并通过部署系统的环境变量或 Secret 注入后启动模块。Pairing Code 不会输出到日志。
-5. 在“设置 → Modules”中输入模块地址和 Pairing Code。
-6. 检查模块请求的 Host Capability、Action、前端集成模式/版本和数据清理能力。
-7. 批准、配置、检查并启用模块。
+3. 可选：在“设置 → Interface”配置 Logo、名称、副标题和登录页背景图。
+4. 安装需要的插件。
+5. 为独立模块设置一次性 Pairing Code，并通过部署系统的环境变量或 Secret 注入后启动模块。Pairing Code 不会输出到日志。
+6. 在“设置 → Modules”中输入模块地址和 Pairing Code。
+7. 检查模块请求的 Host Capability、Action、前端集成模式/版本和数据清理能力。
+8. 批准、配置、检查并启用模块。
 
 断开模块默认保留模块自己的数据。清理模块数据是独立的高风险操作，仅在模块声明支持时出现。
 
@@ -217,7 +218,9 @@ ChatRaw 备份不包含模块自己的数据库。每个模块必须独立备份
 
 ## License
 
-MIT
+[GNU Affero General Public License v3.0](LICENSE) (`AGPL-3.0-only`)
+
+Copyright © 2025 massif-01, RMinte® AI Technology Co., Ltd.
 
 ---
 
@@ -410,4 +413,6 @@ Source, Compose, the reference module, and the Agent chain have recorded enginee
 
 ## License
 
-MIT
+[GNU Affero General Public License v3.0](LICENSE) (`AGPL-3.0-only`)
+
+Copyright © 2025 massif-01, RMinte® AI Technology Co., Ltd.

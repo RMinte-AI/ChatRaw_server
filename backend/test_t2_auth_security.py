@@ -1,4 +1,5 @@
 import asyncio
+import base64
 import io
 import json
 import ipaddress
@@ -11,6 +12,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
+from fastapi import HTTPException
 from fastapi.testclient import TestClient
 
 from backend import main
@@ -21,6 +23,10 @@ ORIGIN = "http://testserver"
 ADMIN_PASSWORD = "Admin-password-2026"
 MEMBER_PASSWORD = "Member-password-2026"
 OTHER_PASSWORD = "Other-password-2026"
+VALID_LOGIN_BACKGROUND = (
+    "data:image/png;base64,"
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII="
+)
 
 
 def write_headers():
@@ -653,6 +659,8 @@ class T2AuthSecurityTests(unittest.TestCase):
     def test_dark_setting_is_normalized_and_public_identity_is_minimal(self):
         settings = self.admin.get("/api/settings").json()
         settings["ui_settings"]["theme_mode"] = "dark"
+        settings["ui_settings"]["login_background_data"] = VALID_LOGIN_BACKGROUND
+        settings["ui_settings"]["login_background_action"] = "replace"
         saved = self.admin.post(
             "/api/settings",
             headers=write_headers(),
@@ -665,12 +673,64 @@ class T2AuthSecurityTests(unittest.TestCase):
             ],
             "light",
         )
+        self.assertEqual(
+            self.admin.get("/api/settings").json()["ui_settings"][
+                "login_background_data"
+            ],
+            "",
+        )
         identity = self.public_client.get("/api/settings/logo")
         self.assertEqual(identity.status_code, 200, identity.text)
         self.assertEqual(
             set(identity.json()),
-            {"logo_data", "logo_text"},
+            {"logo_data", "logo_text", "login_background_data"},
         )
+        self.assertEqual(
+            identity.json()["login_background_data"],
+            VALID_LOGIN_BACKGROUND,
+        )
+
+        preserve = main.db.get_settings()
+        preserve.ui_settings.login_background_data = ""
+        preserve.ui_settings.login_background_action = "preserve"
+        asyncio.run(main.save_settings(preserve))
+        self.assertEqual(
+            main.db.get_settings().ui_settings.login_background_data,
+            VALID_LOGIN_BACKGROUND,
+        )
+
+        clear = main.db.get_settings()
+        clear.ui_settings.login_background_action = "clear"
+        asyncio.run(main.save_settings(clear))
+        self.assertEqual(
+            main.db.get_settings().ui_settings.login_background_data,
+            "",
+        )
+
+    def test_login_background_rejects_untrusted_or_unbounded_data(self):
+        with self.assertRaises(ValueError):
+            main.UISettings(
+                login_background_data="https://example.test/background.jpg"
+            )
+
+        oversized_bytes = (
+            b"\x89PNG\r\n\x1a\n"
+            + b"x" * main.LOGIN_BACKGROUND_MAX_BYTES
+        )
+        with self.assertRaises(ValueError):
+            main.UISettings(
+                login_background_data=(
+                    "data:image/png;base64,"
+                    + base64.b64encode(oversized_bytes).decode("ascii")
+                )
+            )
+
+        missing = main.db.get_settings()
+        missing.ui_settings.login_background_data = ""
+        missing.ui_settings.login_background_action = "replace"
+        with self.assertRaises(HTTPException) as error:
+            asyncio.run(main.save_settings(missing))
+        self.assertEqual(error.exception.status_code, 422)
 
     def test_feature_catalog_is_derived_from_registered_manifest(self):
         class CatalogRegistry:

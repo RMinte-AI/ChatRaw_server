@@ -21,7 +21,7 @@
     "@alpinejs/collapse": "3.13.3",
     "@highlightjs/cdn-assets": "11.9.0",
     "alpinejs": "3.13.3",
-    "dompurify": "3.4.12",
+    "dompurify": "3.4.13",
     "marked": "9.1.6",
     "papaparse": "5.4.1"
   }

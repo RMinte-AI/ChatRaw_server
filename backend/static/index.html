@@ -12,8 +12,8 @@
     
     <!-- Performance: Preload Critical Resources -->
     <link rel="preload" href="fonts/remixicon/remixicon.woff2?t=1769685282643" as="font" type="font/woff2" crossorigin>
-    <link rel="preload" href="styles.min.css?v=776f0101f8816ad42ab1f5862bba9a9e6c4224df14965fe2a3c5ee0a67bb83b0" as="style">
-    <link rel="preload" href="app.min.js?v=3a3a04e64ffe8a8e377f8605abbd14b90f88ea92e9ec0016a74413d1a849a2e4" as="script">
+    <link rel="preload" href="styles.min.css?v=fdfce3e75bde2f2f8dfde398d3160abd49d7277a1a03e17848777a45737a7108" as="style">
+    <link rel="preload" href="app.min.js?v=b852f360de46d95ac3f9a60d377afb2ace078dfe474ee926cbc726d234146ef3" as="script">
     <link rel="preload" href="vendor/alpine.min.js?v=c8fa8ff457abdcd212f37a07ef2f292c999011dffabcaa577fb1e1e0076ca658" as="script">
     <link rel="preload" href="vendor/marked.min.js?v=6002af63485b043fa60ddaba1b34363b98d2a8b2c63b607004f3a2405a8a053a" as="script">
     <link rel="preload" href="vendor/purify.min.js?v=c45ba939765574f96cbf35ee9b6d89f73756a17921814425e74b82f7c54603ce" as="script">
@@ -116,7 +116,7 @@
     <script defer src="vendor/alpine.min.js?v=c8fa8ff457abdcd212f37a07ef2f292c999011dffabcaa577fb1e1e0076ca658"></script>
     <!-- highlight.js is lazy-loaded in app.min.js when needed -->
     <link rel="stylesheet" href="fonts/remixicon/remixicon.css">
-    <link rel="stylesheet" href="styles.min.css?v=776f0101f8816ad42ab1f5862bba9a9e6c4224df14965fe2a3c5ee0a67bb83b0">
+    <link rel="stylesheet" href="styles.min.css?v=fdfce3e75bde2f2f8dfde398d3160abd49d7277a1a03e17848777a45737a7108">
 </head>
 <body x-data="app()" :data-theme="settings.ui_settings.theme_mode">
     <section class="hub-home"
@@ -225,11 +225,11 @@
                     <div><strong>SDHS Agent</strong><small x-text="t('currentConversation')"></small></div>
                 </div>
                 <div>
-                    <button type="button" @click="toggleAgentHistory()" :aria-label="t('conversationHistory')">
-                        <i class="ri-history-line"></i>
-                    </button>
-                    <button type="button" @click="createNewChat()" :aria-label="t('newConversation')">
+                    <button type="button" @click="createNewChat()" :aria-label="t('newConversation')" :title="t('newConversation')">
                         <i class="ri-add-line"></i>
+                    </button>
+                    <button type="button" x-ref="agentHistoryToggle" @click="toggleAgentHistory()" :aria-label="t('conversationHistory')" :title="t('conversationHistory')">
+                        <i class="ri-history-line"></i>
                     </button>
                     <button type="button"
                             class="agent-window-toggle"
@@ -238,18 +238,41 @@
                             :title="agentExpanded ? t('restoreAgent') : t('expandAgent')">
                         <i :class="agentExpanded ? 'ri-collapse-diagonal-line' : 'ri-expand-diagonal-line'"></i>
                     </button>
-                    <button type="button" @click="toggleAgent()" :aria-label="t('closeAgent')">
+                    <button type="button" @click="toggleAgent()" :aria-label="t('closeAgent')" :title="t('closeAgent')">
                         <i class="ri-close-line"></i>
                     </button>
                 </div>
             </header>
-            <aside class="agent-history" x-show="agentHistoryOpen" x-cloak @click.outside="agentHistoryOpen = false">
-                <header><strong x-text="t('conversationHistory')"></strong><button type="button" @click="createNewChat()" :aria-label="t('newConversation')"><i class="ri-add-line"></i></button></header>
+            <aside class="agent-history" x-show="agentHistoryOpen" x-cloak @click.outside="cancelRenameChat(); agentHistoryOpen = false">
+                <header><span x-text="t('conversationHistory')"></span><button type="button" @click="clearAllChats()" :disabled="isClearingChats || chats.length === 0" :aria-label="t('clearAllChats')" :title="t('clearAllChats')"><i class="ri-delete-bin-line"></i></button></header>
                 <template x-for="chat in chats" :key="chat.id">
-                    <div :class="{ active: currentChatId === chat.id }">
-                        <button type="button" @click="selectChat(chat.id); agentHistoryOpen = false" x-text="chat.title"></button>
-                        <button type="button" @click="renameChat(chat)" :aria-label="t('renameConversation')"><i class="ri-edit-line"></i></button>
-                        <button type="button" @click="deleteChat(chat.id)" :aria-label="t('deleteConversation')"><i class="ri-delete-bin-line"></i></button>
+                    <div :data-chat-id="chat.id" :class="{ active: currentChatId === chat.id }">
+                        <template x-if="renamingChatId !== chat.id">
+                            <button type="button" class="agent-chat-title" @click="selectChat(chat.id); agentHistoryOpen = false" x-text="chat.title"></button>
+                        </template>
+                        <template x-if="renamingChatId === chat.id">
+                            <input class="agent-chat-rename-input"
+                                   type="text"
+                                   maxlength="200"
+                                   x-model="renameChatDraft"
+                                   @keydown.enter.prevent="submitRenameChat(chat)"
+                                   @keydown.escape.prevent="cancelRenameChat()"
+                                   :aria-label="t('renameConversation')">
+                        </template>
+                        <button type="button"
+                                :disabled="isRenamingChat"
+                                @click="renamingChatId === chat.id ? submitRenameChat(chat) : startRenameChat(chat)"
+                                :aria-label="renamingChatId === chat.id ? t('save') : t('renameConversation')"
+                                :title="renamingChatId === chat.id ? t('save') : t('renameConversation')">
+                            <i :class="renamingChatId === chat.id ? 'ri-check-line' : 'ri-edit-line'"></i>
+                        </button>
+                        <button type="button"
+                                :disabled="isRenamingChat"
+                                @click="renamingChatId === chat.id ? cancelRenameChat() : deleteChat(chat.id)"
+                                :aria-label="renamingChatId === chat.id ? t('cancel') : t('deleteConversation')"
+                                :title="renamingChatId === chat.id ? t('cancel') : t('deleteConversation')">
+                            <i :class="renamingChatId === chat.id ? 'ri-close-line' : 'ri-delete-bin-line'"></i>
+                        </button>
                     </div>
                 </template>
                 <p x-show="chats.length === 0" x-text="t('noConversationHistory')"></p>
@@ -1883,6 +1906,6 @@
         <div class="plugin-fullscreen-content" x-html="pluginFullscreenModal.content"></div>
     </div>
 
-    <script src="app.min.js?v=3a3a04e64ffe8a8e377f8605abbd14b90f88ea92e9ec0016a74413d1a849a2e4"></script>
+    <script src="app.min.js?v=b852f360de46d95ac3f9a60d377afb2ace078dfe474ee926cbc726d234146ef3"></script>
 </body>
 </html>

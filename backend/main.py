@@ -169,7 +169,11 @@ try:
         encode_openai_stream_error,
         iter_sanitized_openai_sse,
     )
-    from .module_tasks import ModuleTaskError, ModuleTaskService
+    from .module_tasks import (
+        LOCAL_ACTIVE_TASK_STATES,
+        ModuleTaskError,
+        ModuleTaskService,
+    )
     from .resident_integrations import ResidentIntegrationCatalog
 except ImportError:
     from db_migrations import (
@@ -210,7 +214,11 @@ except ImportError:
         encode_openai_stream_error,
         iter_sanitized_openai_sse,
     )
-    from module_tasks import ModuleTaskError, ModuleTaskService
+    from module_tasks import (
+        LOCAL_ACTIVE_TASK_STATES,
+        ModuleTaskError,
+        ModuleTaskService,
+    )
     from resident_integrations import ResidentIntegrationCatalog
 
 BACKEND_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -332,6 +340,14 @@ class Chat(BaseModel):
     title: str
     created_at: str
     updated_at: str
+
+
+class AgentChatClearApiResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    success: Literal[True]
+    deleted_count: int = Field(ge=0)
+    retained_count: int = Field(ge=0)
 
 class Message(BaseModel):
     id: str
@@ -1289,6 +1305,85 @@ class Database:
                 (chat_id,),
             )
         _context_compaction_locks.pop(chat_id, None)
+
+    def delete_idle_agent_chats(
+        self,
+        owner_user_id: str,
+        active_task_states: set[str],
+        active_generation_chat_ids: set[str],
+        active_generation_lock: Any,
+        chat_id: Optional[str] = None,
+    ) -> Tuple[List[str], List[str]]:
+        states = tuple(sorted(active_task_states))
+        with self.connection(write=True, immediate=True) as connection:
+            chat_filter = ""
+            parameters: List[Any] = [owner_user_id]
+            if chat_id is not None:
+                chat_filter = " AND id = ?"
+                parameters.append(chat_id)
+            chat_rows = connection.execute(
+                f"""
+                SELECT id
+                FROM chats
+                WHERE kind = 'hermes_agent' AND owner_user_id = ?
+                {chat_filter}
+                ORDER BY id
+                """,
+                parameters,
+            ).fetchall()
+            chat_ids = [row["id"] for row in chat_rows]
+            if not chat_ids:
+                return [], []
+
+            with active_generation_lock:
+                retained_chat_ids = sorted(
+                    set(chat_ids).intersection(active_generation_chat_ids)
+                )
+                if states:
+                    placeholders = ",".join("?" for _state in states)
+                    rows = connection.execute(
+                        f"""
+                        SELECT DISTINCT module_tasks.chat_id
+                        FROM module_tasks
+                        JOIN chats ON chats.id = module_tasks.chat_id
+                        WHERE chats.kind = 'hermes_agent'
+                          AND chats.owner_user_id = ?
+                          AND module_tasks.state IN ({placeholders})
+                        ORDER BY module_tasks.chat_id
+                        """,
+                        (owner_user_id, *states),
+                    ).fetchall()
+                    retained_chat_ids = sorted(
+                        set(retained_chat_ids).union(
+                            row["chat_id"] for row in rows
+                        )
+                    )
+
+                retained_set = set(retained_chat_ids)
+                deleted_chat_ids = [
+                    chat_id for chat_id in chat_ids if chat_id not in retained_set
+                ]
+                if not deleted_chat_ids:
+                    return [], retained_chat_ids
+
+                placeholders = ",".join("?" for _chat_id in deleted_chat_ids)
+                for table in (
+                    "chat_compactions",
+                    "chat_skill_activations",
+                    "messages",
+                ):
+                    connection.execute(
+                        f"DELETE FROM {table} WHERE chat_id IN ({placeholders})",
+                        deleted_chat_ids,
+                    )
+                connection.execute(
+                    f"DELETE FROM chats WHERE id IN ({placeholders})",
+                    deleted_chat_ids,
+                )
+
+        for chat_id in deleted_chat_ids:
+            _context_compaction_locks.pop(chat_id, None)
+        return deleted_chat_ids, retained_chat_ids
     
     # Messages
     def chat_exists(self, chat_id: str) -> bool:
@@ -3858,30 +3953,46 @@ async def save_assistant_message(
 
 
 _active_chat_generations: set[str] = set()
+_active_chat_generations_lock = threading.RLock()
 
 
 def _chat_generation_active(chat_id: str) -> bool:
-    return chat_id in _active_chat_generations
+    with _active_chat_generations_lock:
+        return chat_id in _active_chat_generations
 
 
 def _claim_chat_generation(chat_id: str) -> None:
-    task_service = globals().get("module_task_service")
-    if (
-        chat_id in _active_chat_generations
-        or (
-            task_service is not None
-            and task_service.has_active_chat_task(chat_id)
-        )
-    ):
-        raise HTTPException(
-            status_code=409,
-            detail="This chat already has an active generation",
-        )
-    _active_chat_generations.add(chat_id)
+    states = tuple(sorted(LOCAL_ACTIVE_TASK_STATES))
+    with db.connection(write=True, immediate=True) as connection:
+        chat = connection.execute(
+            "SELECT 1 FROM chats WHERE id = ?",
+            (chat_id,),
+        ).fetchone()
+        if chat is None:
+            raise HTTPException(status_code=404, detail="Chat not found")
+        active_task = None
+        if states:
+            placeholders = ",".join("?" for _state in states)
+            active_task = connection.execute(
+                f"""
+                SELECT 1 FROM module_tasks
+                WHERE chat_id = ? AND state IN ({placeholders})
+                LIMIT 1
+                """,
+                (chat_id, *states),
+            ).fetchone()
+        with _active_chat_generations_lock:
+            if chat_id in _active_chat_generations or active_task is not None:
+                raise HTTPException(
+                    status_code=409,
+                    detail="This chat already has an active generation",
+                )
+            _active_chat_generations.add(chat_id)
 
 
 def _release_chat_generation(chat_id: str) -> None:
-    _active_chat_generations.discard(chat_id)
+    with _active_chat_generations_lock:
+        _active_chat_generations.discard(chat_id)
 
 
 async def prepare_chat_submission(
@@ -5011,6 +5122,38 @@ async def create_agent_chat(request: Request):
     return chat.model_dump()
 
 
+@app.delete(
+    "/api/agent/chats",
+    response_model=AgentChatClearApiResponse,
+)
+async def clear_agent_chats(request: Request):
+    principal = current_principal(request)
+    deleted_chat_ids, retained_chat_ids = db.delete_idle_agent_chats(
+        principal.id,
+        LOCAL_ACTIVE_TASK_STATES,
+        _active_chat_generations,
+        _active_chat_generations_lock,
+    )
+    auth_service.audit(
+        principal.id,
+        "agent_chat.clear",
+        "chat_history",
+        None,
+        "success",
+        {
+            "private": True,
+            "kind": "hermes_agent",
+            "deleted_count": len(deleted_chat_ids),
+            "retained_count": len(retained_chat_ids),
+        },
+    )
+    return AgentChatClearApiResponse(
+        success=True,
+        deleted_count=len(deleted_chat_ids),
+        retained_count=len(retained_chat_ids),
+    )
+
+
 @app.patch("/api/agent/chats/{chat_id}")
 async def rename_agent_chat(chat_id: str, request: Request):
     principal = current_principal(request)
@@ -5038,13 +5181,20 @@ async def rename_agent_chat(chat_id: str, request: Request):
 async def delete_agent_chat(chat_id: str, request: Request):
     principal = current_principal(request)
     _require_private_agent_chat(principal, chat_id)
-    task_service = globals().get("module_task_service")
-    if task_service is not None and task_service.has_active_chat_task(chat_id):
+    deleted_chat_ids, retained_chat_ids = db.delete_idle_agent_chats(
+        principal.id,
+        LOCAL_ACTIVE_TASK_STATES,
+        _active_chat_generations,
+        _active_chat_generations_lock,
+        chat_id,
+    )
+    if retained_chat_ids:
         raise HTTPException(
             status_code=409,
-            detail="Chat is referenced by an active module task",
+            detail="Chat has active work",
         )
-    db.delete_chat(chat_id)
+    if not deleted_chat_ids:
+        raise HTTPException(status_code=404, detail="Chat not found")
     auth_service.audit(
         principal.id,
         "agent_chat.delete",

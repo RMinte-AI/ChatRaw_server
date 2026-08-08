@@ -1412,6 +1412,29 @@ class ModuleTaskServiceTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertIn(retried["task_id"], self.client.tasks)
 
+    async def test_task_creation_rechecks_chat_inside_write_transaction(self):
+        validate_references = self.service._validate_local_references
+
+        def validate_then_delete(**kwargs):
+            result = validate_references(**kwargs)
+            self.database.delete_chat(self.chat.id)
+            return result
+
+        with patch.object(
+            self.service,
+            "_validate_local_references",
+            side_effect=validate_then_delete,
+        ):
+            with self.assertRaises(ModuleTaskError) as missing:
+                await self._create(key="chat-deleted-before-task-write")
+
+        self.assertEqual(missing.exception.code, "chat_not_found")
+        with self.database.connection() as connection:
+            task_count = connection.execute(
+                "SELECT COUNT(*) FROM module_tasks"
+            ).fetchone()[0]
+        self.assertEqual(task_count, 0)
+
     async def test_definitive_module_rejection_creates_no_visible_task_or_message(self):
         self.client.reject_create = True
         with self.assertRaises(ModuleTaskError) as rejected:
@@ -3657,6 +3680,76 @@ class ModuleTaskApiTests(unittest.TestCase):
         )
         self.assertEqual(delete_resource.status_code, 200, delete_resource.text)
         self.resource_id = "already-deleted"
+
+    def test_agent_chat_clear_retains_active_task_and_deletes_idle_chat(self):
+        retained = main.db.create_chat(
+            "Agent with active task",
+            owner_user_id=self.creator_id,
+            kind="hermes_agent",
+        )
+        deleted = main.db.create_chat(
+            "Idle Agent chat",
+            owner_user_id=self.creator_id,
+            kind="hermes_agent",
+        )
+        try:
+            payload = self._payload()
+            payload["chat_id"] = retained.id
+            created = self.client.post(
+                "/api/module-tasks",
+                headers=self._headers(
+                    self.creator_token,
+                    key="agent-clear-retain-active",
+                ),
+                json=payload,
+            )
+            self.assertEqual(created.status_code, 202, created.text)
+            task = created.json()
+
+            cleared = self.client.delete(
+                "/api/agent/chats",
+                headers=self._headers(self.creator_token),
+            )
+            self.assertEqual(cleared.status_code, 200, cleared.text)
+            self.assertEqual(
+                cleared.json(),
+                {
+                    "success": True,
+                    "deleted_count": 1,
+                    "retained_count": 1,
+                },
+            )
+            remaining = {
+                item["id"]
+                for item in self.client.get(
+                    "/api/agent/chats",
+                    headers=self._headers(self.creator_token),
+                ).json()
+            }
+            self.assertEqual(remaining, {retained.id})
+            self.assertNotIn(deleted.id, remaining)
+
+            self.client_backend.set_state(task["task_id"], "succeeded")
+            reconciled = self.client.get(
+                f"/api/module-tasks/{task['task_id']}",
+                headers=self._headers(self.creator_token),
+            )
+            self.assertEqual(reconciled.status_code, 200, reconciled.text)
+            cleared_after_completion = self.client.delete(
+                "/api/agent/chats",
+                headers=self._headers(self.creator_token),
+            )
+            self.assertEqual(
+                cleared_after_completion.json(),
+                {
+                    "success": True,
+                    "deleted_count": 1,
+                    "retained_count": 0,
+                },
+            )
+        finally:
+            main.db.delete_chat(retained.id)
+            main.db.delete_chat(deleted.id)
 
     def test_sse_resume_artifact_and_capability_routes(self):
         task = self._create().json()

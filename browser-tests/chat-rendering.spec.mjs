@@ -156,11 +156,8 @@ function expectRoleLayout({
         )
     ).toBeLessThan(2);
     expect(
-        Math.abs(
-            assistantContent.x + assistantContent.width
-            - (userContent.x + userContent.width)
-        )
-    ).toBeLessThanOrEqual(16);
+        Math.abs(assistantContent.x - userContent.x)
+    ).toBeLessThanOrEqual(2);
 }
 
 async function assertRoleLayout(page) {
@@ -203,11 +200,16 @@ test('direct chat renders, titles, aligns, and survives reload', async ({
     const consoleErrors = await loginAndConfigureModel(page, request);
     const chatId = await createNewChat(page);
     const input = page.locator('textarea[x-ref="inputBox"]');
-    await input.fill('browser direct hi');
+    const longUserMessage = [
+        'browser direct long message used to verify the shared content baseline',
+        'across normal, expanded, and narrow layouts without letting text cross',
+        'the reserved avatar and gap column'
+    ].join(' ');
+    await input.fill(longUserMessage);
     await page.getByRole('button', { name: /Send|发送/ }).click();
 
     await expect(page.locator('.messages .message.user').last()).toContainText(
-        'browser direct hi'
+        longUserMessage
     );
     await expect(
         page.locator('.messages .message.assistant:not([x-show])').last()
@@ -215,6 +217,14 @@ test('direct chat renders, titles, aligns, and survives reload', async ({
         'T7 deterministic model response.'
     );
     await assertRoleLayout(page);
+    await page.getByRole('button', {
+        name: /Expand conversation window|扩展对话窗口/
+    }).click();
+    await expect(page.locator('.chat-container')).toHaveClass(/agent-expanded/);
+    await assertRoleLayout(page);
+    await page.getByRole('button', {
+        name: /Restore conversation window|还原对话窗口/
+    }).click();
 
     await expect.poll(async () => page.evaluate(async id => {
         const response = await fetch('/api/agent/chats');
@@ -225,7 +235,7 @@ test('direct chat renders, titles, aligns, and survives reload', async ({
 
     await reloadAndSelectChat(page, chatId);
     await expect(page.locator('.messages .message.user').last()).toContainText(
-        'browser direct hi'
+        longUserMessage
     );
     await expect(
         page.locator('.messages .message.assistant:not([x-show])').last()

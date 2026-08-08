@@ -42,8 +42,8 @@ ChatRaw Server 的所有用户使用同一个平台。聊天、文档、模型�
 右下角 Hermes Agent 浮窗是当前产品唯一的通用对话入口：
 
 1. 点击 Agent 圆形按钮打开当前对话；
-2. 点击浮窗顶部的历史按钮查看会话列表；
-3. 可以新建、切换、改名或删除自己的会话；
+2. 点击浮窗顶部的加号新建对话，点击其右侧的历史按钮查看会话列表；
+3. 可以切换、内联改名或删除自己的会话。历史面板右上角的垃圾桶按钮会在确认后一次清理所有空闲会话；正在生成回复或执行 Module 任务的会话会被保留；
 4. 输入区不再提供 Hermes Agent 选择按钮或思考模式开关；发送消息即固定进入 Hermes Agent；
 5. 点击浮窗顶部的窗口扩展按钮，可在不离开当前页面的情况下打开全屏浮动对话窗口，便于查看宽表格和模型渲染内容。
 
@@ -197,8 +197,8 @@ After sign-in, the home page has three fixed categories: **Data Hub**, **Knowled
 The bottom-right Hermes Agent popup is the only generic conversation UI:
 
 1. Open the popup to continue the current conversation.
-2. Use the history button in its header to reveal the session list.
-3. Create, switch, rename, or delete your own sessions.
+2. Use the plus button in its header to create a session, or the history button immediately to its right to reveal the session list.
+3. Switch, rename inline, or delete your own sessions. After confirmation, the trash button in the history-panel header clears all idle sessions in one operation. Sessions generating a response or running Module work are kept.
 4. The composer has no Hermes selection button or thinking-mode switch; every message goes directly to Hermes Agent.
 5. Use the window-expand button in the popup header to open a full-screen floating conversation window without leaving the current page. This gives wide tables and rendered model content enough room.
 

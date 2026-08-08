@@ -476,6 +476,165 @@ class T2AuthSecurityTests(unittest.TestCase):
             200,
         )
 
+    def test_agent_chat_clear_is_private_and_reports_counts(self):
+        member = self.member_client()
+        other = self.other_client()
+        member_chat_ids = {
+            member.post(
+                "/api/agent/chats",
+                headers=write_headers(),
+            ).json()["id"]
+            for _index in range(2)
+        }
+        other_chat_id = other.post(
+            "/api/agent/chats",
+            headers=write_headers(),
+        ).json()["id"]
+        classic_chat_id = member.post(
+            "/api/chats",
+            headers=write_headers(),
+        ).json()["id"]
+        first_member_chat_id = next(iter(member_chat_ids))
+        message = main.db.add_message(
+            first_member_chat_id,
+            "user",
+            "delete dependent records",
+            author_user_id=self.member_id,
+        )
+        with main.db.connection(write=True) as connection:
+            connection.execute(
+                """
+                INSERT INTO chat_compactions (
+                    chat_id, summary, boundary_message_id,
+                    boundary_created_at, updated_at
+                ) VALUES (?, 'summary', ?, '2026-01-01', '2026-01-01')
+                """,
+                (first_member_chat_id, message.id),
+            )
+            connection.execute(
+                """
+                INSERT INTO chat_skill_activations (
+                    id, chat_id, message_id, skill_name, created_at
+                ) VALUES (?, ?, ?, 'test-skill', '2026-01-01')
+                """,
+                (
+                    f"clear-skill-{first_member_chat_id}",
+                    first_member_chat_id,
+                    message.id,
+                ),
+            )
+        main._context_compaction_locks[first_member_chat_id] = asyncio.Lock()
+
+        cleared = member.delete(
+            "/api/agent/chats",
+            headers=write_headers(),
+        )
+
+        self.assertEqual(cleared.status_code, 200, cleared.text)
+        self.assertEqual(
+            cleared.json(),
+            {
+                "success": True,
+                "deleted_count": len(member_chat_ids),
+                "retained_count": 0,
+            },
+        )
+        self.assertEqual(member.get("/api/agent/chats").json(), [])
+        self.assertNotIn(
+            first_member_chat_id,
+            main._context_compaction_locks,
+        )
+        self.assertIn(
+            classic_chat_id,
+            {item["id"] for item in member.get("/api/chats").json()},
+        )
+        self.assertIn(
+            other_chat_id,
+            {item["id"] for item in other.get("/api/agent/chats").json()},
+        )
+        self.assertTrue(
+            any(
+                item["actor_user_id"] == self.member_id
+                and item["action"] == "agent_chat.clear"
+                and item["outcome"] == "success"
+                and item["details"]["deleted_count"] == 2
+                and item["details"]["retained_count"] == 0
+                for item in main.auth_service.list_audit()
+            )
+        )
+        with main.db.connection() as connection:
+            for table in (
+                "messages",
+                "chat_compactions",
+                "chat_skill_activations",
+            ):
+                self.assertEqual(
+                    connection.execute(
+                        f"SELECT COUNT(*) FROM {table} WHERE chat_id = ?",
+                        (first_member_chat_id,),
+                    ).fetchone()[0],
+                    0,
+                )
+
+    def test_agent_chat_clear_retains_active_generation_and_is_idempotent(self):
+        member = self.member_client()
+        retained = member.post(
+            "/api/agent/chats",
+            headers=write_headers(),
+        ).json()
+        deleted = member.post(
+            "/api/agent/chats",
+            headers=write_headers(),
+        ).json()
+        main._active_chat_generations.add(retained["id"])
+        try:
+            cleared = member.delete(
+                "/api/agent/chats",
+                headers=write_headers(),
+            )
+            self.assertEqual(cleared.status_code, 200, cleared.text)
+            self.assertEqual(
+                cleared.json(),
+                {
+                    "success": True,
+                    "deleted_count": 1,
+                    "retained_count": 1,
+                },
+            )
+            remaining = {
+                item["id"] for item in member.get("/api/agent/chats").json()
+            }
+            self.assertEqual(remaining, {retained["id"]})
+            self.assertNotIn(deleted["id"], remaining)
+            blocked_single_delete = member.delete(
+                f"/api/agent/chats/{retained['id']}",
+                headers=write_headers(),
+            )
+            self.assertEqual(
+                blocked_single_delete.status_code,
+                409,
+                blocked_single_delete.text,
+            )
+        finally:
+            main._active_chat_generations.discard(retained["id"])
+
+        cleared = member.delete(
+            "/api/agent/chats",
+            headers=write_headers(),
+        )
+        self.assertEqual(
+            cleared.json(),
+            {"success": True, "deleted_count": 1, "retained_count": 0},
+        )
+        empty = member.delete(
+            "/api/agent/chats",
+            headers=write_headers(),
+        )
+        self.assertEqual(
+            empty.json(),
+            {"success": True, "deleted_count": 0, "retained_count": 0},
+        )
+
     def test_feature_catalog_has_localized_host_categories_and_no_fallback_cards(self):
         catalog = self.member_client().get("/api/module-feature-catalog")
         self.assertEqual(catalog.status_code, 200, catalog.text)

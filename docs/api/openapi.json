@@ -19,6 +19,33 @@
         "title": "AdminUserRoleUpdateRequest",
         "type": "object"
       },
+      "AgentChatClearApiResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "deleted_count": {
+            "minimum": 0.0,
+            "title": "Deleted Count",
+            "type": "integer"
+          },
+          "retained_count": {
+            "minimum": 0.0,
+            "title": "Retained Count",
+            "type": "integer"
+          },
+          "success": {
+            "const": true,
+            "title": "Success",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "success",
+          "deleted_count",
+          "retained_count"
+        ],
+        "title": "AgentChatClearApiResponse",
+        "type": "object"
+      },
       "AgentRuleActivationRequest": {
         "additionalProperties": false,
         "properties": {
@@ -2802,6 +2829,22 @@
       }
     },
     "/api/agent/chats": {
+      "delete": {
+        "operationId": "clear_agent_chats_api_agent_chats_delete",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentChatClearApiResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Clear Agent Chats"
+      },
       "get": {
         "operationId": "get_agent_chats_api_agent_chats_get",
         "responses": {

@@ -84,6 +84,87 @@ test('the only conversation surface is the SDHS Agent popup', () => {
     assert.doesNotMatch(sendMessage, /use_thinking/);
 });
 
+test('Agent header and history actions keep their intended order and roles', () => {
+    const document = new JSDOM(html).window.document;
+    const headerButtons = [
+        ...document.querySelectorAll('.agent-header > div:last-child > button')
+    ];
+    const historyHeaderButton = document.querySelector(
+        '.agent-history > header > button'
+    );
+    const historyHeading = document.querySelector(
+        '.agent-history > header > span'
+    );
+
+    assert.equal(headerButtons[0].getAttribute('@click'), 'createNewChat()');
+    assert.equal(
+        headerButtons[0].getAttribute(':aria-label'),
+        "t('newConversation')"
+    );
+    assert.equal(headerButtons[1].getAttribute('@click'), 'toggleAgentHistory()');
+    assert.equal(
+        headerButtons[1].getAttribute(':aria-label'),
+        "t('conversationHistory')"
+    );
+    assert.equal(
+        historyHeaderButton.getAttribute('@click'),
+        'clearAllChats()'
+    );
+    assert.equal(
+        historyHeaderButton.getAttribute(':aria-label'),
+        "t('clearAllChats')"
+    );
+    assert.equal(
+        historyHeaderButton.getAttribute(':title'),
+        "t('clearAllChats')"
+    );
+    assert.equal(
+        historyHeaderButton.getAttribute(':disabled'),
+        'isClearingChats || chats.length === 0'
+    );
+    assert.equal(
+        historyHeaderButton.querySelector('i').className,
+        'ri-delete-bin-line'
+    );
+    assert.equal(
+        historyHeading.getAttribute('x-text'),
+        "t('conversationHistory')"
+    );
+    assert.equal(document.querySelector('.agent-history > header > strong'), null);
+    assert.match(
+        styles,
+        /\.agent-history > div > \.agent-chat-title\s*\{[^}]*padding:\s*0 12px/s
+    );
+    assert.match(html, /class="agent-chat-title"/);
+    assert.doesNotMatch(styles, /\.agent-history > div button:first-child/);
+    assert.match(
+        styles,
+        /\.agent-history header\s*\{[^}]*padding:\s*4px 0 10px 6px/s
+    );
+    assert.match(
+        styles,
+        /\.agent-history header button\s*\{[^}]*width:\s*34px/s
+    );
+    assert.match(html, /class="agent-chat-rename-input"/);
+    assert.match(html, /maxlength="200"/);
+    assert.match(html, /@keydown\.enter\.prevent="submitRenameChat\(chat\)"/);
+    assert.match(html, /@keydown\.escape\.prevent="cancelRenameChat\(\)"/);
+    assert.doesNotMatch(html, /class="agent-conversation-dialog"/);
+    assert.doesNotMatch(app, /window\.prompt\(this\.t\('renameSharedChat'/);
+    assert.match(
+        styles,
+        /\.message\.user\s*\{[^}]*padding-inline-start:\s*calc\([\s\S]*var\(--message-avatar-size\)[\s\S]*var\(--message-gap\)/s
+    );
+    assert.doesNotMatch(
+        styles,
+        /\.message\.user \.message-content\s*\{[^}]*flex:\s*0/s
+    );
+    assert.match(
+        styles,
+        /\.chat-container \.message\s*\{[^}]*--message-avatar-size:\s*30px;[^}]*--message-gap:\s*9px;[^}]*gap:\s*var\(--message-gap\)/s
+    );
+});
+
 test('Agent launcher and title identity use round pale-blue Host accents', () => {
     assert.match(
         styles,
@@ -98,6 +179,15 @@ test('Agent launcher and title identity use round pale-blue Host accents', () =>
 });
 
 test('settings and Plugin Workspace are independent full-page views', () => {
+    const settingsModalRules = [
+        ...styles.matchAll(
+            /body > \.modal-overlay\[aria-labelledby="settings-modal-title"\] \.settings-modal\s*\{([^}]*)\}/g
+        )
+    ];
+    const settingsModalOverflowRules = settingsModalRules.filter(match =>
+        /overflow\s*:/.test(match[1])
+    );
+
     assert.match(html, /class="settings-page-back"/);
     assert.match(html, /class="content-navigator"/);
     assert.match(html, /x-show="pluginWorkspace\.show \|\| agentOpen"/);
@@ -121,6 +211,11 @@ test('settings and Plugin Workspace are independent full-page views', () => {
     assert.doesNotMatch(
         styles,
         /body > \.modal-overlay\[aria-labelledby="settings-modal-title"\] \.settings-modal\s*\{[^}]*background:\s*#fff/s
+    );
+    assert.ok(settingsModalOverflowRules.length > 0);
+    assert.match(
+        settingsModalOverflowRules.at(-1)[1],
+        /overflow:\s*hidden/
     );
 });
 

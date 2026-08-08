@@ -860,6 +860,17 @@ class ModuleTaskService:
                         status_code=409,
                     )
                 return existing
+            if chat_id is not None:
+                chat = connection.execute(
+                    "SELECT 1 FROM chats WHERE id = ?",
+                    (chat_id,),
+                ).fetchone()
+                if chat is None:
+                    raise ModuleTaskError(
+                        "chat_not_found",
+                        "Chat not found",
+                        status_code=404,
+                    )
             if chat_id is not None and (
                 self.chat_generation_active(chat_id)
                 or self._has_active_chat_task(connection, chat_id)

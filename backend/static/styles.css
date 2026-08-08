@@ -542,10 +542,9 @@ select:focus:not(:focus-visible),
     flex-direction: row-reverse;
     justify-content: flex-start;
     max-width: 100%;
-}
-
-.message.user .message-content {
-    flex: 0 1 auto;
+    padding-inline-start: calc(
+        var(--message-avatar-size) + var(--message-gap)
+    );
 }
 
 .message.assistant {
@@ -1521,6 +1520,8 @@ body {
     cursor: pointer;
 }
 .agent-header button:hover { background: #f0eee9; }
+.agent-header button:focus-visible,.agent-history button:focus-visible { outline: 2px solid #44749b; outline-offset: 2px; }
+.agent-history header button:disabled { opacity: .45; cursor: not-allowed; }
 .agent-mark {
     display: grid;
     place-items: center;
@@ -1538,7 +1539,7 @@ body {
 .chat-container .welcome h1 { font-family: "Songti SC", Georgia, serif; font-size: 28px; font-weight: 500; }
 .chat-container .welcome-subtitle { font-size: 13px; }
 .chat-container .messages { padding: 20px 16px !important; }
-.chat-container .message { --message-avatar-size: 30px; gap: 9px; }
+.chat-container .message { --message-avatar-size: 30px; --message-gap: 9px; gap: var(--message-gap); }
 .chat-container .input-area { padding: 10px 12px 12px !important; background: transparent; }
 .chat-container .input-container-inner { padding: 0 !important; }
 .chat-container .input-wrapper { border-color: #d9d5ce !important; border-radius: 12px !important; box-shadow: none !important; }
@@ -1553,11 +1554,15 @@ body {
     border-bottom: 1px solid var(--hub-line);
 }
 .agent-history header,.agent-history > div { display: grid; align-items: center; gap: 4px; }
-.agent-history header { grid-template-columns: 1fr auto; padding: 4px 6px 10px; }
+.agent-history header { grid-template-columns: 1fr auto; padding: 4px 0 10px 6px; }
+.agent-history header button { width: 34px; }
 .agent-history > div { grid-template-columns: minmax(0, 1fr) auto auto; border-radius: 8px; }
 .agent-history > div.active { background: #eeece6; }
 .agent-history > div button { min-height: 38px; overflow: hidden; background: transparent; border: 0; cursor: pointer; text-align: left; text-overflow: ellipsis; white-space: nowrap; }
-.agent-history > div button:not(:first-child) { width: 34px; text-align: center; }
+.agent-history > div > .agent-chat-title { min-width: 0; padding: 0 12px; }
+.agent-history > div > button:not(.agent-chat-title) { width: 34px; text-align: center; }
+.agent-history > div button:disabled { opacity: .45; cursor: not-allowed; }
+.agent-chat-rename-input { min-width: 0; height: 38px; padding: 0 11px; background: #fff; border: 1px solid #aaa59c; border-radius: 6px; color: inherit; font: inherit; }
 .agent-history > p { padding: 28px; color: var(--hub-muted); text-align: center; }
 .agent-launcher {
     position: fixed;
@@ -1604,7 +1609,7 @@ body > .modal-overlay[aria-labelledby="settings-modal-title"] .settings-modal {
     min-height: calc(100dvh - 56px);
     max-height: none;
     margin: 0 auto;
-    overflow: visible;
+    overflow: hidden;
     background: var(--hub-paper);
     border: 1px solid var(--hub-line);
     border-radius: 16px;
@@ -4367,7 +4372,7 @@ body > .main-content .chat-container.agent-expanded .message.assistant { max-wid
 body > .main-content .chat-container.agent-expanded .input-area { padding-inline: clamp(20px, 5vw, 72px) !important; }
 body > .main-content .chat-container.agent-expanded .input-container-inner { width: 100%; max-width: 1180px; margin: 0 auto; }
 body > .modal-overlay[aria-labelledby="settings-modal-title"] { display: block; align-items: initial; justify-content: initial; padding: 28px; overflow: auto; background: var(--hub-paper); }
-body > .modal-overlay[aria-labelledby="settings-modal-title"] .settings-modal { display: grid; grid-template-columns: 260px minmax(0, 1fr); width: min(1180px, 100%); height: auto; min-height: calc(100dvh - 56px); max-width: none; max-height: none; overflow: visible; border-radius: 16px; box-shadow: none; }
+body > .modal-overlay[aria-labelledby="settings-modal-title"] .settings-modal { display: grid; grid-template-columns: 260px minmax(0, 1fr); width: min(1180px, 100%); height: auto; min-height: calc(100dvh - 56px); max-width: none; max-height: none; overflow: hidden; border-radius: 16px; box-shadow: none; }
 body > .modal-overlay[aria-labelledby="settings-modal-title"] .settings-nav { display: flex; width: auto; max-height: none; padding: 82px 16px 20px; overflow-y: auto; }
 body > .modal-overlay[aria-labelledby="settings-modal-title"] .settings-content {
     max-height: none;

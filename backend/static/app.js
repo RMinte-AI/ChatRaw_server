@@ -54,8 +54,10 @@ const i18n = {
         appDocumentTitle: '{brand} Workspace',
         newChat: 'New Chat',
         clearAllChats: 'Clear All',
-        confirmClearAll: 'Are you sure you want to delete all chats? This cannot be undone.',
+        confirmClearAll: 'Delete all conversations? This cannot be undone. Conversations with active work will be kept.',
         allChatsCleared: 'All chats cleared',
+        someChatsCleared: 'Deleted {deleted} conversations; kept {retained} with active work.',
+        clearChatsRefreshFailed: 'The delete requests finished, but conversation history could not be refreshed. Try again.',
         settings: 'Settings',
         delete: 'Delete',
         expand: 'Expand',
@@ -248,8 +250,10 @@ const i18n = {
         appDocumentTitle: '{brand} 工作空间',
         newChat: '新对话',
         clearAllChats: '清空所有',
-        confirmClearAll: '确定要删除所有对话吗？此操作无法撤销。',
+        confirmClearAll: '确定删除所有对话吗？此操作无法撤销。仍有任务运行的对话会被保留。',
         allChatsCleared: '已清空所有对话',
+        someChatsCleared: '已删除 {deleted} 个会话；{retained} 个正在运行的会话已保留。',
+        clearChatsRefreshFailed: '删除请求已结束，但无法重新读取会话历史，请重试。',
         settings: '设置',
         delete: '删除',
         expand: '展开',
@@ -446,6 +450,7 @@ Object.assign(i18n.en, {
     renameSharedChat: 'Rename this conversation',
     renameFailed: 'Rename failed',
     deleteSharedChat: 'Delete this private conversation? This cannot be undone.',
+    conversationTitleRequired: 'Enter a conversation title.',
     deleteSharedDocument: 'Delete this shared document? Other users will lose access to it.',
     requestFailed: 'Request failed',
     unknownError: 'Unknown error',
@@ -675,6 +680,7 @@ Object.assign(i18n.zh, {
     renameSharedChat: '重命名此会话',
     renameFailed: '重命名失败',
     deleteSharedChat: '确定删除此私有会话吗？此操作无法撤销。',
+    conversationTitleRequired: '请输入会话标题。',
     deleteSharedDocument: '确定删除此共享文档吗？其他用户将无法再访问。',
     requestFailed: '请求失败',
     unknownError: '未知错误',
@@ -954,6 +960,10 @@ function app() {
         agentOpen: false,
         agentExpanded: false,
         agentHistoryOpen: false,
+        isClearingChats: false,
+        renamingChatId: null,
+        renameChatDraft: '',
+        isRenamingChat: false,
         featureCatalog: { categories: [], cards: [] },
         activeFeatureCategory: 'data-hub',
         featureCatalogLoading: true,
@@ -1608,6 +1618,7 @@ function app() {
             this.agentOpen = !this.agentOpen;
             this.showExtensionPalette = false;
             if (!this.agentOpen) {
+                this.cancelRenameChat();
                 this.agentHistoryOpen = false;
                 this.agentExpanded = false;
             }
@@ -1619,6 +1630,7 @@ function app() {
         toggleAgentExpanded() {
             if (!this.agentOpen) return;
             this.agentExpanded = !this.agentExpanded;
+            this.cancelRenameChat();
             this.agentHistoryOpen = false;
             this.showExtensionPalette = false;
         },
@@ -1627,6 +1639,7 @@ function app() {
             const next = !this.agentHistoryOpen;
             this.showExtensionPalette = false;
             this.showUrlInput = false;
+            if (!next) this.cancelRenameChat();
             this.agentHistoryOpen = next;
         },
 
@@ -2932,11 +2945,15 @@ function app() {
             try {
                 const res = await fetch('/api/agent/chats');
                 if (res.ok) {
-                    this.chats = await res.json() || [];
+                    const chats = await res.json();
+                    if (!Array.isArray(chats)) return false;
+                    this.chats = chats;
+                    return true;
                 }
             } catch (e) {
                 console.error('Failed to load chats:', e);
             }
+            return false;
         },
         
         // Load documents
@@ -2953,6 +2970,8 @@ function app() {
         
         // Create new chat
         async createNewChat() {
+            if (this.isRenamingChat) return;
+            this.cancelRenameChat();
             // Stop any ongoing generation first
             if (this.isGenerating) {
                 this.stopGeneration();
@@ -2995,6 +3014,8 @@ function app() {
         
         // Select chat
         async selectChat(chatId) {
+            if (this.isRenamingChat) return;
+            this.cancelRenameChat();
             this.showExtensionPalette = false;
             if (this.currentChatId === chatId) {
                 this.agentHistoryOpen = false;
@@ -3059,66 +3080,150 @@ function app() {
             }
         },
         
-        // Delete chat
+        async readAgentError(response) {
+            try { return await response.json(); } catch (error) { return null; }
+        },
+
         async deleteChat(chatId) {
+            if (this.isRenamingChat) return;
+            this.cancelRenameChat();
             if (!confirm(this.t('deleteSharedChat'))) return;
             try {
                 if (this.currentChatId === chatId && this.isGenerating) {
                     this.stopGeneration();
                 }
-                const response = await fetch(`/api/agent/chats/${chatId}`, { method: 'DELETE' });
-                if (!response.ok) {
-                    const result = await response.json();
-                    throw new Error(result.detail || this.t('deleteFailed'));
-                }
-                this.chats = this.chats.filter(c => c.id !== chatId);
+                const response = await fetch(
+                    `/api/agent/chats/${encodeURIComponent(chatId)}`,
+                    { method: 'DELETE' }
+                );
+                const result = response.ok
+                    ? null
+                    : await this.readAgentError(response);
+                if (!response.ok) throw result;
+                this.chats = this.chats.filter(chat => chat.id !== chatId);
                 if (this.currentChatId === chatId) {
                     this.currentChatId = null;
                     this.messages = [];
                 }
                 this.announceAgentChatChange('deleted', chatId);
-            } catch (e) {
-                this.showToast(this.t('deleteFailed'), 'error');
+            } catch (error) {
+                this.showToast(
+                    this.localizeError(error, 'deleteFailed'),
+                    'error'
+                );
             }
         },
 
-        async renameChat(chat) {
-            const title = window.prompt(this.t('renameSharedChat'), chat.title);
-            if (!title || title.trim() === chat.title) return;
-            const response = await fetch(`/api/agent/chats/${encodeURIComponent(chat.id)}`, {
-                method: 'PATCH',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ title: title.trim() })
+        startRenameChat(chat) {
+            if (this.isRenamingChat) return;
+            this.renamingChatId = chat.id;
+            this.renameChatDraft = chat.title;
+            this.$nextTick(() => {
+                const input = document.querySelector(
+                    '.agent-history .agent-chat-rename-input'
+                );
+                input?.focus();
+                input?.select();
             });
-            const result = await response.json();
-            if (!response.ok) {
-                this.showToast(this.localizeError(result, 'renameFailed'), 'error');
+        },
+
+        cancelRenameChat() {
+            if (this.isRenamingChat) return;
+            this.renamingChatId = null;
+            this.renameChatDraft = '';
+        },
+
+        async submitRenameChat(chat) {
+            if (this.isRenamingChat || this.renamingChatId !== chat.id) return;
+            const title = this.renameChatDraft.trim();
+            if (!title) {
+                this.showToast(this.t('conversationTitleRequired'), 'error');
                 return;
             }
-            chat.title = result.title;
-            this.announceAgentChatChange('renamed', chat.id);
-        },
-        
-        // Clear all chats
-        async clearAllChats() {
-            if (!confirm(this.t('confirmClearAll'))) return;
-            if (this.isGenerating) {
-                this.stopGeneration();
+            if (title === chat.title) {
+                this.cancelRenameChat();
+                return;
             }
-            
+            this.isRenamingChat = true;
             try {
-                // Delete all chats one by one
-                for (const chat of this.chats) {
-                    const response = await fetch(`/api/agent/chats/${chat.id}`, { method: 'DELETE' });
-                    if (!response.ok) throw new Error(this.t('deleteFailed'));
+                const response = await fetch(
+                    `/api/agent/chats/${encodeURIComponent(chat.id)}`,
+                    {
+                        method: 'PATCH',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ title })
+                    }
+                );
+                const result = await this.readAgentError(response);
+                if (!response.ok) {
+                    this.showToast(
+                        this.localizeError(result, 'renameFailed'),
+                        'error'
+                    );
+                    return;
                 }
-                this.chats = [];
-                this.currentChatId = null;
-                this.messages = [];
+                chat.title = result?.title || title;
+                this.renamingChatId = null;
+                this.renameChatDraft = '';
+                this.announceAgentChatChange('renamed', chat.id);
+            } catch (error) {
+                this.showToast(
+                    this.localizeError(error, 'renameFailed'),
+                    'error'
+                );
+            } finally {
+                this.isRenamingChat = false;
+            }
+        },
+
+        async clearAllChats() {
+            if (
+                this.isClearingChats
+                || this.isRenamingChat
+                || this.chats.length === 0
+            ) return;
+            this.cancelRenameChat();
+            if (!confirm(this.t('confirmClearAll'))) return;
+            if (this.isGenerating) this.stopGeneration();
+            this.isClearingChats = true;
+            try {
+                const response = await fetch('/api/agent/chats', {
+                    method: 'DELETE'
+                });
+                const result = await this.readAgentError(response);
+                if (!response.ok) throw result;
+                if (!await this.loadAgentChats()) {
+                    this.showToast(
+                        this.t('clearChatsRefreshFailed'),
+                        'error'
+                    );
+                    return;
+                }
+                if (
+                    this.currentChatId
+                    && !this.chats.some(chat => chat.id === this.currentChatId)
+                ) {
+                    this.currentChatId = null;
+                    this.messages = [];
+                }
                 this.announceAgentChatChange('cleared', '');
-                this.showToast(this.t('allChatsCleared'), 'success');
-            } catch (e) {
-                this.showToast(this.t('deleteFailed'), 'error');
+                const retained = Number(result?.retained_count) || 0;
+                this.showToast(
+                    retained > 0
+                        ? this.t('someChatsCleared', {
+                            deleted: Number(result?.deleted_count) || 0,
+                            retained
+                        })
+                        : this.t('allChatsCleared'),
+                    'success'
+                );
+            } catch (error) {
+                this.showToast(
+                    this.localizeError(error, 'deleteFailed'),
+                    'error'
+                );
+            } finally {
+                this.isClearingChats = false;
             }
         },
         

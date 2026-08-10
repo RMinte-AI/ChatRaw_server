@@ -129,7 +129,12 @@ test('login keeps the bundled artwork and copy when custom decoding fails', asyn
 });
 
 test('login actions share the main shell button hierarchy', () => {
+    assert.match(authStyles, /body\[data-mode="login"\] \.shell\s*\{[^}]*width:\s*min\(100%, 392px\)/s);
+    assert.match(authStyles, /body\[data-mode="login"\] \.shell\s*\{[^}]*background:\s*rgba\(255, 255, 255, \.52\)/s);
+    assert.match(authStyles, /\.login-actions\s*\{[^}]*justify-content:\s*center/s);
     assert.match(authStyles, /\.login-actions button\s*\{[^}]*min-height:\s*44px/s);
+    assert.match(authStyles, /\.login-actions button\s*\{[^}]*width:\s*min\(100%, 132px\)/s);
+    assert.match(authStyles, /@media \(max-width:\s*380px\)\s*\{[^}]*\.login-actions button\s*\{[^}]*flex:\s*1 1 0/s);
     assert.match(authStyles, /\.login-actions button\s*\{[^}]*border-radius:\s*8px/s);
     assert.match(authStyles, /\.login-actions button\s*\{[^}]*font-weight:\s*550/s);
     assert.match(authStyles, /button\[type="submit"\]\s*\{[^}]*background:\s*#111/s);
@@ -149,7 +154,11 @@ test('language switch updates text, document metadata, and storage', () => {
     assert.equal(window.localStorage.getItem('justchat_lang'), 'en');
     assert.equal(window.document.documentElement.lang, 'en');
     assert.equal(window.document.title, 'Sign in · ChatRaw Server');
-    assert.equal(window.document.querySelector('h1').textContent, 'Welcome back.');
+    assert.equal(window.document.querySelector('h1').textContent, 'Continue your work');
+    assert.equal(
+        window.document.querySelector('.intro').textContent,
+        'Sign in with your platform account.'
+    );
     assert.equal(
         window.document.querySelector('[data-language="en"]').ariaPressed,
         'true'

@@ -6,8 +6,8 @@
         en: {
             languageSelector: 'Language',
             loginTitle: 'Sign in · ChatRaw Server',
-            loginHeading: 'Welcome back.',
-            loginIntro: 'Sign in to enter the shared workspace. Your administrator manages access.',
+            loginHeading: 'Continue your work',
+            loginIntro: 'Sign in with your platform account.',
             username: 'Username',
             password: 'Password',
             signIn: 'Sign in',

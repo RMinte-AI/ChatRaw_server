@@ -11,12 +11,12 @@
       "version": "892a6bfe93f1c61919acdf997b7eec6c6223f7140ae1cf8fabd62a2b3fbf94ab"
     },
     "auth.css": {
-      "sha256": "5f5500e673431515f55eca4b2b45d266d20da43fe94a99e77355c8a5d901acfb",
-      "version": "5f5500e673431515f55eca4b2b45d266d20da43fe94a99e77355c8a5d901acfb"
+      "sha256": "0b44591f93bcfd9a600c941c10b6d4b8d6e116a1fb37b1dbeb65b90f9860d4fe",
+      "version": "0b44591f93bcfd9a600c941c10b6d4b8d6e116a1fb37b1dbeb65b90f9860d4fe"
     },
     "auth.js": {
-      "sha256": "bfc5f682830af3104f9217966d00fe93a5006f0a2b653bc63311c0ce5c5f782d",
-      "version": "bfc5f682830af3104f9217966d00fe93a5006f0a2b653bc63311c0ce5c5f782d"
+      "sha256": "a8b71acfa6319e08e182cfcd875fb0556c79880195b291080379c3716c05b1b2",
+      "version": "a8b71acfa6319e08e182cfcd875fb0556c79880195b291080379c3716c05b1b2"
     },
     "brand-mark.svg": {
       "sha256": "80b4f84c2c05c5fdaab07c917926d143a0c73a4748498091ba191a8b7520d057",
@@ -67,8 +67,8 @@
       "version": "b44d1d8b331f8b7d22bb1127a2c49e4e5d76fd38769fb7ce60c5d533b7f71378"
     },
     "login.html": {
-      "sha256": "ad34ae18a757f3633e4b43597b1f8cf7e12ce2ea37812b1408401f5e6016ffbf",
-      "version": "ad34ae18a757f3633e4b43597b1f8cf7e12ce2ea37812b1408401f5e6016ffbf"
+      "sha256": "bc52fb090d73a4defdcd5156e7c510e244a0bed12e74b8bf7010fd519cc5a250",
+      "version": "bc52fb090d73a4defdcd5156e7c510e244a0bed12e74b8bf7010fd519cc5a250"
     },
     "resident-integrations/catalog.json": {
       "sha256": "6c903a106ef64e4a9d9ac6a5420fb3b89da6423690ea51b104d53a9af4ffbd83",
@@ -83,8 +83,8 @@
       "version": "734d69feed0fdb278d96c3fe7437afb41852e576c70fb85738e9f147dbade0ce"
     },
     "setup.html": {
-      "sha256": "75909bee28a5bc00ecba2b17115da049a16987fd0f2f522c44b3ace7f32e7b03",
-      "version": "75909bee28a5bc00ecba2b17115da049a16987fd0f2f522c44b3ace7f32e7b03"
+      "sha256": "afd29f064df17daed3cc403e909c7e5da552806c65e91c1e1ded47546261916e",
+      "version": "afd29f064df17daed3cc403e909c7e5da552806c65e91c1e1ded47546261916e"
     },
     "styles.css": {
       "sha256": "48b56cded20b1ec77641c6bf1b3863d369284bdbd5469adc8a479737589df315",

@@ -169,9 +169,9 @@ body[data-mode="login"] .login-page-shell.has-custom-background .login-field-cop
 .login-field-copy span { display: block; max-width: 520px; font-size: 16px; line-height: 1.7; }
 .login-panel-wrap { display: grid; place-items: center; min-height: 100dvh; padding: 32px; background: transparent; }
 body[data-mode="login"] .shell {
-    width: min(100%, 440px);
-    padding: 50px 48px 42px;
-    background: rgba(255, 255, 255, .66);
+    width: min(100%, 392px);
+    padding: 50px 42px 42px;
+    background: rgba(255, 255, 255, .52);
     border: 1px solid rgba(255, 255, 255, .78);
     border-radius: 18px;
     box-shadow: 0 18px 54px rgba(52, 45, 35, .14);
@@ -187,8 +187,9 @@ body[data-mode="login"] .eyebrow { margin-bottom: 8px; color: #6f6c63; font-size
 body[data-mode="login"] h1 { font-family: "Songti SC", Georgia, serif; font-size: clamp(38px, 4.2vw, 50px); }
 body[data-mode="login"] .intro { margin: 12px 0 30px; }
 body[data-mode="login"] input { background: rgba(255, 255, 255, .55); border-color: rgba(115, 108, 98, .24); }
-.login-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 26px; }
+.login-actions { display: flex; justify-content: center; gap: 12px; margin-top: 26px; }
 .login-actions button {
+    width: min(100%, 132px);
     min-height: 44px;
     margin: 0;
     padding: 0 16px;
@@ -237,4 +238,7 @@ body[data-mode="login"] .language-switch .language-option[aria-pressed="true"] {
     .login-field-copy { display: none; }
     .login-panel-wrap { position: relative; padding: 18px; }
     body[data-mode="login"] .shell { padding: 66px 26px 32px; }
+}
+@media (max-width: 380px) {
+    .login-actions button { flex: 1 1 0; }
 }

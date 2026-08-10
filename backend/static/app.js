@@ -164,7 +164,6 @@ const i18n = {
         error: 'Error',
         agplLicense: 'GNU AGPL-3.0',
         sourceCode: 'Source code',
-        legalNotice: 'No warranty. Redistribution is permitted under AGPL-3.0.',
         // Plugin translations
         plugins: 'Plugins',
         pluginMarket: 'Plugin Market',
@@ -367,9 +366,8 @@ const i18n = {
         uploadAIAvatar: '上传 AI 头像',
         active: '活跃',
         error: '错误',
-        agplLicense: 'GNU AGPL-3.0 协议',
+        agplLicense: 'GNU AGPL-3.0',
         sourceCode: '源代码',
-        legalNotice: '不提供担保，可依 AGPL-3.0 再分发。',
         // Plugin translations
         plugins: '插件',
         pluginMarket: '插件市场',
@@ -2911,11 +2909,16 @@ function app() {
         
         async openPluginsPanel() {
             if (!this.isAdmin()) return;
-            if (this.showSettings) this.cancelSettingsPanel();
+            this.showSettings = false;
             this.showPlugins = true;
             this.showExtensionPalette = false;
             await this.loadInstalledPlugins();
             this.loadPluginMarket();
+        },
+
+        closePluginsPanel() {
+            this.showPlugins = false;
+            this.showSettings = true;
         },
         
         // Apply theme

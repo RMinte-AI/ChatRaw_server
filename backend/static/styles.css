@@ -1312,7 +1312,7 @@ body {
 
 .hub-main {
     width: min(1180px, calc(100% - 48px));
-    margin: -14px auto 0;
+    margin: -24px auto 0;
 }
 .hub-brand-block {
     margin: 10px auto 24px;
@@ -1479,7 +1479,7 @@ body {
     border-radius: 0 !important;
     box-shadow: none !important;
 }
-.plugin-workspace-header { min-height: 72px; padding: 0 28px !important; border-color: var(--hub-line) !important; }
+.plugin-workspace-header { min-height: 52px; padding: 0 28px !important; border-color: var(--hub-line) !important; }
 .plugin-workspace-mount { min-height: 0 !important; }
 
 .chat-container {
@@ -2262,6 +2262,8 @@ body > .modal-overlay[aria-labelledby="settings-modal-title"] .settings-content 
 }
 
 .settings-footer {
+    display: grid;
+    gap: 5px;
     margin-top: auto;
     padding: 12px;
     font-size: 0.75rem;
@@ -2551,10 +2553,32 @@ body > .modal-overlay[aria-labelledby="settings-modal-title"] .settings-content 
     text-decoration: underline;
 }
 
-.settings-footer-legal {
-    display: block;
-    margin-top: 4px;
-    line-height: 1.35;
+.settings-footer-meta {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 7px;
+}
+
+.settings-footer-github {
+    display: inline-grid;
+    place-items: center;
+    width: 24px;
+    height: 24px;
+    border-radius: 6px;
+    color: inherit;
+    font-size: 16px;
+    text-decoration: none;
+}
+
+.settings-footer-github:hover {
+    background: var(--bg-hover);
+    color: var(--text-primary);
+}
+
+.settings-footer-github:focus-visible {
+    outline: 2px solid #315f3a;
+    outline-offset: 2px;
 }
 
 /* Error icon size */

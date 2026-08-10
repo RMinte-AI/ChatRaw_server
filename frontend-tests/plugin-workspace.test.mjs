@@ -268,6 +268,34 @@ test('cancelling settings discards login background draft state', () => {
     assert.equal(host.loginBackgroundAction, 'preserve');
 });
 
+test('Plugin management returns to settings without discarding its draft state', async () => {
+    const { host } = createHost();
+    host.me = { role: 'admin' };
+    host.settings.ui_settings.login_background_data = 'saved-background';
+    host.loadInstalledPlugins = async () => {};
+    host.loadPluginMarket = () => {};
+
+    host.openSettingsPanel();
+    host.settingsTab = 'ui';
+    host.loginBackgroundDraft = 'replacement-background';
+    host.loginBackgroundAction = 'replace';
+    await host.openPluginsPanel();
+
+    assert.equal(host.showSettings, false);
+    assert.equal(host.showPlugins, true);
+    assert.equal(host.settingsTab, 'ui');
+    assert.equal(host.loginBackgroundDraft, 'replacement-background');
+    assert.equal(host.loginBackgroundAction, 'replace');
+
+    host.closePluginsPanel();
+
+    assert.equal(host.showPlugins, false);
+    assert.equal(host.showSettings, true);
+    assert.equal(host.settingsTab, 'ui');
+    assert.equal(host.loginBackgroundDraft, 'replacement-background');
+    assert.equal(host.loginBackgroundAction, 'replace');
+});
+
 test('workspace API mounts interactive DOM and closes with one disposal', () => {
     const { dom, host, ui } = createHost();
     const state = counters();

@@ -39,7 +39,7 @@ test('home color tokens preserve the warm light palette and readable muted text'
 });
 
 test('home keeps the brand, category tabs, and cards in a compact upper rhythm', () => {
-    assert.match(styles, /\.hub-main\s*\{[^}]*margin:\s*-14px auto 0/s);
+    assert.match(styles, /\.hub-main\s*\{[^}]*margin:\s*-24px auto 0/s);
     assert.match(styles, /\.hub-brand-block\s*\{[^}]*margin:\s*10px auto 24px/s);
     assert.match(styles, /\.hub-brand\s*\{[^}]*margin:\s*0 auto/s);
     assert.match(styles, /\.hub-card-grid\s*\{[^}]*padding:\s*28px 0 40px/s);
@@ -242,11 +242,16 @@ test('settings and Plugin Workspace are independent full-page views', () => {
     );
 });
 
-test('every Plugin Workspace title is centered within its own module header', () => {
+test('every Plugin Workspace title uses a compact centered module header', () => {
+    const workspaceHeaderRules = [
+        ...styles.matchAll(/\.plugin-workspace-header\s*\{([^}]*)\}/g)
+    ];
+
     assert.match(
         styles,
         /\.plugin-workspace-header\s*\{[^}]*justify-content:\s*center/s
     );
+    assert.match(workspaceHeaderRules.at(-1)[1], /min-height:\s*52px/);
     assert.match(html, /class="plugin-workspace-heading"/);
 });
 
@@ -261,6 +266,14 @@ test('settings controls use the shell button hierarchy and keyboard focus', () =
         /x-show="isAdmin\(\)"[^>]*@click="openPluginsPanel\(\)"[^>]*x-text="t\('plugins'\)"/
     );
     assert.match(
+        html,
+        /x-show="showPlugins"[^>]*@click\.self="closePluginsPanel\(\)"[^>]*@keydown\.escape\.window="showPlugins && closePluginsPanel\(\)"/
+    );
+    assert.match(
+        html,
+        /<button class="btn-secondary" @click="closePluginsPanel\(\)" x-text="t\('close'\)"><\/button>/
+    );
+    assert.match(
         styles,
         /aria-labelledby="settings-modal-title"[^}]*:is\(\.btn-primary, \.btn-secondary, \.btn-danger, \.btn-delete\)[^{]*\{[^}]*min-height:\s*44px/s
     );
@@ -271,13 +284,17 @@ test('settings controls use the shell button hierarchy and keyboard focus', () =
 });
 
 test('settings footers expose the AGPL license and corresponding source', () => {
+    assert.equal((html.match(/2026 ChatRaw Server by /g) || []).length, 2);
+    assert.equal((html.match(/href="https:\/\/github\.com\/massif-01"/g) || []).length, 2);
+    assert.equal((html.match(/>massif-01<\/a>/g) || []).length, 2);
     assert.equal((html.match(/x-text="t\('agplLicense'\)"/g) || []).length, 2);
-    assert.equal((html.match(/x-text="t\('sourceCode'\)"/g) || []).length, 2);
-    assert.equal((html.match(/x-text="t\('legalNotice'\)"/g) || []).length, 2);
+    assert.equal((html.match(/class="settings-footer-github"/g) || []).length, 2);
+    assert.equal((html.match(/class="ri-github-fill"/g) || []).length, 2);
+    assert.equal((html.match(/:aria-label="t\('sourceCode'\)"/g) || []).length, 2);
     assert.match(app, /agplLicense: 'GNU AGPL-3\.0'/);
-    assert.match(app, /agplLicense: 'GNU AGPL-3\.0 协议'/);
-    assert.match(app, /No warranty\. Redistribution is permitted under AGPL-3\.0\./);
-    assert.match(app, /不提供担保，可依 AGPL-3\.0 再分发。/);
+    assert.doesNotMatch(app, /legalNotice/);
+    assert.doesNotMatch(app, /No warranty/);
+    assert.doesNotMatch(app, /不提供担保/);
     assert.doesNotMatch(html, /opensource\.org\/licenses\/MIT/);
     assert.doesNotMatch(app, /mitLicense/);
 });

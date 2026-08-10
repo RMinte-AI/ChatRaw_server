@@ -187,7 +187,7 @@ body[data-mode="login"] .eyebrow { margin-bottom: 8px; color: #6f6c63; font-size
 body[data-mode="login"] h1 { font-family: "Songti SC", Georgia, serif; font-size: clamp(38px, 4.2vw, 50px); }
 body[data-mode="login"] .intro { margin: 12px 0 30px; }
 body[data-mode="login"] input { background: rgba(255, 255, 255, .55); border-color: rgba(115, 108, 98, .24); }
-.login-actions { display: flex; justify-content: center; gap: 12px; margin-top: 26px; }
+.login-actions { display: flex; justify-content: space-between; gap: 12px; margin-top: 26px; }
 .login-actions button {
     width: min(100%, 132px);
     min-height: 44px;

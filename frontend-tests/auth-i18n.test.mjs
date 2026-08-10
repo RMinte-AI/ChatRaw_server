@@ -131,7 +131,7 @@ test('login keeps the bundled artwork and copy when custom decoding fails', asyn
 test('login actions share the main shell button hierarchy', () => {
     assert.match(authStyles, /body\[data-mode="login"\] \.shell\s*\{[^}]*width:\s*min\(100%, 392px\)/s);
     assert.match(authStyles, /body\[data-mode="login"\] \.shell\s*\{[^}]*background:\s*rgba\(255, 255, 255, \.52\)/s);
-    assert.match(authStyles, /\.login-actions\s*\{[^}]*justify-content:\s*center/s);
+    assert.match(authStyles, /\.login-actions\s*\{[^}]*justify-content:\s*space-between/s);
     assert.match(authStyles, /\.login-actions button\s*\{[^}]*min-height:\s*44px/s);
     assert.match(authStyles, /\.login-actions button\s*\{[^}]*width:\s*min\(100%, 132px\)/s);
     assert.match(authStyles, /@media \(max-width:\s*380px\)\s*\{[^}]*\.login-actions button\s*\{[^}]*flex:\s*1 1 0/s);

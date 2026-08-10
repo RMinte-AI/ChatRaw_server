@@ -59,8 +59,8 @@
       "version": "e92dc38bfb1d15dbb9d9ca9e645754f68e7c5b224e33c45a17048bd0cf2407a6"
     },
     "index.html": {
-      "sha256": "ebe765d17d4356542dc044e91357a29909bacbcd7747b26026a32888b7f6cb06",
-      "version": "ebe765d17d4356542dc044e91357a29909bacbcd7747b26026a32888b7f6cb06"
+      "sha256": "6251b013189bf5456bf6f561ab080f643acb17fc94afffe21c8f12f8c07ca761",
+      "version": "6251b013189bf5456bf6f561ab080f643acb17fc94afffe21c8f12f8c07ca761"
     },
     "landing-field.svg": {
       "sha256": "b44d1d8b331f8b7d22bb1127a2c49e4e5d76fd38769fb7ce60c5d533b7f71378",
@@ -87,12 +87,12 @@
       "version": "ac6f0c7c81c6e346813bc7da577212740d9c5a19083cff1d7aa1c606fd6b1106"
     },
     "styles.css": {
-      "sha256": "b22e00bc25ff4d3636fd18bb0672f529b1ef8bf6c38f52ffebff062abe49845c",
-      "version": "b22e00bc25ff4d3636fd18bb0672f529b1ef8bf6c38f52ffebff062abe49845c"
+      "sha256": "3dd4614d6d1dbeca8c7d22707c579093fca6710cc92e2ce955598e051c30b47a",
+      "version": "3dd4614d6d1dbeca8c7d22707c579093fca6710cc92e2ce955598e051c30b47a"
     },
     "styles.min.css": {
-      "sha256": "f852a177a3b91c93e8bc54aa1560ed6340218bdbc14cd4a834ca088a4e802d5d",
-      "version": "f852a177a3b91c93e8bc54aa1560ed6340218bdbc14cd4a834ca088a4e802d5d"
+      "sha256": "a6113b73ff61090feb4b4cdfb139734896f5c59d19c730114a668d8fff310b6f",
+      "version": "a6113b73ff61090feb4b4cdfb139734896f5c59d19c730114a668d8fff310b6f"
     },
     "vendor/alpine-collapse.min.js": {
       "sha256": "2bd5d9719b537cdd83b80e171fd725da9cddaf9943d510fcb4ac0140db39a47a",

@@ -255,6 +255,25 @@ test('every Plugin Workspace title uses a compact centered module header', () =>
     assert.match(html, /class="plugin-workspace-heading"/);
 });
 
+test('Plugin Workspace starts flush and centers the unframed back control on its header', () => {
+    assert.match(
+        styles,
+        /body\s*\{[^}]*padding-top:\s*0;/s
+    );
+    assert.match(
+        styles,
+        /@media \(pointer:\s*coarse\)\s*\{\s*body\s*\{[^}]*padding-top:\s*env\(safe-area-inset-top\)/s
+    );
+    assert.match(
+        styles,
+        /\.content-navigator\s*\{[^}]*padding:\s*4px 0 18px/s
+    );
+    assert.match(
+        styles,
+        /\.content-back\s*\{[^}]*border-color:\s*transparent/s
+    );
+});
+
 test('settings controls use the shell button hierarchy and keyboard focus', () => {
     const settingsNav = html.slice(
         html.indexOf('class="settings-nav"'),
